@@ -1,89 +1,65 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AppHeader } from "./components/AppHeader.js";
-import { ProjectList } from "./components/ProjectList.js";
-import { Dashboard } from "./components/Dashboard.js";
-import { ResourcePlanner } from "./components/ResourcePlanner.js";
-import { FeedBadge, NeedsYou } from "./components/NeedsYou.js";
-import { buildFeed } from "./data/feed.js";
-import { loadProjects } from "./data/model.js";
+import { Portfolio } from "./components/Portfolio.js";
+import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
+import { useWorkspace } from "./workspace/store.js";
 import { T } from "./theme.js";
 
-type Page = "dashboard" | "planner" | "needs-you";
-
-const PAGES: { key: Page; label: string }[] = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "planner", label: "Resource planner" },
-  { key: "needs-you", label: "Needs you" },
-];
-
-function initialPage(): Page {
-  const hash = window.location.hash.replace("#", "");
-  return PAGES.some((p) => p.key === hash) ? (hash as Page) : "dashboard";
+function initialSelection(): string | null {
+  const m = window.location.hash.match(/^#i\/(.+)$/);
+  return m?.[1] ?? null;
 }
 
 export function App() {
-  const projects = useMemo(loadProjects, []);
-  const feed = useMemo(() => buildFeed(projects), [projects]);
-  const [selectedId, setSelectedId] = useState(projects[0]?.id ?? "");
-  const [page, setPageState] = useState<Page>(initialPage);
-  const setPage = (p: Page) => {
-    setPageState(p);
-    window.location.hash = p === "dashboard" ? "" : p;
+  const ws = useWorkspace();
+  const [selectedId, setSelectedIdState] = useState<string | null>(initialSelection);
+  const setSelectedId = (id: string | null) => {
+    setSelectedIdState(id);
+    window.location.hash = id ? `i/${id}` : "";
   };
-  const project = projects.find((p) => p.id === selectedId) ?? projects[0];
 
-  if (!project) return <AppHeader userInitials="JN" />;
+  const selected = ws.initiatives.find((i) => i.id === selectedId) ?? null;
 
   return (
     <div style={{ minHeight: "100vh", background: T.page }}>
-      <AppHeader userInitials="JN" />
-      <div style={{ display: "flex", gap: 18, padding: 18, maxWidth: 1280, margin: "0 auto" }}>
-        <aside style={{ width: 250, flexShrink: 0 }}>
-          <ProjectList projects={projects} selectedId={project.id} onSelect={setSelectedId} />
-        </aside>
-        <main style={{ flex: 1, minWidth: 0 }}>
-          <div role="tablist" aria-label="Workspace pages" style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-            {PAGES.map((p) => {
-              const active = p.key === page;
-              return (
-                <button
-                  key={p.key}
-                  role="tab"
-                  aria-selected={active}
-                  type="button"
-                  onClick={() => setPage(p.key)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 7,
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    padding: "7px 14px",
-                    borderRadius: 999,
-                    cursor: "pointer",
-                    border: `1px solid ${active ? T.series1 : T.grid}`,
-                    background: active ? T.series1 : "transparent",
-                    color: active ? "#fff" : T.inkSecondary,
-                  }}
-                >
-                  {p.label}
-                  {p.key === "needs-you" && <FeedBadge count={feed.length} />}
-                </button>
-              );
-            })}
-          </div>
-          {page === "dashboard" && <Dashboard project={project} />}
-          {page === "planner" && <ResourcePlanner project={project} allProjects={projects} />}
-          {page === "needs-you" && (
-            <NeedsYou
-              items={feed}
-              onOpenProject={(id) => {
-                setSelectedId(id);
-                setPage("dashboard");
-              }}
+      <AppHeader userInitials="BM" />
+      <div style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
+        {selected ? (
+          <InitiativeWorkspace
+            initiative={selected}
+            onBack={() => setSelectedId(null)}
+            onFactorChange={(key, patch) => ws.updateFactor(selected.id, key, patch)}
+            onPost={(body) => ws.postMessage(selected.id, body)}
+            onAskAnalyst={() => ws.askRoiAnalyst(selected.id)}
+            onSummaryChange={(summary) => ws.setSummary(selected.id, summary)}
+          />
+        ) : (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Product initiatives</h1>
+              <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720 }}>
+                Collaborate with the team and AI agents on new product builds and AI iterations of
+                existing products. Every initiative runs the shared ROI engine in the background —
+                the headline, grade, and scenarios update live as evidence lands.
+              </p>
+            </div>
+            <Portfolio
+              initiatives={ws.initiatives}
+              onOpen={setSelectedId}
+              onCreate={(name, type) => setSelectedId(ws.createInitiative(name, type))}
             />
-          )}
-        </main>
+            <div style={{ marginTop: 18, fontSize: 11, color: T.inkMuted }}>
+              Demo data is stored locally in your browser.{" "}
+              <button
+                type="button"
+                onClick={ws.resetDemo}
+                style={{ fontSize: 11, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+              >
+                Reset demo data
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

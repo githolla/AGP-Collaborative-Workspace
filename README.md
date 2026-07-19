@@ -1,20 +1,45 @@
-# AGP Project Command
+# AGP Collaboration Workspace
 
-AI-native collaborative workspace for AGP, delivered inside Microsoft Teams,
-orchestrating Kantata OX (PSA) and HubSpot (CRM). See [SPEC.md](./SPEC.md) for the
-full product spec, [MILESTONES.md](./MILESTONES.md) for the plan, and
-[BLOCKERS.md](./BLOCKERS.md) for credentials/approvals requiring human action.
+An AI-native collaboration workspace where AGP teams and AI agents craft product
+initiatives together — **new product builds** and **AI-added-to-existing-product
+iterations** — with the factor-based **ROI calculator running in the background
+of every initiative**: live headline, confidence grade, scenario dials, and a
+"numbers still to gather" trail.
+
+- Product direction: [ADR 0004](./docs/adr/0004-product-pivot-roi-collaboration-workspace.md)
+- ROI engine spec: [docs/roi-calculator-spec.md](./docs/roi-calculator-spec.md)
+  (engine copied verbatim from `githolla/AIROI`)
+- Blockers needing human action: [BLOCKERS.md](./BLOCKERS.md)
+- Earlier delivery-ops direction (deprioritized): [SPEC.md](./SPEC.md), [MILESTONES.md](./MILESTONES.md)
+
+## What works today
+
+- **Portfolio view** — rollup of every initiative (annual net, one-time net,
+  worst-grade credibility, open-unknowns counter) + one-click new initiative
+  seeded from the 12-factor template.
+- **Initiative workspace** — factor editor (NEED pills, status chips,
+  confirm/lock, evidence lines), exec decision card (payback, 3-yr net, ROI
+  multiple), breakdown that always matches the headline, realism-dial
+  scenarios (Conservative/Realistic/Optimistic side-by-side, click to apply),
+  gather list with owners, snapshot audit trail.
+- **Collaboration thread** — people + AI agents per initiative. The **ROI
+  Analyst** agent is live now (deterministic, engine-backed — it can never
+  disagree with the numbers on screen). LLM agents activate when the Anthropic
+  API key is configured server-side; they are never faked.
+- **Acceptance invariant** (tested): an empty initiative shows $0, grade ≤ C,
+  and the correct still-to-gather count; numbers tighten only as evidence lands.
 
 ## Layout
 
 ```
-apps/tab            React Teams tab (workspace UI)          — scaffold, built in M2/M3
-apps/bot            Teams bot + Adaptive Cards              — scaffold, built in M3/M4
-services/sync       Source adapters, queue, reconcile       — M0 core implemented
-services/signals    Signals & rules engine, Needs-You feed  — scaffold, built in M5
-services/assembly   Registry, playbooks, loop-ins           — scaffold, built in M7
-packages/shared     Types, provenance, autonomy gate, HTTP  — M0 core implemented
-supabase/migrations Postgres schema (all groups)            — M0
+apps/tab            React workspace app (portfolio, initiative, thread)
+packages/roi        ROI engine (verbatim from AIROI) + 12-factor template + tests
+packages/shared     Provenance types, autonomy gate, rate-limited HTTP client
+services/sync       Kantata/HubSpot sync foundation (dormant — see ADR 0004)
+services/signals    Scaffold (dormant)
+services/assembly   Scaffold (dormant)
+apps/bot            Scaffold (dormant)
+supabase/migrations Postgres schema (spec §10 tables land next)
 docs/adr            Architecture decision records
 ```
 
@@ -22,10 +47,9 @@ docs/adr            Architecture decision records
 
 ```sh
 pnpm install
-pnpm typecheck
-pnpm test
-pnpm lint
+pnpm typecheck && pnpm lint && pnpm test
+pnpm --filter @agp/tab dev     # workspace app on fixtures/localStorage
 ```
 
-Everything runs on fixtures (`services/sync/fixtures/`) — no credentials required
-until M1. AI calls are server-side only; secrets live in env config, never code.
+Deploys to Vercel on every push (`vercel.json`). Demo data persists in the
+browser; "Reset demo data" restores the seed.

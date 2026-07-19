@@ -11,8 +11,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@agp/roi": "workspace:*",
     "@agp/shared": "workspace:*",
-    "@agp/sync": "workspace:*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
