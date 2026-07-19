@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
   "buildCommand": "pnpm --filter @agp/tab build",
-  "outputDirectory": "dist",
+  "outputDirectory": "apps/tab/dist",
   "installCommand": "pnpm install --frozen-lockfile"
 }
