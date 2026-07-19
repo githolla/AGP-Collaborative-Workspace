@@ -16,7 +16,7 @@ Status legend: 🔴 not started · 🟡 in progress · 🟢 done
 | 6 | **Teams custom app upload approval** — org app catalog policy must allow sideloading/upload of the Agents Toolkit manifest, or IT must publish it. | M3 (Teams shell) | AGP M365 admin | 1–3 weeks | 🔴 |
 | 7 | **Supabase project** (Postgres + pgvector) — dev instance can be free-tier and self-serve; production placement (Supabase cloud vs. self-hosted in Azure) needs an AGP infra decision. | M1 (dev DB), M8 (prod) | Eng + AGP IT | Dev: hours. Prod decision: 1–2 weeks | 🔴 |
 | 8 | **Anthropic API key** with production rate limits. | M5+ (intelligence features) | Eng | Days | 🔴 |
-| 9 | **Vercel project** for dev previews (team + env vars). | M2 (preview URLs) | Eng | Hours | 🔴 |
+| 9 | **Vercel project** for dev previews (team + env vars). Repo connected 2026-07-19; previews build from `apps/tab` on every push. | M2 (preview URLs) | Eng | Hours | 🟢 |
 | 10 | **Azure production environment** — subscription, resource group, container hosting for services, secrets store (Key Vault), deployment pipeline credentials. | M8 (production deploy) | AGP IT | **3–6 weeks** (procurement/policy) | 🔴 |
 | 11 | **GivingDNA API credentials** — Phase-later; `SourceAdapter` is stubbed so the connector adds without rework. | Post-M8 | AGP product team | Unknown; not on critical path | 🔴 |
 
