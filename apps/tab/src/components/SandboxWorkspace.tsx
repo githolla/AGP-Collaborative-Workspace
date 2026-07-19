@@ -4,9 +4,11 @@ import { card, T } from "../theme.js";
 import { SectionTitle, TagChip } from "./bits.js";
 import { ExecCard } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
+import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
 import { fmtUsd } from "../workspace/format.js";
 import { factorsFromBasis } from "../workspace/basis.js";
 import { TYPE_LABEL, type InitiativeType, type SandboxIdea } from "../workspace/types.js";
+import type { AgpPerson } from "../workspace/agpKnowledge.js";
 
 /**
  * Chat-first idea workspace: the manager talks, the AGP Copilot drafts.
@@ -43,6 +45,12 @@ export function SandboxWorkspace({
   onAskAnalyst,
   onPromote,
   onOpenInitiative,
+  onInvite,
+  onPartAdded,
+  onInviteCopilot,
+  onAddMember,
+  people,
+  flags,
 }: {
   idea: SandboxIdea;
   onBack: () => void;
@@ -51,8 +59,15 @@ export function SandboxWorkspace({
   onAskAnalyst: () => void;
   onPromote: (type: InitiativeType) => void;
   onOpenInitiative: (id: string) => void;
+  onInvite: (personId: string) => void;
+  onPartAdded: (personId: string) => void;
+  onInviteCopilot: () => void;
+  onAddMember: (personId: string) => void;
+  people: readonly AgpPerson[];
+  flags: string[];
 }) {
   const [promoteType, setPromoteType] = useState<InitiativeType>("new_build");
+  const [pickPerson, setPickPerson] = useState("");
   const basis = idea.basis;
   const r = rollup(basis);
   const promoted = idea.status === "promoted";
@@ -80,6 +95,23 @@ export function SandboxWorkspace({
         </div>
       </div>
 
+      {idea.aiMode === "observer" && !promoted && (
+        <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#f4fafd", borderColor: T.roi.cyan, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: T.ink }}>
+            <strong>AGP Copilot is observing quietly.</strong> It's been following the conversation
+            and already knows this project{flags.length > 0 ? ` — it has ${flags.length} flag${flags.length > 1 ? "s" : ""} and suggestions ready` : ""}.
+            Nothing gets drafted until you ask.
+          </span>
+          <button
+            type="button"
+            onClick={onInviteCopilot}
+            style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, border: "none", background: T.roi.cyan, color: "#0b3c6e", cursor: "pointer" }}
+          >
+            Invite the Copilot in →
+          </button>
+        </div>
+      )}
+
       {promoted && idea.promotedInitiativeId && (
         <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f2faf6", borderColor: T.roi.confirmed }}>
           <span style={{ fontSize: 12.5, color: T.ink, fontWeight: 600 }}>✓ This idea graduated into a build.</span>
@@ -98,9 +130,9 @@ export function SandboxWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <Thread messages={idea.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} />
           <div style={{ fontSize: 11, color: T.inkMuted, padding: "0 4px" }}>
-            Talk to the Copilot in plain words — “assume 300 build hours” · “this is mainly for food
-            banks” · “drop the Loopio line” · “add someone from analytics”. It re-drafts and the
-            rail on the right updates live.
+            {idea.aiMode === "copilot"
+              ? "Talk to the Copilot in plain words — “assume 300 build hours” · “this is mainly for food banks” · “drop the Loopio line” · “add someone from analytics”. It re-drafts and the rail on the right updates live."
+              : "This thread is just your team — the Copilot reads along but never speaks unless invited."}
           </div>
         </div>
 
@@ -108,8 +140,21 @@ export function SandboxWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <ExecCard factors={factorsFromBasis(basis)} />
 
+          {idea.aiMode === "copilot" && flags.length > 0 && !promoted && (
+            <div style={{ ...card, borderColor: "#e7c66f" }}>
+              <SectionTitle>Copilot flags</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {flags.map((f) => (
+                  <div key={f} style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.45 }}>
+                    <span style={{ color: "#8a6d1a", fontWeight: 700 }}>⚑</span> {f}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={card}>
-            <SectionTitle>What the Copilot drafted</SectionTitle>
+            <SectionTitle>{idea.aiMode === "copilot" ? "What the Copilot drafted" : "Project numbers — add what you know"}</SectionTitle>
 
             {basis.comparables.length > 0 && (
               <>
@@ -172,39 +217,55 @@ export function SandboxWorkspace({
             </div>
           </div>
 
-          <div style={card}>
-            <SectionTitle>Suggested cast</SectionTitle>
-            {idea.team.length === 0 && (
-              <div style={{ fontSize: 12, color: T.inkMuted }}>
-                No cast yet — tell the Copilot what kind of work this is and it will pull the right
-                people from the org.
+          {idea.plan && idea.plan.packages.length > 0 && <PhaseTimeline plan={idea.plan} />}
+          {idea.plan && idea.plan.packages.length > 0 && (
+            <TeamParts
+              plan={idea.plan}
+              readOnly={promoted}
+              onInvite={onInvite}
+              onPartAdded={onPartAdded}
+              onRemove={(personId) => onUpdate({ team: idea.team.filter((x) => x.personId !== personId) })}
+            />
+          )}
+
+          {!promoted && (
+            <div style={card}>
+              <SectionTitle>Add a teammate</SectionTitle>
+              <div style={{ display: "flex", gap: 8 }}>
+                <select
+                  value={pickPerson}
+                  onChange={(e) => setPickPerson(e.target.value)}
+                  style={{ flex: 1, fontSize: 12, padding: "7px 10px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
+                >
+                  <option value="">Pick from the AGP org…</option>
+                  {people
+                    .filter((p) => !idea.team.some((m) => m.personId === p.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — {p.title} ({p.team})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!pickPerson}
+                  onClick={() => {
+                    onAddMember(pickPerson);
+                    setPickPerson("");
+                  }}
+                  style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 6, border: "none", background: pickPerson ? T.roi.navy : T.grid, color: "#fff", cursor: pickPerson ? "pointer" : "default" }}
+                >
+                  Add
+                </button>
               </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {idea.team.map((m) => (
-                <div key={m.personId} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <span
-                    aria-hidden
-                    style={{ width: 26, height: 26, borderRadius: "50%", background: "#e6e4ee", color: T.roi.navy, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 700, flexShrink: 0 }}
-                  >
-                    {m.name.split(" ").map((w) => w[0]).join("")}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, color: T.ink, fontWeight: 600 }}>
-                      {m.name} <span style={{ color: T.inkMuted, fontWeight: 400 }}>· {m.title}</span>
-                      {m.viaManager && <TagChip>via {m.viaManager}</TagChip>}
-                    </div>
-                    <div style={{ fontSize: 11, color: T.inkSecondary }}>{m.why}</div>
-                  </div>
-                  {!promoted && (
-                    <button type="button" title="Remove from cast" style={removeButton} onClick={() => onUpdate({ team: idea.team.filter((x) => x.personId !== m.personId) })}>
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
+              <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 6 }}>
+                Their part gets drafted automatically; dispatch-managed people route via their
+                manager.
+              </div>
             </div>
-          </div>
+          )}
+
+          {idea.plan && idea.plan.packages.length > 0 && <BriefCard brief={idea.plan.brief} />}
 
           {(idea.relatedProjects.length > 0 || idea.relatedCampaigns.length > 0) && (
             <div style={card}>

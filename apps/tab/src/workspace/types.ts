@@ -26,6 +26,7 @@ export interface Initiative {
   type: InitiativeType;
   summary: string;
   factors: WorkspaceFactor[];
+  plan?: ProjectPlan;
   thread: ThreadMessage[];
   snapshots: Snapshot[];
   createdAt: string;
@@ -52,6 +53,37 @@ export interface CastMember {
   viaManager?: string;
 }
 
+/** One person's part of the project — drafted by the copilot, added by them. */
+export interface WorkPackage {
+  personId: string;
+  name: string;
+  title: string;
+  /** What their part is, in plain words. */
+  part: string;
+  /** The one input only they can bring (feeds the gather list). */
+  bring?: string;
+  phaseKey: string;
+  hours: number;
+  status: "proposed" | "invited" | "part_added";
+  why: string;
+  viaManager?: string;
+}
+
+export interface PlanPhase {
+  key: string;
+  label: string;
+  goal: string;
+  start: string; // ISO date
+  end: string;
+}
+
+export interface ProjectPlan {
+  phases: PlanPhase[];
+  packages: WorkPackage[];
+  /** The auto-generated 60-second brief — what, why, numbers, who does what. */
+  brief: string;
+}
+
 export interface IdeaClassification {
   serviceLine?: string;
   vertical?: string;
@@ -63,12 +95,23 @@ export interface RelatedItem {
   why: string;
 }
 
+/**
+ * How much the AI participates:
+ * - "copilot": drafts from the start and replies to every message.
+ * - "observer": humans collaborate; the Copilot analyzes silently in the
+ *   background and joins only when invited — arriving already informed,
+ *   posting flags and gap-fill suggestions without overwriting human work.
+ */
+export type AiMode = "copilot" | "observer";
+
 export interface SandboxIdea {
   id: string;
   title: string;
+  aiMode: AiMode;
   /** The idea in the manager's own words. */
   pitch: string;
   basis: import("@agp/roi").RoiModel;
+  plan?: ProjectPlan;
   /** Copilot-drafted cast (approval-by-exception: remove what's wrong). */
   team: CastMember[];
   classification: IdeaClassification;

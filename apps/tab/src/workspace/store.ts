@@ -4,7 +4,9 @@ import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./t
 import { seedIdeas, seedInitiatives } from "./seed.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
-import { draftFromIdea, refineIdea } from "./copilot.js";
+import { copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus } from "./copilot.js";
+import { AGP_PEOPLE, FUNCTION_NOTES, personById, type AgpFunction } from "./agpKnowledge.js";
+import type { AiMode, WorkPackage } from "./types.js";
 
 /**
  * Client-side workspace store, persisted to localStorage. This is the pivot
@@ -22,16 +24,18 @@ interface PersistedState {
   ideas: SandboxIdea[];
 }
 
-/** Older stored ideas predate the copilot fields — backfill them by re-drafting. */
+/** Older stored ideas predate newer fields — backfill them by re-drafting. */
 function migrateIdea(idea: SandboxIdea): SandboxIdea {
-  if (Array.isArray(idea.team) && idea.classification) return idea;
+  if (Array.isArray(idea.team) && idea.classification && idea.plan && idea.aiMode) return idea;
   const draft = draftFromIdea(idea.title, idea.pitch);
   return {
     ...idea,
+    aiMode: idea.aiMode ?? "copilot",
     team: idea.team ?? draft.team,
     classification: idea.classification ?? draft.classification,
     relatedProjects: idea.relatedProjects ?? draft.relatedProjects,
     relatedCampaigns: idea.relatedCampaigns ?? draft.relatedCampaigns,
+    plan: idea.plan ?? draft.plan,
   };
 }
 
@@ -151,40 +155,144 @@ export function useWorkspace() {
 
   // ---- sandbox ideas ----
 
-  const createIdea = useCallback((title: string, pitch: string): string => {
+  const createIdea = useCallback((title: string, pitch: string, aiMode: AiMode = "copilot"): string => {
     const id = newId("idea");
-    // The copilot drafts everything from the pitch — never a blank page.
-    const draft = draftFromIdea(title, pitch);
-    const idea: SandboxIdea = {
-      id,
-      title,
-      pitch,
-      basis: draft.basis,
-      team: draft.team,
-      classification: draft.classification,
-      relatedProjects: draft.relatedProjects,
-      relatedCampaigns: draft.relatedCampaigns,
-      thread: [
-        { id: newId("msg"), author: "AGP Copilot", kind: "agent", at: new Date().toISOString(), body: draft.briefing },
-      ],
-      status: "exploring",
-      createdAt: new Date().toISOString(),
-    };
+    let idea: SandboxIdea;
+    if (aiMode === "copilot") {
+      // The copilot drafts everything from the pitch — never a blank page.
+      const draft = draftFromIdea(title, pitch);
+      idea = {
+        id,
+        title,
+        aiMode,
+        pitch,
+        basis: draft.basis,
+        plan: draft.plan,
+        team: draft.team,
+        classification: draft.classification,
+        relatedProjects: draft.relatedProjects,
+        relatedCampaigns: draft.relatedCampaigns,
+        thread: [
+          { id: newId("msg"), author: "AGP Copilot", kind: "agent", at: new Date().toISOString(), body: draft.briefing },
+        ],
+        status: "exploring",
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      // Blank collaboration: humans work; the Copilot observes silently and
+      // joins only when invited. It still classifies quietly so context chips
+      // and its eventual arrival are informed.
+      const observed = observeIdea(title, pitch);
+      idea = {
+        id,
+        title,
+        aiMode,
+        pitch,
+        basis: { summary: pitch, comparables: [], manual: [], buildHours: 0, buildRate: 100 },
+        team: [],
+        classification: observed.classification,
+        relatedProjects: observed.relatedProjects,
+        relatedCampaigns: observed.relatedCampaigns,
+        thread: [],
+        status: "exploring",
+        createdAt: new Date().toISOString(),
+      };
+    }
     setState((s) => ({ ...s, ideas: [...s.ideas, idea] }));
     return id;
   }, []);
 
-  const updateIdea = useCallback(
-    (id: string, patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis" | "team">>) => {
-      mutateIdea(id, (i) => ({ ...i, ...patch }));
+  /** Invite the observing Copilot in — it arrives already informed. */
+  const inviteCopilotIn = useCallback(
+    (id: string) => {
+      mutateIdea(id, (i) => {
+        if (i.aiMode === "copilot") return i;
+        const { idea: joined, briefing } = inviteCopilot(i);
+        return {
+          ...joined,
+          thread: [
+            ...joined.thread,
+            { id: newId("msg"), author: "AGP Copilot", kind: "agent" as const, at: new Date().toISOString(), body: briefing },
+          ],
+        };
+      });
     },
     [mutateIdea],
   );
 
-  /** Post a message; the copilot applies it as a refinement and replies. */
+  /** Add a teammate by hand (both modes) — replans their part automatically. */
+  const addTeamMember = useCallback(
+    (id: string, personId: string) => {
+      mutateIdea(id, (i) => {
+        const person = personById(personId);
+        if (!person || i.team.some((m) => m.personId === personId)) return i;
+        const viaManager = person.routing === "via_manager" ? personById(person.managerId ?? "")?.name : undefined;
+        const next = {
+          ...i,
+          team: [
+            ...i.team,
+            {
+              personId: person.id,
+              name: person.name,
+              title: person.title,
+              role: "Contributor",
+              why: `Added by the team. (${FUNCTION_NOTES[person.fn]}.)`,
+              ...(viaManager ? { viaManager } : {}),
+            },
+          ],
+        };
+        return { ...next, plan: replanPreservingStatus(next) };
+      });
+    },
+    [mutateIdea],
+  );
+
+  const updateIdea = useCallback(
+    (id: string, patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis" | "team">>) => {
+      mutateIdea(id, (i) => {
+        const next = { ...i, ...patch };
+        // Team or basis edits re-plan the project, keeping invite/part statuses.
+        return patch.team || patch.basis ? { ...next, plan: replanPreservingStatus(next) } : next;
+      });
+    },
+    [mutateIdea],
+  );
+
+  /** Invite someone to add their part, or record that their part landed. */
+  const setPackageStatus = useCallback(
+    (scope: "idea" | "initiative", id: string, personId: string, status: WorkPackage["status"]) => {
+      const updatePlan = <T extends { plan?: { packages: WorkPackage[] } | undefined; thread: SandboxIdea["thread"] }>(item: T): T => {
+        if (!item.plan) return item;
+        const pkg = item.plan.packages.find((p) => p.personId === personId);
+        if (!pkg) return item;
+        const note =
+          status === "invited"
+            ? `Invite sent to ${pkg.name} for their part — ${pkg.part}${pkg.viaManager ? ` (routed via ${pkg.viaManager}, dispatch-managed)` : ""}${pkg.bring ? ` They're asked to bring: ${pkg.bring}` : ""}`
+            : status === "part_added"
+              ? `${pkg.name} added their part (${pkg.part.split("—")[0]?.trim() ?? "done"}).`
+              : `${pkg.name}'s part reset to proposed.`;
+        return {
+          ...item,
+          plan: { ...item.plan, packages: item.plan.packages.map((p) => (p.personId === personId ? { ...p, status } : p)) },
+          thread: [...item.thread, { id: newId("msg"), author: "AGP Copilot", kind: "agent" as const, at: new Date().toISOString(), body: note }],
+        };
+      };
+      if (scope === "idea") mutateIdea(id, (i) => updatePlan(i));
+      else mutate(id, (i) => updatePlan(i));
+    },
+    [mutate, mutateIdea],
+  );
+
+  /**
+   * Post a message. In copilot mode the Copilot applies it as a refinement
+   * and replies; in observer mode it stays silent — humans just talk.
+   */
   const postIdeaMessage = useCallback(
     (id: string, body: string, author = "You") => {
       mutateIdea(id, (i) => {
+        if (i.aiMode !== "copilot") {
+          return { ...i, thread: [...i.thread, humanMessage(body, author)] };
+        }
         const { idea: refined, reply } = refineIdea(i, body);
         return {
           ...refined,
@@ -223,19 +331,37 @@ export function useWorkspace() {
       if (!idea || idea.status === "promoted") return idea?.promotedInitiativeId ?? null;
 
       const initiativeId = newId("init");
-      const castNote =
-        idea.team.length > 0
-          ? ` Proposed cast: ${idea.team.map((m) => `${m.name} (${m.title})${m.viaManager ? `, via ${m.viaManager}` : ""}`).join("; ")}.`
-          : "";
+      // Gather-list ownership follows the parts: each unknown factor is owned
+      // by the person whose function is responsible for bringing that number.
+      const OWNER_BY_FACTOR: Record<string, AgpFunction> = {
+        fully_loaded_build_cost: "web_development",
+        time_saved_cashable: "analytics",
+        error_revenue_value: "analytics",
+        run_maintenance_cost: "project_management",
+        traditional_build_baseline: "business_development",
+        license_avoidance: "business_development",
+      };
+      const ownerFor = (factorKey: string): string | null => {
+        const fn = OWNER_BY_FACTOR[factorKey];
+        const member = idea.team.find((m) => personById(m.personId)?.fn === fn);
+        return member?.name ?? null;
+      };
+      const factors = factorsFromBasis(idea.basis).map((f) =>
+        f.status === "unknown" && ownerFor(f.key) ? { ...f, gatherOwner: ownerFor(f.key) } : f,
+      );
       const initiative: Initiative = {
         id: initiativeId,
         name: idea.title,
         type,
         summary: idea.pitch,
-        factors: factorsFromBasis(idea.basis),
+        factors,
+        ...(idea.plan ? { plan: idea.plan } : {}),
         thread: [
           ...idea.thread,
-          humanMessage(`Promoted from the sandbox — napkin basis carried over. Time to harden the numbers.${castNote}`, "You"),
+          humanMessage(
+            `Promoted from the sandbox — basis, plan, and parts carried over. Time to invite the team and harden the numbers.`,
+            "You",
+          ),
         ],
         snapshots: [],
         createdAt: new Date().toISOString(),
@@ -268,6 +394,11 @@ export function useWorkspace() {
     postIdeaMessage,
     askIdeaAnalyst,
     promoteIdea,
+    setPackageStatus,
+    inviteCopilotIn,
+    addTeamMember,
+    copilotFlags,
+    availablePeople: AGP_PEOPLE,
     resetDemo,
   };
 }

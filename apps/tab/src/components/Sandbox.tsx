@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { computeProjectROI } from "@agp/roi";
 import { card, T } from "../theme.js";
-import { SectionTitle, TagChip } from "./bits.js";
+import { TagChip } from "./bits.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
 import { factorsFromBasis } from "../workspace/basis.js";
+import { extractTitle } from "../workspace/planner.js";
 import type { SandboxIdea } from "../workspace/types.js";
 
 /**
@@ -18,53 +19,71 @@ export function Sandbox({
 }: {
   ideas: SandboxIdea[];
   onOpen: (id: string) => void;
-  onCreate: (title: string, pitch: string) => void;
+  onCreate: (title: string, pitch: string, aiMode: "copilot" | "observer") => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [pitch, setPitch] = useState("");
+  const [text, setText] = useState("");
+  const ready = text.trim().split(/\s+/).length >= 3;
+
+  const start = (aiMode: "copilot" | "observer") => {
+    if (!ready) return;
+    onCreate(extractTitle(text.trim()), text.trim(), aiMode);
+    setText("");
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ ...card, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 8 }}>
-        <SectionTitle>Start a build from an idea</SectionTitle>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Give the idea a name"
-          style={{ fontSize: 13, padding: "8px 10px", border: `1px solid ${T.grid}`, borderRadius: 8, color: T.ink }}
-        />
+      <div style={{ ...card, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 8, padding: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>What should exist that doesn't?</div>
         <textarea
-          value={pitch}
-          onChange={(e) => setPitch(e.target.value)}
-          placeholder="Describe the idea in your own words — the problem, who it's for, what it might replace. That's all it takes to start."
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start("copilot");
+          }}
+          placeholder="One sentence is enough — “What if we drafted grant compliance reports automatically from campaign outcomes?”"
           rows={3}
-          style={{ fontSize: 12.5, padding: "8px 10px", border: `1px solid ${T.grid}`, borderRadius: 8, resize: "vertical", fontFamily: "inherit", color: T.ink }}
+          style={{ fontSize: 13.5, padding: "12px 14px", border: `1px solid ${T.grid}`, borderRadius: 10, resize: "vertical", fontFamily: "inherit", color: T.ink, lineHeight: 1.5 }}
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button
             type="button"
-            disabled={!title.trim()}
-            onClick={() => {
-              onCreate(title.trim(), pitch.trim());
-              setTitle("");
-              setPitch("");
-            }}
+            disabled={!ready}
+            onClick={() => start("copilot")}
+            title="The Copilot names it, sizes it, plans it, and picks the team behind the scenes"
             style={{
-              fontSize: 12.5,
+              fontSize: 13,
               fontWeight: 700,
-              padding: "9px 16px",
+              padding: "10px 20px",
               borderRadius: 8,
               border: "none",
-              cursor: title.trim() ? "pointer" : "default",
-              background: title.trim() ? T.roi.navy : T.grid,
+              cursor: ready ? "pointer" : "default",
+              background: ready ? T.roi.navy : T.grid,
               color: "#fff",
             }}
           >
-            Drop it in the sandbox
+            Build it for me →
+          </button>
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={() => start("observer")}
+            title="No drafting — you and your team shape it; the Copilot observes quietly and joins only when invited"
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "10px 20px",
+              borderRadius: 8,
+              cursor: ready ? "pointer" : "default",
+              border: `1px solid ${ready ? T.roi.navy : T.grid}`,
+              background: "transparent",
+              color: ready ? T.roi.navy : T.inkMuted,
+            }}
+          >
+            Start blank — just us
           </button>
           <span style={{ fontSize: 11, color: T.inkMuted }}>
-            Not tied to any product. The AGP Copilot reads your words and drafts the numbers, the
-            team, and the context — you just remove what's wrong.
+            Either way the Copilot pays attention — in blank mode it stays silent until you invite
+            it in, and it arrives already knowing the project.
           </span>
         </div>
       </div>
@@ -85,9 +104,10 @@ export function Sandbox({
                 <TagChip>{idea.status === "promoted" ? "Promoted ✓" : "Exploring"}</TagChip>
               </div>
               <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {idea.aiMode === "observer" && <TagChip>Blank — Copilot observing</TagChip>}
                 {idea.classification.serviceLine && <TagChip>{idea.classification.serviceLine}</TagChip>}
                 {idea.classification.vertical && <TagChip>{idea.classification.vertical}</TagChip>}
-                {idea.team.length > 0 && <TagChip>{idea.team.length} people suggested</TagChip>}
+                {idea.team.length > 0 && <TagChip>{idea.team.length} on the team</TagChip>}
               </span>
               <span style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                 {idea.pitch || "No description yet."}

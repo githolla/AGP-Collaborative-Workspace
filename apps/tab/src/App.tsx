@@ -93,7 +93,7 @@ export function App() {
                 <Portfolio
                   initiatives={ws.initiatives}
                   onOpen={(id) => setRoute({ view: "initiative", id })}
-                  onCreate={(name, type) => setRoute({ view: "initiative", id: ws.createInitiative(name, type) })}
+                  onStartInSandbox={() => setRoute({ view: "sandbox" })}
                 />
               </>
             ) : (
@@ -108,7 +108,7 @@ export function App() {
                 <Sandbox
                   ideas={ws.ideas}
                   onOpen={(id) => setRoute({ view: "idea", id })}
-                  onCreate={(title, pitch) => setRoute({ view: "idea", id: ws.createIdea(title, pitch) })}
+                  onCreate={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
                 />
               </>
             )}
@@ -134,6 +134,8 @@ export function App() {
             onPost={(body) => ws.postMessage(selectedInitiative.id, body)}
             onAskAnalyst={() => ws.askRoiAnalyst(selectedInitiative.id)}
             onSummaryChange={(summary) => ws.setSummary(selectedInitiative.id, summary)}
+            onInvite={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "invited")}
+            onPartAdded={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "part_added")}
           />
         )}
 
@@ -149,6 +151,12 @@ export function App() {
               if (id) setRoute({ view: "initiative", id });
             }}
             onOpenInitiative={(id) => setRoute({ view: "initiative", id })}
+            onInvite={(personId) => ws.setPackageStatus("idea", selectedIdea.id, personId, "invited")}
+            onPartAdded={(personId) => ws.setPackageStatus("idea", selectedIdea.id, personId, "part_added")}
+            onInviteCopilot={() => ws.inviteCopilotIn(selectedIdea.id)}
+            onAddMember={(personId) => ws.addTeamMember(selectedIdea.id, personId)}
+            people={ws.availablePeople}
+            flags={ws.copilotFlags(selectedIdea)}
           />
         )}
 

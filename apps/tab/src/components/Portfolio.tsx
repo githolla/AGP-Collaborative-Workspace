@@ -1,23 +1,20 @@
-import { useState } from "react";
 import { computeDecisionMetrics, computePortfolio, computeProjectROI } from "@agp/roi";
 import { card, T } from "../theme.js";
 import { SectionTitle, StatTile, TagChip } from "./bits.js";
 import { GradeBadge } from "./GradeBadge.js";
 import { fmtPayback, fmtUsd } from "../workspace/format.js";
-import { TYPE_LABEL, type Initiative, type InitiativeType } from "../workspace/types.js";
+import { TYPE_LABEL, type Initiative } from "../workspace/types.js";
 
 export function Portfolio({
   initiatives,
   onOpen,
-  onCreate,
+  onStartInSandbox,
 }: {
   initiatives: Initiative[];
   onOpen: (id: string) => void;
-  onCreate: (name: string, type: InitiativeType) => void;
+  onStartInSandbox: () => void;
 }) {
   const portfolio = computePortfolio(initiatives);
-  const [name, setName] = useState("");
-  const [type, setType] = useState<InitiativeType>("new_build");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -76,47 +73,19 @@ export function Portfolio({
           );
         })}
 
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", borderStyle: "dashed" }}>
-          <SectionTitle>New initiative</SectionTitle>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Name, e.g. “Grant Report Generator”"
-            style={{ fontSize: 12.5, padding: "7px 10px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
-          />
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value as InitiativeType)}
-            style={{ fontSize: 12.5, padding: "7px 10px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
-          >
-            <option value="new_build">{TYPE_LABEL.new_build}</option>
-            <option value="ai_iteration">{TYPE_LABEL.ai_iteration}</option>
-          </select>
-          <button
-            type="button"
-            disabled={!name.trim()}
-            onClick={() => {
-              onCreate(name.trim(), type);
-              setName("");
-            }}
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "none",
-              cursor: name.trim() ? "pointer" : "default",
-              background: name.trim() ? T.roi.navy : T.grid,
-              color: "#fff",
-            }}
-          >
-            Create — starts at $0, grade C, 3 to gather
-          </button>
-          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
-            Every initiative starts from the 12-factor template. The number improves only as
-            evidence lands — never from optimism.
+        <button
+          type="button"
+          onClick={onStartInSandbox}
+          style={{ ...card, display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", borderStyle: "dashed", cursor: "pointer", textAlign: "left" }}
+        >
+          <SectionTitle>Start something new</SectionTitle>
+          <div style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>
+            Everything starts in the <strong style={{ color: T.ink }}>Sandbox</strong> — describe an
+            idea in a sentence and the Copilot builds the project behind the scenes, or start blank
+            with just your team. Promote it here when the numbers earn it.
           </div>
-        </div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.roi.navy }}>Open the Sandbox →</div>
+        </button>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { TagChip } from "./bits.js";
 import { FactorEditor } from "./FactorEditor.js";
 import { ExecCard, GatherList, ScenarioStrip, Waterfall } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
+import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
 import { TYPE_LABEL, type Initiative } from "../workspace/types.js";
 import type { WorkspaceFactor } from "@agp/roi";
@@ -14,6 +15,8 @@ export function InitiativeWorkspace({
   onPost,
   onAskAnalyst,
   onSummaryChange,
+  onInvite,
+  onPartAdded,
 }: {
   initiative: Initiative;
   onBack: () => void;
@@ -21,6 +24,8 @@ export function InitiativeWorkspace({
   onPost: (body: string) => void;
   onAskAnalyst: () => void;
   onSummaryChange: (summary: string) => void;
+  onInvite: (personId: string) => void;
+  onPartAdded: (personId: string) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -66,6 +71,11 @@ export function InitiativeWorkspace({
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <ExecCard factors={initiative.factors} />
+          {initiative.plan && <PhaseTimeline plan={initiative.plan} />}
+          {initiative.plan && (
+            <TeamParts plan={initiative.plan} onInvite={onInvite} onPartAdded={onPartAdded} />
+          )}
+          {initiative.plan && <BriefCard brief={initiative.plan.brief} />}
           <ScenarioStrip
             factors={initiative.factors}
             onApply={(option) => onFactorChange("realism", { selectedOption: option, status: "estimated" })}

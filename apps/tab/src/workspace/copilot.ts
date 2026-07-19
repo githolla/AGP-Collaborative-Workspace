@@ -13,7 +13,8 @@ import {
 } from "./agpKnowledge.js";
 import { factorsFromBasis } from "./basis.js";
 import { fmtUsd } from "./format.js";
-import type { CastMember, IdeaClassification, RelatedItem, SandboxIdea } from "./types.js";
+import { makePlan } from "./planner.js";
+import type { CastMember, IdeaClassification, ProjectPlan, RelatedItem, SandboxIdea } from "./types.js";
 
 /**
  * The AGP Copilot: deterministic, knowledge-base-backed drafting. It reads an
@@ -29,6 +30,7 @@ export interface IdeaDraft {
   classification: IdeaClassification;
   basis: RoiModel;
   team: CastMember[];
+  plan: ProjectPlan;
   relatedProjects: RelatedItem[];
   relatedCampaigns: RelatedItem[];
   briefing: string;
@@ -126,8 +128,19 @@ function relatedContext(text: string, classification: IdeaClassification): {
   return { relatedProjects, relatedCampaigns };
 }
 
-/** Analyze an idea's text and draft everything. */
-export function draftFromIdea(title: string, pitch: string): IdeaDraft {
+/** Silent analysis for observer mode — the Copilot knows, but stays quiet. */
+export function observeIdea(title: string, pitch: string): {
+  classification: IdeaClassification;
+  relatedProjects: RelatedItem[];
+  relatedCampaigns: RelatedItem[];
+} {
+  const text = `${title}. ${pitch}`;
+  const classification = classify(text);
+  return { classification, ...relatedContext(text, classification) };
+}
+
+/** Analyze an idea's text and draft everything — basis, cast, plan, context. */
+export function draftFromIdea(title: string, pitch: string, startDate?: string): IdeaDraft {
   const text = `${title}. ${pitch}`;
   const classification = classify(text);
 
@@ -145,16 +158,30 @@ export function draftFromIdea(title: string, pitch: string): IdeaDraft {
 
   const basis: RoiModel = { summary: pitch, comparables, manual, buildHours, buildRate: 100 };
   const functions = dedupeBy(processes.flatMap((p) => p.functions), (f) => f);
-  const team = draftCast(functions);
+  let team = draftCast(functions);
+
+  // Every build needs a builder: if nothing suggested engineering, add it.
+  if (buildHours > 0 && !team.some((m) => personById(m.personId)?.fn === "web_development")) {
+    const eng = AGP_PEOPLE.find((p) => p.fn === "web_development");
+    if (eng) {
+      team = [
+        ...team,
+        { personId: eng.id, name: eng.name, title: eng.title, role: "Builder", why: `Because ${FUNCTION_NOTES.web_development}.` },
+      ].slice(0, 6);
+    }
+  }
+
   const { relatedProjects, relatedCampaigns } = relatedContext(text, classification);
+  const plan = makePlan(team, basis, startDate ?? new Date().toISOString().slice(0, 10), title, classification);
 
   return {
     classification,
     basis,
     team,
+    plan,
     relatedProjects,
     relatedCampaigns,
-    briefing: composeBriefing({ classification, basis, team, relatedProjects, relatedCampaigns, processes: processes.map((p) => p.why) }),
+    briefing: composeBriefing({ classification, basis, team, plan, relatedProjects, relatedCampaigns }),
   };
 }
 
@@ -162,11 +189,11 @@ function composeBriefing(args: {
   classification: IdeaClassification;
   basis: RoiModel;
   team: CastMember[];
+  plan: ProjectPlan;
   relatedProjects: RelatedItem[];
   relatedCampaigns: RelatedItem[];
-  processes: string[];
 }): string {
-  const { classification, basis, team, relatedProjects, relatedCampaigns } = args;
+  const { classification, basis, team, plan, relatedProjects, relatedCampaigns } = args;
   const lines: string[] = [];
 
   const clsBits = [
@@ -189,10 +216,16 @@ function composeBriefing(args: {
 
   if (team.length > 0) {
     lines.push(
-      `Suggested cast: ${team
-        .map((m) => `${m.name} (${m.title})${m.viaManager ? ` — via ${m.viaManager}` : ""}`)
-        .join(", ")}. Remove anyone who doesn't fit; each carries a why.`,
+      `I planned the project and split the work: ${plan.packages
+        .map((p) => `${p.name} — ${p.part.split("—")[0]?.trim().toLowerCase() ?? "their part"} (~${p.hours}h, ${p.phaseKey})`)
+        .join("; ")}. Each part lists the one input only that person can bring. Invite them when you're ready — dispatch-managed people route via their manager automatically.`,
     );
+    const span = plan.phases[0] && plan.phases[plan.phases.length - 1];
+    if (span) {
+      lines.push(
+        `Timeline: ${plan.phases.map((p) => `${p.label} ${p.start.slice(5)}`).join(" → ")}, wrapping ${plan.phases[plan.phases.length - 1]!.end}.`,
+      );
+    }
   }
 
   if (relatedProjects.length > 0) {
@@ -308,11 +341,126 @@ export function refineIdea(idea: SandboxIdea, message: string): RefineResult {
     );
   }
 
+  // Any change re-plans the project, preserving invite/part statuses.
+  if (changes.length > 0) {
+    next = { ...next, plan: replanPreservingStatus(next) };
+  }
+
   const roi = computeProjectROI(factorsFromBasis(next.basis));
   const reply =
     changes.length > 0
-      ? `Done — ${changes.join("; ")}. Napkin now reads ${fmtUsd(roi.netRecurringAnnual)}/yr net at realism ×${roi.adjustmentMultiplier.toFixed(2)}.`
+      ? `Done — ${changes.join("; ")}. Napkin now reads ${fmtUsd(roi.netRecurringAnnual)}/yr net at realism ×${roi.adjustmentMultiplier.toFixed(2)}; the plan and parts re-drafted to match.`
       : `I didn't find a change to make from that. I can adjust build hours (“assume 300 hours”), add/remove tools, processes, or people (“drop the Loopio line”, “add someone from analytics”), or reclassify if you mention a service line, vertical, or client. Current napkin: ${fmtUsd(roi.netRecurringAnnual)}/yr net.`;
 
   return { idea: next, reply };
+}
+
+/** Re-draft the plan after a change without losing invite / part-added state. */
+export function replanPreservingStatus(idea: SandboxIdea): ProjectPlan {
+  const start = idea.plan?.phases[0]?.start ?? new Date().toISOString().slice(0, 10);
+  const plan = makePlan(idea.team, idea.basis, start, idea.title, idea.classification);
+  return {
+    ...plan,
+    packages: plan.packages.map((p) => {
+      const prev = idea.plan?.packages.find((x) => x.personId === p.personId);
+      return prev ? { ...p, status: prev.status } : p;
+    }),
+  };
+}
+
+/**
+ * The Copilot's watchlist: deterministic checks it runs continuously — shown
+ * as flags when it's in the room, counted quietly while it only observes.
+ */
+export function copilotFlags(idea: SandboxIdea): string[] {
+  const flags: string[] = [];
+  const roi = computeProjectROI(factorsFromBasis(idea.basis));
+
+  if (idea.basis.manual.length === 0 && idea.basis.comparables.length === 0) {
+    flags.push("No value basis yet — nothing manual removed, no tool replaced. The honest number is $0 until someone brings one.");
+  }
+  if (idea.basis.buildHours <= 0) {
+    flags.push("No build estimate — payback and ROI multiple are meaningless without it.");
+  }
+  if (roi.hasUnknowns) {
+    flags.push(`${roi.unknownRequiredKeys.length} required number${roi.unknownRequiredKeys.length > 1 ? "s" : ""} still missing — grade capped at C.`);
+  }
+  if (!idea.team.some((m) => personById(m.personId)?.fn === "project_management")) {
+    flags.push("No PM on the team — the PM team runs daily delivery at AGP; every build needs one.");
+  }
+  if (idea.basis.buildHours > 0 && !idea.team.some((m) => personById(m.personId)?.fn === "web_development")) {
+    flags.push("A build is scoped but no engineer is on the team.");
+  }
+  for (const m of idea.team) {
+    const p = personById(m.personId);
+    if (p?.routing === "via_manager" && !m.viaManager) {
+      flags.push(`${m.name} is on a dispatch-managed team — route the invite via ${personById(p.managerId ?? "")?.name ?? "their manager"}, not directly.`);
+    }
+  }
+  const timeSaved = idea.basis.manual.reduce((s, t) => s + t.hoursPerWeek * t.people * t.rate * 46, 0);
+  if (timeSaved > 0 && roi.netRecurringAnnual > 0 && timeSaved * 0.15 > roi.netRecurringAnnual * 0.4) {
+    flags.push("The human-in-the-loop residual is a large share of the net — the classic way internal AI tools quietly lose money.");
+  }
+  return flags;
+}
+
+/**
+ * Invite the observing Copilot into the room: it merges gap-fill suggestions
+ * (never overwriting human work) and composes an already-informed briefing.
+ */
+export function inviteCopilot(idea: SandboxIdea): { idea: SandboxIdea; briefing: string } {
+  const conversation = idea.thread.map((m) => m.body).join(" ");
+  const draft = draftFromIdea(idea.title, `${idea.pitch} ${conversation}`);
+
+  // Gap-fill only: add what's missing, keep everything humans already put in.
+  const basis: RoiModel = {
+    ...idea.basis,
+    comparables: [
+      ...idea.basis.comparables,
+      ...draft.basis.comparables.filter((c) => !idea.basis.comparables.some((e) => e.name === c.name)),
+    ],
+    manual: [
+      ...idea.basis.manual,
+      ...draft.basis.manual.filter((t) => !idea.basis.manual.some((e) => e.task === t.task)),
+    ],
+    buildHours: idea.basis.buildHours > 0 ? idea.basis.buildHours : draft.basis.buildHours,
+  };
+  const team = [
+    ...idea.team,
+    ...draft.team.filter((m) => !idea.team.some((e) => e.personId === m.personId)),
+  ].slice(0, 6);
+
+  let next: SandboxIdea = {
+    ...idea,
+    aiMode: "copilot",
+    basis,
+    team,
+    classification: idea.classification.serviceLine ? idea.classification : draft.classification,
+    relatedProjects: idea.relatedProjects.length > 0 ? idea.relatedProjects : draft.relatedProjects,
+    relatedCampaigns: idea.relatedCampaigns.length > 0 ? idea.relatedCampaigns : draft.relatedCampaigns,
+  };
+  next = { ...next, plan: replanPreservingStatus(next) };
+
+  const flags = copilotFlags(next);
+  const roi = computeProjectROI(factorsFromBasis(next.basis));
+  const addedTools = basis.comparables.length - idea.basis.comparables.length;
+  const addedTasks = basis.manual.length - idea.basis.manual.length;
+  const addedPeople = team.length - idea.team.length;
+
+  const briefing = [
+    `Thanks for the invite — I've been following along, so here's where I think you are: ${fmtUsd(roi.netRecurringAnnual)}/yr napkin at realism ×${roi.adjustmentMultiplier.toFixed(2)}, grade ${roi.grade}.`,
+    addedTools + addedTasks + addedPeople > 0
+      ? `I filled gaps without touching your work: ${[
+          addedTools > 0 && `${addedTools} replaced-tool candidate${addedTools > 1 ? "s" : ""}`,
+          addedTasks > 0 && `${addedTasks} manual-process line${addedTasks > 1 ? "s" : ""}`,
+          addedPeople > 0 && `${addedPeople} team suggestion${addedPeople > 1 ? "s" : ""}`,
+        ]
+          .filter(Boolean)
+          .join(", ")} — all removable.`
+      : `Your draft already covers what I would have suggested — nothing added.`,
+    flags.length > 0 ? `Flags I'm watching:\n${flags.map((f) => `⚑ ${f}`).join("\n")}` : "No flags right now.",
+    `From here I'll reply to messages and keep the plan in sync. Tell me things in plain words and I'll apply them.`,
+  ].join("\n");
+
+  return { idea: next, briefing };
 }

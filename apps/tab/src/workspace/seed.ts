@@ -161,13 +161,15 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
   const pitch =
     "Program teams at our nonprofit clients spend days assembling grant compliance reports by hand. What if we drafted them automatically from campaign outcomes and GivingDNA donor analytics data? Not tied to any current product — just an idea.";
   // The copilot drafts the idea exactly as it would live — the seed IS the demo.
-  const draft = draftFromIdea(title, pitch);
+  const draft = draftFromIdea(title, pitch, "2026-07-20");
   return [
     {
       id: "idea-grant-report",
       title,
+      aiMode: "copilot",
       pitch,
       basis: draft.basis,
+      plan: draft.plan,
       team: draft.team,
       classification: draft.classification,
       relatedProjects: draft.relatedProjects,
@@ -190,6 +192,35 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
       ],
       status: "exploring",
       createdAt: "2026-07-17T11:00:00Z",
+    },
+    {
+      id: "idea-client-portal",
+      title: "Client Portal Refresh",
+      aiMode: "observer",
+      pitch: "Rethink how clients see campaign status — working this one out ourselves first.",
+      basis: { summary: "Rethink how clients see campaign status.", comparables: [], manual: [], buildHours: 0, buildRate: 100 },
+      team: [],
+      classification: { clientNames: [] },
+      relatedProjects: [],
+      relatedCampaigns: [],
+      thread: [
+        {
+          id: "m1",
+          author: "Barry M.",
+          kind: "human",
+          at: "2026-07-18T09:00:00Z",
+          body: "Starting this one blank — I want us to shape it before any drafting happens. Dana, what's the smallest version clients would love?",
+        },
+        {
+          id: "m2",
+          author: "Dana W.",
+          kind: "human",
+          at: "2026-07-18T09:25:00Z",
+          body: "A single page per campaign: status, next milestone, and one number that matters. No logins to hunt through.",
+        },
+      ],
+      status: "exploring",
+      createdAt: "2026-07-18T09:00:00Z",
     },
   ];
 }
