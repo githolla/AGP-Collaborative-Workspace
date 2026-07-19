@@ -10,6 +10,7 @@ import { fmtMultiple, fmtPayback, fmtUsd } from "./format.js";
  * is configured server-side (BLOCKERS #8) — they are never faked client-side.
  */
 export const AGENTS = [
+  { name: "AGP Copilot", live: true, note: "AGP knowledge base — org, Kantata projects, HubSpot campaigns" },
   { name: "ROI Analyst", live: true, note: "engine-backed, live now" },
   { name: "Product Strategist", live: false, note: "activates with Anthropic API key" },
   { name: "Brief Drafter", live: false, note: "activates with Anthropic API key" },

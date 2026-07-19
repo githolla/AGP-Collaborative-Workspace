@@ -42,6 +42,9 @@ importers:
       '@agp/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@agp/sync':
+        specifier: workspace:*
+        version: link:../../services/sync
       react:
         specifier: ^19.1.0
         version: 19.2.7

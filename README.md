@@ -14,11 +14,19 @@ of every initiative**: live headline, confidence grade, scenario dials, and a
 
 ## What works today
 
-- **Sandbox** — ideas not tied to any product. A manager drops an idea in
-  plain words, roughs out what it would replace (tools avoided, manual work
-  removed, build guess) with the ROI Analyst, sees back-of-napkin math that
-  never flatters (empty lines stay unknown), and **promotes it to a real
-  build** — the basis, conversation, and gather list carry over.
+- **Sandbox with the AGP Copilot** — ideas not tied to any product,
+  conversation-first. A manager describes the idea in plain words and the
+  Copilot drafts everything with a "because" on each line: classification
+  (service line × vertical × client), the ROI basis (tools it replaces,
+  manual work it removes, build guess) from AGP process patterns, the
+  suggested cast from the org model (respecting dispatch-managed routing —
+  production and campaign deployment go via their managers), and related
+  Kantata projects / HubSpot campaigns from the mirror. Refine by talking
+  ("assume 300 build hours", "drop the Loopio line", "add someone from
+  analytics") — approval-by-exception, not forms. **Promote to a build**
+  carries the basis, cast, and conversation into a full initiative.
+  Deterministic knowledge-base matching today (honest, explainable); the
+  same interface goes LLM-backed when the Anthropic key lands.
 - **Portfolio view** — rollup of every initiative (annual net, one-time net,
   worst-grade credibility, open-unknowns counter) + one-click new initiative
   seeded from the 12-factor template.

@@ -1,6 +1,7 @@
 import { applyModel, computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, Snapshot } from "./types.js";
 import { roiAnalystMessage } from "./agents.js";
+import { draftFromIdea } from "./copilot.js";
 
 /**
  * Demo initiatives. All figures are illustrative fixtures — the point is that
@@ -156,19 +157,21 @@ export function seedInitiatives(): Initiative[] {
 }
 
 export function seedIdeas(): import("./types.js").SandboxIdea[] {
+  const title = "Grant Report Generator";
+  const pitch =
+    "Program teams at our nonprofit clients spend days assembling grant compliance reports by hand. What if we drafted them automatically from campaign outcomes and GivingDNA donor analytics data? Not tied to any current product — just an idea.";
+  // The copilot drafts the idea exactly as it would live — the seed IS the demo.
+  const draft = draftFromIdea(title, pitch);
   return [
     {
       id: "idea-grant-report",
-      title: "Grant Report Generator",
-      pitch:
-        "Program teams at our nonprofit clients spend days assembling grant compliance reports by hand. What if we drafted them automatically from campaign outcomes and GivingDNA data? Not tied to any current product — just an idea.",
-      basis: {
-        summary: "",
-        comparables: [],
-        manual: [{ task: "Client teams assembling grant reports manually", hoursPerWeek: 4, people: 3, rate: 75 }],
-        buildHours: 0,
-        buildRate: 100,
-      },
+      title,
+      pitch,
+      basis: draft.basis,
+      team: draft.team,
+      classification: draft.classification,
+      relatedProjects: draft.relatedProjects,
+      relatedCampaigns: draft.relatedCampaigns,
       thread: [
         {
           id: "m1",
@@ -176,6 +179,13 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
           kind: "human",
           at: "2026-07-17T11:00:00Z",
           body: "Dropping this in the sandbox after the Riverside call — their program officer said reporting eats a week per grant cycle. Worth sizing?",
+        },
+        {
+          id: "m2",
+          author: "AGP Copilot",
+          kind: "agent",
+          at: "2026-07-17T11:00:05Z",
+          body: draft.briefing,
         },
       ],
       status: "exploring",

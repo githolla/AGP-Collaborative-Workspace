@@ -63,7 +63,8 @@ export function Sandbox({
             Drop it in the sandbox
           </button>
           <span style={{ fontSize: 11, color: T.inkMuted }}>
-            Not tied to any product. No numbers required — the ROI Analyst helps you rough them out.
+            Not tied to any product. The AGP Copilot reads your words and drafts the numbers, the
+            team, and the context — you just remove what's wrong.
           </span>
         </div>
       </div>
@@ -83,6 +84,11 @@ export function Sandbox({
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3 }}>{idea.title}</span>
                 <TagChip>{idea.status === "promoted" ? "Promoted ✓" : "Exploring"}</TagChip>
               </div>
+              <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {idea.classification.serviceLine && <TagChip>{idea.classification.serviceLine}</TagChip>}
+                {idea.classification.vertical && <TagChip>{idea.classification.vertical}</TagChip>}
+                {idea.team.length > 0 && <TagChip>{idea.team.length} people suggested</TagChip>}
+              </span>
               <span style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                 {idea.pitch || "No description yet."}
               </span>

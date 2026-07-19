@@ -4,6 +4,7 @@ import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./t
 import { seedIdeas, seedInitiatives } from "./seed.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
+import { draftFromIdea, refineIdea } from "./copilot.js";
 
 /**
  * Client-side workspace store, persisted to localStorage. This is the pivot
@@ -21,6 +22,19 @@ interface PersistedState {
   ideas: SandboxIdea[];
 }
 
+/** Older stored ideas predate the copilot fields — backfill them by re-drafting. */
+function migrateIdea(idea: SandboxIdea): SandboxIdea {
+  if (Array.isArray(idea.team) && idea.classification) return idea;
+  const draft = draftFromIdea(idea.title, idea.pitch);
+  return {
+    ...idea,
+    team: idea.team ?? draft.team,
+    classification: idea.classification ?? draft.classification,
+    relatedProjects: idea.relatedProjects ?? draft.relatedProjects,
+    relatedCampaigns: idea.relatedCampaigns ?? draft.relatedCampaigns,
+  };
+}
+
 function load(): PersistedState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -30,7 +44,7 @@ function load(): PersistedState {
         return {
           initiatives: parsed.initiatives,
           // ideas were added after the first release — older storage lacks them
-          ideas: Array.isArray(parsed.ideas) ? parsed.ideas : seedIdeas(),
+          ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
         };
       }
     }
@@ -139,12 +153,20 @@ export function useWorkspace() {
 
   const createIdea = useCallback((title: string, pitch: string): string => {
     const id = newId("idea");
+    // The copilot drafts everything from the pitch — never a blank page.
+    const draft = draftFromIdea(title, pitch);
     const idea: SandboxIdea = {
       id,
       title,
       pitch,
-      basis: { summary: "", comparables: [], manual: [], buildHours: 0, buildRate: 100 },
-      thread: [],
+      basis: draft.basis,
+      team: draft.team,
+      classification: draft.classification,
+      relatedProjects: draft.relatedProjects,
+      relatedCampaigns: draft.relatedCampaigns,
+      thread: [
+        { id: newId("msg"), author: "AGP Copilot", kind: "agent", at: new Date().toISOString(), body: draft.briefing },
+      ],
       status: "exploring",
       createdAt: new Date().toISOString(),
     };
@@ -153,15 +175,26 @@ export function useWorkspace() {
   }, []);
 
   const updateIdea = useCallback(
-    (id: string, patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis">>) => {
+    (id: string, patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis" | "team">>) => {
       mutateIdea(id, (i) => ({ ...i, ...patch }));
     },
     [mutateIdea],
   );
 
+  /** Post a message; the copilot applies it as a refinement and replies. */
   const postIdeaMessage = useCallback(
     (id: string, body: string, author = "You") => {
-      mutateIdea(id, (i) => ({ ...i, thread: [...i.thread, humanMessage(body, author)] }));
+      mutateIdea(id, (i) => {
+        const { idea: refined, reply } = refineIdea(i, body);
+        return {
+          ...refined,
+          thread: [
+            ...i.thread,
+            humanMessage(body, author),
+            { id: newId("msg"), author: "AGP Copilot", kind: "agent" as const, at: new Date().toISOString(), body: reply },
+          ],
+        };
+      });
     },
     [mutateIdea],
   );
@@ -190,6 +223,10 @@ export function useWorkspace() {
       if (!idea || idea.status === "promoted") return idea?.promotedInitiativeId ?? null;
 
       const initiativeId = newId("init");
+      const castNote =
+        idea.team.length > 0
+          ? ` Proposed cast: ${idea.team.map((m) => `${m.name} (${m.title})${m.viaManager ? `, via ${m.viaManager}` : ""}`).join("; ")}.`
+          : "";
       const initiative: Initiative = {
         id: initiativeId,
         name: idea.title,
@@ -198,7 +235,7 @@ export function useWorkspace() {
         factors: factorsFromBasis(idea.basis),
         thread: [
           ...idea.thread,
-          humanMessage(`Promoted from the sandbox — napkin basis carried over. Time to harden the numbers.`, "You"),
+          humanMessage(`Promoted from the sandbox — napkin basis carried over. Time to harden the numbers.${castNote}`, "You"),
         ],
         snapshots: [],
         createdAt: new Date().toISOString(),
