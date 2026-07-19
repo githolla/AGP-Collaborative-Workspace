@@ -23,9 +23,10 @@ describe("backfill", () => {
     await backfill(adapter, store, queue);
     await pipeline.drain();
 
-    expect((await store.list("kantata", "workspace")).filter((r) => r.data)).toHaveLength(3);
-    expect((await store.list("kantata", "time_entry")).filter((r) => r.data)).toHaveLength(2);
-    expect((await store.list("kantata", "expense")).filter((r) => r.data)).toHaveLength(2);
+    const seed = kantataSeed().entities;
+    expect((await store.list("kantata", "workspace")).filter((r) => r.data)).toHaveLength(seed.workspace!.length);
+    expect((await store.list("kantata", "time_entry")).filter((r) => r.data)).toHaveLength(seed.time_entry!.length);
+    expect((await store.list("kantata", "expense")).filter((r) => r.data)).toHaveLength(seed.expense!.length);
   });
 });
 
