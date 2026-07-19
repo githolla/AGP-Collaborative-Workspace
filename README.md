@@ -14,6 +14,11 @@ of every initiative**: live headline, confidence grade, scenario dials, and a
 
 ## What works today
 
+- **Sandbox** — ideas not tied to any product. A manager drops an idea in
+  plain words, roughs out what it would replace (tools avoided, manual work
+  removed, build guess) with the ROI Analyst, sees back-of-napkin math that
+  never flatters (empty lines stay unknown), and **promotes it to a real
+  build** — the basis, conversation, and gather list carry over.
 - **Portfolio view** — rollup of every initiative (annual net, one-time net,
   worst-grade credibility, open-unknowns counter) + one-click new initiative
   seeded from the 12-factor template.

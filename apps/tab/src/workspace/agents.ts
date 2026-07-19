@@ -1,5 +1,6 @@
-import { computeDecisionMetrics, computeProjectROI } from "@agp/roi";
-import type { Initiative } from "./types.js";
+import { computeDecisionMetrics, computeProjectROI, rollup } from "@agp/roi";
+import type { Initiative, SandboxIdea } from "./types.js";
+import { factorsFromBasis } from "./basis.js";
 import { fmtMultiple, fmtPayback, fmtUsd } from "./format.js";
 
 /**
@@ -45,5 +46,31 @@ export function roiAnalystMessage(initiative: Initiative): string {
     lines.push(`Watch the human-in-the-loop residual (${fmtUsd(drain.value)}/yr) — it is the #1 way internal AI tools quietly lose money.`);
   }
 
+  return lines.join("\n");
+}
+
+/** Deterministic napkin assessment for a sandbox idea (engine-backed). */
+export function sandboxAnalystMessage(idea: SandboxIdea): string {
+  const factors = factorsFromBasis(idea.basis);
+  const roi = computeProjectROI(factors);
+  const m = computeDecisionMetrics(factors);
+  const r = rollup(idea.basis);
+
+  const lines: string[] = [];
+  if (idea.basis.comparables.length === 0 && idea.basis.manual.length === 0) {
+    lines.push(
+      "No basis yet — name the tool this would replace or the manual process it removes, and I can put a first number on it. Until then the honest answer is $0.",
+    );
+  } else {
+    lines.push(
+      `Back-of-napkin: ${fmtUsd(roi.netRecurringAnnual)}/yr net at realism ×${roi.adjustmentMultiplier.toFixed(2)} — from ${fmtUsd(r.licenseAvoidance)} license avoidance + ${fmtUsd(r.timeSavedCashable)} cashable time saved, less ${fmtUsd(r.humanInLoop)} human-in-the-loop residual.`,
+    );
+    lines.push(
+      idea.basis.buildHours > 0
+        ? `Build guess: ${fmtUsd(r.buildCost)} (${idea.basis.buildHours}h × $${idea.basis.buildRate}/h) → payback ${fmtPayback(m.paybackYears)}, ${m.years}-yr net ${fmtUsd(m.cumulativeNet)}, ROI ${fmtMultiple(m.roiMultiple)}.`
+        : "No build estimate yet — even a rough hour count would complete the napkin math.",
+    );
+    lines.push(`Everything here is estimated at confidence C. Promote to a build to start hardening the numbers.`);
+  }
   return lines.join("\n");
 }

@@ -35,3 +35,20 @@ export const TYPE_LABEL: Record<InitiativeType, string> = {
   new_build: "New build",
   ai_iteration: "AI added to existing product",
 };
+
+/**
+ * A sandbox idea: not tied to any product or initiative. A manager captures
+ * the idea, roughs out what it would replace (the ROI basis), sees a
+ * back-of-napkin number, and promotes it into a real build when it earns it.
+ */
+export interface SandboxIdea {
+  id: string;
+  title: string;
+  /** The idea in the manager's own words. */
+  pitch: string;
+  basis: import("@agp/roi").RoiModel;
+  thread: ThreadMessage[];
+  status: "exploring" | "promoted";
+  promotedInitiativeId?: string;
+  createdAt: string;
+}

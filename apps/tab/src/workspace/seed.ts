@@ -154,3 +154,32 @@ function dedupeService(): Initiative {
 export function seedInitiatives(): Initiative[] {
   return [proposalAssistant(), gdnaReporting(), dedupeService()];
 }
+
+export function seedIdeas(): import("./types.js").SandboxIdea[] {
+  return [
+    {
+      id: "idea-grant-report",
+      title: "Grant Report Generator",
+      pitch:
+        "Program teams at our nonprofit clients spend days assembling grant compliance reports by hand. What if we drafted them automatically from campaign outcomes and GivingDNA data? Not tied to any current product — just an idea.",
+      basis: {
+        summary: "",
+        comparables: [],
+        manual: [{ task: "Client teams assembling grant reports manually", hoursPerWeek: 4, people: 3, rate: 75 }],
+        buildHours: 0,
+        buildRate: 100,
+      },
+      thread: [
+        {
+          id: "m1",
+          author: "Barry M.",
+          kind: "human",
+          at: "2026-07-17T11:00:00Z",
+          body: "Dropping this in the sandbox after the Riverside call — their program officer said reporting eats a week per grant cycle. Worth sizing?",
+        },
+      ],
+      status: "exploring",
+      createdAt: "2026-07-17T11:00:00Z",
+    },
+  ];
+}
