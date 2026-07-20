@@ -44,18 +44,16 @@ of every initiative**: live headline, confidence grade, scenario dials, and a
 - **Acceptance invariant** (tested): an empty initiative shows $0, grade ≤ C,
   and the correct still-to-gather count; numbers tighten only as evidence lands.
 
-## Layout
+## Layout (focused per ADR 0005)
 
 ```
-apps/tab            React workspace app (portfolio, initiative, thread)
+apps/tab            The product: Clients hub · Sandbox + Copilot · Builds/ROI
 packages/roi        ROI engine (verbatim from AIROI) + 12-factor template + tests
-packages/shared     Provenance types, autonomy gate, rate-limited HTTP client
-services/sync       Kantata/HubSpot sync foundation (dormant — see ADR 0004)
-services/signals    Scaffold (dormant)
-services/assembly   Scaffold (dormant)
-apps/bot            Scaffold (dormant)
-supabase/migrations Postgres schema (spec §10 tables land next)
-docs/adr            Architecture decision records
+packages/shared     Autonomy gate, provenance types, rate-limited HTTP client
+services/sync       The data layer: Kantata/HubSpot mirror (fixtures now, live
+                    later) — grounds the Copilot and carries Planner/email sync
+supabase/migrations Postgres schema for the backend phase
+docs/adr            Architecture decision records (0005 = product focus)
 ```
 
 ## Develop

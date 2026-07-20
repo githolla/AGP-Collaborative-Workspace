@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-07-20, ADR 0005).** This was the delivery-ops roadmap for
+> the original AGP Project Command direction. The active product is the Client
+> Collaboration Hub + Sandbox + Builds (see README and ADR 0005); SPEC v2_1
+> Layers 2-4 are a parked backlog. Kept for history.
+
 # Milestone Plan — AGP Project Command
 
 Estimates assume one lead engineer (Claude-driven, human-approved) working continuously.

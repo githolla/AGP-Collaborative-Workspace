@@ -21,19 +21,6 @@ importers:
         specifier: ^8.35.0
         version: 8.64.0(eslint@9.39.5)(typescript@5.9.3)
 
-  apps/bot:
-    dependencies:
-      '@agp/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@26.1.1)
-
   apps/tab:
     dependencies:
       '@agp/roi':
@@ -88,32 +75,6 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@26.1.1)
-
-  services/assembly:
-    dependencies:
-      '@agp/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@26.1.1)
-
-  services/signals:
-    dependencies:
-      '@agp/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
