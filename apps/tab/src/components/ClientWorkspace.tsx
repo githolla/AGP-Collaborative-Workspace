@@ -6,7 +6,7 @@ import { Thread } from "./Thread.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
-import type { AccountLiveContext } from "../workspace/campaignImport.js";
+import { crmGoneQuiet, deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
@@ -106,12 +106,14 @@ function SetupChecklist({
   account,
   tasks,
   candidatesCount,
+  taskCandidatesCount = 0,
   goTo,
   onOpenReview,
 }: {
   account: ClientAccount;
   tasks: Task[];
   candidatesCount: number;
+  taskCandidatesCount?: number;
   goTo: (t: ClientTab) => void;
   onOpenReview?: () => void;
 }) {
@@ -139,8 +141,16 @@ function SetupChecklist({
     {
       key: "tasks",
       done: tasks.length > 0,
-      label: tasks.length > 0 ? `Plan started (${tasks.length} task${tasks.length === 1 ? "" : "s"})` : "Add the first tasks with owners and due dates",
-      action: { label: "Open plan", onClick: () => goTo("plan") },
+      label:
+        tasks.length > 0
+          ? `Plan started (${tasks.length} task${tasks.length === 1 ? "" : "s"})`
+          : taskCandidatesCount > 0
+            ? `Start the plan — ${taskCandidatesCount} open Kantata task${taskCandidatesCount === 1 ? "" : "s"} ready to import`
+            : "Add the first tasks with owners and due dates",
+      action:
+        taskCandidatesCount > 0 && onOpenReview && tasks.length === 0
+          ? { label: "Review & import", onClick: onOpenReview }
+          : { label: "Open plan", onClick: () => goTo("plan") },
     },
     {
       key: "files",
@@ -258,7 +268,23 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
                     : undefined
                 }
               />
+              <FactRow label="Last touch" value={crm.lastTouch ? fmtDay(crm.lastTouch) : undefined} />
+              <FactRow label="Next activity" value={crm.nextActivity ? fmtDay(crm.nextActivity) : undefined} />
+              <FactRow
+                label="ICP fit"
+                value={
+                  crm.icpTier || crm.targetAccount
+                    ? [crm.icpTier ? prettyValue(crm.icpTier) : "", crm.targetAccount ? "Target account" : ""].filter(Boolean).join(" · ")
+                    : undefined
+                }
+              />
               <FactRow label="Abbreviation" value={crm.abbreviation} />
+              {crmGoneQuiet(crm, today) && (
+                <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 8, lineHeight: 1.5 }}>
+                  <strong>Gone quiet.</strong> No next activity is booked and the last logged touch is
+                  30+ days old{crm.owner ? ` — worth a nudge to ${crm.owner}` : ""}.
+                </div>
+              )}
             </>
           ) : (
             <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
@@ -282,6 +308,8 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
           ) : (
             context.projects.slice(0, 5).map((p) => {
               const next = upcoming(p);
+              const openTasks = p.tasks.filter((t) => t.state !== "completed").length;
+              const hrs30 = p.minutes30d != null ? Math.round(p.minutes30d / 60) : null;
               return (
                 <div key={p.title} style={{ padding: "6px 0", borderBottom: `1px solid ${T.grid}` }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -289,6 +317,24 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
                     {p.status && <TagChip>{prettyValue(p.status)}</TagChip>}
                     {p.dueDate && <span style={{ fontSize: 11, color: T.inkSecondary }}>due {fmtDay(p.dueDate)}</span>}
                   </div>
+                  {/* Delivery pulse: hours logged + who's on it — from time entries & participations. */}
+                  {(hrs30 != null || openTasks > 0) && (
+                    <div style={{ fontSize: 11, color: hrs30 === 0 ? "#8a6d1a" : T.inkSecondary, padding: "2px 0 0 12px" }}>
+                      {hrs30 != null
+                        ? hrs30 > 0
+                          ? `⏱ ${hrs30} hrs logged in the last 30 days${p.people30d ? ` by ${p.people30d} ${p.people30d === 1 ? "person" : "people"}` : ""}`
+                          : `⏱ no time logged in 30+ days${p.lastEntryDate ? ` (last: ${fmtDay(p.lastEntryDate)})` : ""}`
+                        : ""}
+                      {hrs30 != null && openTasks > 0 ? " · " : ""}
+                      {openTasks > 0 ? `${openTasks} open task${openTasks === 1 ? "" : "s"} in Kantata` : ""}
+                    </div>
+                  )}
+                  {p.team && p.team.length > 0 && (
+                    <div style={{ fontSize: 11, color: T.inkSecondary, padding: "2px 0 0 12px" }}>
+                      👥 {p.team.slice(0, 5).join(", ")}
+                      {p.team.length > 5 ? ` +${p.team.length - 5} more` : ""}
+                    </div>
+                  )}
                   {next.slice(0, 3).map((m) => (
                     <div key={`${m.title}-${m.dueDate}`} style={{ fontSize: 11.5, color: T.inkSecondary, padding: "2px 0 0 12px" }}>
                       ◦ {m.title} — {fmtDay(m.dueDate)}
@@ -301,6 +347,12 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
                 </div>
               );
             })
+          )}
+          {deliveryQuiet(context.projects) && (
+            <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 8, lineHeight: 1.5 }}>
+              <strong>Delivery quiet.</strong> Projects exist but nobody logged time in 30 days —
+              worth checking whether the work is actually moving.
+            </div>
           )}
           {context.projects.length > 5 && (
             <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "4px 0" }}>+{context.projects.length - 5} more projects matched</div>
@@ -692,28 +744,49 @@ export interface ImportCandidate {
   nextMilestoneDate?: string;
 }
 
+/** An open Kantata task not yet in this workspace's plan — user-gated. */
+export interface TaskCandidate {
+  title: string;
+  status: TaskStatus;
+  due?: string;
+  project: string;
+}
+
 function ImportReview({
   candidates,
+  taskCandidates,
   campaigns,
   onImport,
+  onImportTasks,
   onRemoveCampaign,
   onClearCampaigns,
   onClose,
 }: {
   candidates: ImportCandidate[];
+  taskCandidates: TaskCandidate[];
   campaigns: ClientAccount["campaigns"];
   onImport: (selected: ImportCandidate[]) => void;
+  onImportTasks?: ((selected: TaskCandidate[]) => void) | undefined;
   onRemoveCampaign: (campaignId: string) => void;
   onClearCampaigns: () => void;
   onClose: () => void;
 }) {
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  const [tasksDeselected, setTasksDeselected] = useState<Set<string>>(new Set());
   const selected = candidates.filter((c) => !deselected.has(c.name));
+  const selectedTasks = taskCandidates.filter((t) => !tasksDeselected.has(t.title));
   const toggle = (name: string) =>
     setDeselected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
+      return next;
+    });
+  const toggleTask = (title: string) =>
+    setTasksDeselected((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
       return next;
     });
 
@@ -726,13 +799,13 @@ function ImportReview({
         </button>
       </div>
 
-      {candidates.length === 0 ? (
+      {candidates.length === 0 && taskCandidates.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "6px 0" }}>
           Nothing new matched this client in Kantata or HubSpot. If work exists under a different
           name or abbreviation, fix the HubSpot “Client Abbreviation” field and refresh (⟳ pill,
           top right).
         </div>
-      ) : (
+      ) : candidates.length === 0 ? null : (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>
             Matched in Kantata &amp; HubSpot — uncheck anything that isn't this client's
@@ -766,6 +839,45 @@ function ImportReview({
             </button>
             <span style={{ fontSize: 11, color: T.inkMuted }}>
               Milestones ride along and land on Home &amp; the dashboard.
+            </span>
+          </div>
+        </>
+      )}
+
+      {taskCandidates.length > 0 && onImportTasks && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "16px 0 6px" }}>
+            Open tasks in Kantata — bring them into the project plan
+          </div>
+          {taskCandidates.map((t) => (
+            <label
+              key={t.title}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
+            >
+              <input type="checkbox" checked={!tasksDeselected.has(t.title)} onChange={() => toggleTask(t.title)} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink }}>{t.title}</span>
+                <span style={{ fontSize: 11, color: T.inkSecondary }}>
+                  {t.status === "doing" ? "in progress" : "to do"}
+                  {t.due ? ` · due ${fmtDay(t.due)}` : ""} · {t.project}
+                </span>
+              </span>
+            </label>
+          ))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={selectedTasks.length === 0}
+              onClick={() => {
+                onImportTasks(selectedTasks);
+                onClose();
+              }}
+            >
+              Import tasks ({selectedTasks.length}) →
+            </button>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>
+              They land on the Project Plan labeled “from Kantata” — one list, no double entry.
             </span>
           </div>
         </>
@@ -1057,7 +1169,9 @@ export function ClientWorkspace({
   onRemoveExternal,
   onOffboardEverywhere,
   importCandidates = [],
+  taskCandidates = [],
   onImportCampaigns,
+  onImportTasks,
   onRemoveCampaign,
   onClearCampaigns,
   liveContext,
@@ -1070,6 +1184,9 @@ export function ClientWorkspace({
   onBack: () => void;
   /** New Kantata/HubSpot matches not yet in this workspace — user-gated. */
   importCandidates?: ImportCandidate[];
+  /** Open Kantata tasks not yet in the plan — user-gated, like campaigns. */
+  taskCandidates?: TaskCandidate[];
+  onImportTasks?: (selected: TaskCandidate[]) => void;
   /** Everything the mirror knows about this client — plain data from App. */
   liveContext?: AccountLiveContext;
   /** True when the mirror is the live pull, not demo data. */
@@ -1089,8 +1206,11 @@ export function ClientWorkspace({
   // A fresh workspace with matched work opens the review panel by itself —
   // the next action should be on screen, not hidden behind a corner button.
   const [reviewOpen, setReviewOpen] = useState(
-    () => importCandidates.length > 0 && account.campaigns.length === 0,
+    () =>
+      (importCandidates.length > 0 && account.campaigns.length === 0) ||
+      (taskCandidates.length > 0 && account.tasks.length === 0 && account.campaigns.length === 0),
   );
+  const matchCount = importCandidates.length + taskCandidates.length;
   // Mirrored internal tasks get a display label so their origin is visible.
   const tasks: Task[] = sharedTasks.map(({ task, fromInternal }) =>
     fromInternal && !task.label ? { ...task, label: "shared from internal plan" } : task,
@@ -1107,12 +1227,12 @@ export function ClientWorkspace({
           {onImportCampaigns && (
             <button
               type="button"
-              className={`btn btn-sm ${importCandidates.length > 0 ? "btn-primary" : "btn-secondary"}`}
+              className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
               style={{ marginLeft: "auto" }}
               title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
               onClick={() => setReviewOpen((o) => !o)}
             >
-              Review import{importCandidates.length > 0 ? ` (${importCandidates.length} matched)` : ""}
+              Review import{matchCount > 0 ? ` (${matchCount} matched)` : ""}
             </button>
           )}
         </div>
@@ -1131,6 +1251,20 @@ export function ClientWorkspace({
             </TagChip>
             {liveContext.deals.filter((d) => !d.won).length > 0 && (
               <TagChip>{liveContext.deals.filter((d) => !d.won).length} open deal{liveContext.deals.filter((d) => !d.won).length === 1 ? "" : "s"}</TagChip>
+            )}
+            {(() => {
+              const mins = liveContext.projects.reduce((s, p) => s + (p.minutes30d ?? 0), 0);
+              return mins > 0 ? <TagChip>⏱ {Math.round(mins / 60)} hrs · 30d</TagChip> : null;
+            })()}
+            {crmGoneQuiet(liveContext.crm, AS_OF_TODAY()) && (
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                ⚠ gone quiet
+              </span>
+            )}
+            {deliveryQuiet(liveContext.projects) && (
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                ⚠ delivery quiet
+              </span>
             )}
           </div>
         )}
@@ -1157,8 +1291,10 @@ export function ClientWorkspace({
       {reviewOpen && onImportCampaigns && onRemoveCampaign && onClearCampaigns && (
         <ImportReview
           candidates={importCandidates}
+          taskCandidates={taskCandidates}
           campaigns={account.campaigns}
           onImport={onImportCampaigns}
+          onImportTasks={onImportTasks}
           onRemoveCampaign={onRemoveCampaign}
           onClearCampaigns={onClearCampaigns}
           onClose={() => setReviewOpen(false)}
@@ -1172,6 +1308,7 @@ export function ClientWorkspace({
               account={account}
               tasks={tasks}
               candidatesCount={importCandidates.length}
+              taskCandidatesCount={taskCandidates.length}
               goTo={setTab}
               onOpenReview={() => setReviewOpen(true)}
             />

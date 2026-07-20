@@ -12,6 +12,9 @@ export interface ClientCandidate {
   lifecycleStage?: string;
   /** How many campaigns a one-click create would import from Kantata/HubSpot. */
   workCount?: number;
+  /** HubSpot BD-fit: target-account flag and ICP tier. */
+  targetAccount?: boolean;
+  icpTier?: string;
 }
 
 /** "health_services" / "RELIGIOUS INSTITUTIONS" → "Health services". */
@@ -151,6 +154,14 @@ function BookOfBusiness({
                           {c.lifecycleStage === "customer" && (
                             <span style={{ fontSize: 10, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
                               Client
+                            </span>
+                          )}
+                          {(c.targetAccount || /tier_?1/i.test(c.icpTier ?? "")) && c.lifecycleStage !== "customer" && (
+                            <span
+                              title={c.icpTier ? `HubSpot ICP: ${pretty(c.icpTier)}` : "HubSpot target account"}
+                              style={{ fontSize: 10, fontWeight: 800, color: "#7c3a00", background: "#fdeede", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}
+                            >
+                              ★ Target
                             </span>
                           )}
                           {work > 0 ? (

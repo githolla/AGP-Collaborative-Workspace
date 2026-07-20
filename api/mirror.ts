@@ -35,6 +35,10 @@ const COMPANY_PROPERTIES = [
   "hs_latest_intent_signal_occurred_at",
   "hs_last_sales_activity_type",
   "notes_last_contacted",
+  "notes_next_activity_date",
+  "num_contacted_notes",
+  "hs_ideal_customer_profile",
+  "hs_is_target_account",
   "num_associated_deals",
   "hs_lastmodifieddate",
 ];
@@ -54,6 +58,14 @@ interface MirrorPayload {
   kantataMilestones: Record<string, unknown>[];
   kantataGroups: Record<string, unknown>[];
   kantataCustomFields: Record<string, unknown>[];
+  /** Full task tree (story_type=task) — feeds the review-gated task import. */
+  kantataTasks: Record<string, unknown>[];
+  /**
+   * Per-workspace hours AGGREGATED SERVER-SIDE from time entries. Only
+   * minutes and dates cross the wire — bill/cost rates are stripped here,
+   * never sent to the browser (no-financials rule).
+   */
+  kantataHours: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -145,15 +157,24 @@ async function pullHubSpot(token: string): Promise<{
 async function pullKantata(token: string): Promise<{
   projects: Record<string, unknown>[];
   milestones: Record<string, unknown>[];
+  tasks: Record<string, unknown>[];
   groups: Record<string, unknown>[];
   customFields: Record<string, unknown>[];
+  hours: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
 
   // Mavenlink pages are numbered, 200 rows max — walk until a short page or
   // the cap. First-page failure throws; later failures keep partial results.
-  const pullKantataPaged = async <T>(baseUrl: string, collection: string, cap: number): Promise<T[]> => {
+  // `harvest` sees each raw page — used to collect side buckets (users) that
+  // ride along with `include=` associations.
+  const pullKantataPaged = async <T>(
+    baseUrl: string,
+    collection: string,
+    cap: number,
+    harvest?: (json: Record<string, unknown>) => void,
+  ): Promise<T[]> => {
     const rows: T[] = [];
     for (let page = 1; rows.length < cap && page <= Math.ceil(cap / 200); page += 1) {
       const res = await timedFetch(`${baseUrl}&page=${page}`, headers);
@@ -162,6 +183,7 @@ async function pullKantata(token: string): Promise<{
         break;
       }
       const json = (await res.json()) as Record<string, Record<string, T> | unknown>;
+      harvest?.(json as Record<string, unknown>);
       const batch = Object.values((json[collection] as Record<string, T>) ?? {});
       rows.push(...batch);
       if (batch.length < 200) break;
@@ -177,24 +199,42 @@ async function pullKantata(token: string): Promise<{
     due_date?: string;
     updated_at?: string;
     archived?: boolean;
+    participant_ids?: (string | number)[];
   };
   type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
   type KantataGroup = { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] };
   type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
+  type KantataTimeEntry = { id: string; workspace_id?: string | number; user_id?: string | number; date_performed?: string; time_in_minutes?: number };
 
-  // All four endpoints walk in parallel — workspaces, milestones, workspace
-  // groups (the client↔project join, SPEC §7), custom-field taxonomy. Each
+  // Users side-bucket harvested from `include=participants` — id → full name.
+  const userNames = new Map<string, string>();
+  const harvestUsers = (json: Record<string, unknown>): void => {
+    const users = (json.users ?? {}) as Record<string, { full_name?: string }>;
+    for (const [id, u] of Object.entries(users)) {
+      if (u?.full_name) userNames.set(String(id), u.full_name);
+    }
+  };
+
+  // All six endpoints walk in parallel — workspaces (+participants),
+  // milestones, the full task tree, workspace groups (the client↔project
+  // join, SPEC §7), custom-field taxonomy, and recent time entries. Each
   // degrades independently; only a workspaces failure is fatal.
-  const [wsResult, storiesResult, groupsResult, cfvResult] = await Promise.allSettled([
+  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult] = await Promise.allSettled([
     pullKantataPaged<KantataWorkspace>(
-      "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc",
+      "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc&include=participants",
       "workspaces",
       1000,
+      harvestUsers,
     ),
     pullKantataPaged<KantataStory>(
       "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
       "stories",
       600,
+    ),
+    pullKantataPaged<KantataStory>(
+      "https://api.mavenlink.com/api/v1/stories?story_type=task&per_page=200&order=updated_at:desc",
+      "stories",
+      1000,
     ),
     pullKantataPaged<KantataGroup>(
       "https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces",
@@ -205,6 +245,11 @@ async function pullKantata(token: string): Promise<{
       "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
       "custom_field_values",
       1000,
+    ),
+    pullKantataPaged<KantataTimeEntry>(
+      "https://api.mavenlink.com/api/v1/time_entries?per_page=200&order=date_performed:desc",
+      "time_entries",
+      2000,
     ),
   ]);
 
@@ -220,10 +265,14 @@ async function pullKantata(token: string): Promise<{
       start_date: w.start_date ?? "",
       due_date: w.due_date ?? "",
       updated_at: w.updated_at ?? "",
+      // Real delivery team, resolved server-side from the participants join.
+      participant_names: (w.participant_ids ?? [])
+        .map((id) => userNames.get(String(id)))
+        .filter((n): n is string => !!n),
       // service_line / vertical / commercial_model are AGP custom fields —
       // mapping them needs the tenant grounding doc (BLOCKERS #1).
     }));
-  const notes: string[] = [`${projects.length} workspaces`];
+  const notes: string[] = [`${projects.length} workspaces`, `${userNames.size} staff`];
 
   let milestones: Record<string, unknown>[] = [];
   if (storiesResult.status === "fulfilled") {
@@ -237,6 +286,52 @@ async function pullKantata(token: string): Promise<{
     notes.push(`${milestones.length} milestones`);
   } else {
     notes.push(storiesResult.reason instanceof Error ? storiesResult.reason.message : "milestones failed");
+  }
+
+  let tasks: Record<string, unknown>[] = [];
+  if (tasksResult.status === "fulfilled") {
+    tasks = tasksResult.value.map((s) => ({
+      id: String(s.id),
+      title: s.title ?? "",
+      workspace_id: String(s.workspace_id ?? ""),
+      due_date: s.due_date ?? "",
+      state: s.state ?? "",
+    }));
+    notes.push(`${tasks.length} tasks`);
+  } else {
+    notes.push(tasksResult.reason instanceof Error ? tasksResult.reason.message : "tasks failed");
+  }
+
+  // Time entries aggregate per workspace HERE — minutes and dates only.
+  // Rates/amounts on the raw entries never leave this function.
+  let hours: Record<string, unknown>[] = [];
+  if (hoursResult.status === "fulfilled") {
+    const cutoff30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const byWs = new Map<string, { m30: number; m90: number; last: string; users30: Set<string> }>();
+    for (const te of hoursResult.value) {
+      const ws = String(te.workspace_id ?? "");
+      if (!ws) continue;
+      const date = (te.date_performed ?? "").slice(0, 10);
+      const mins = Number(te.time_in_minutes) || 0;
+      const agg = byWs.get(ws) ?? { m30: 0, m90: 0, last: "", users30: new Set<string>() };
+      agg.m90 += mins;
+      if (date >= cutoff30) {
+        agg.m30 += mins;
+        if (te.user_id) agg.users30.add(String(te.user_id));
+      }
+      if (date > agg.last) agg.last = date;
+      byWs.set(ws, agg);
+    }
+    hours = [...byWs.entries()].map(([ws, a]) => ({
+      workspace_id: ws,
+      minutes_30d: a.m30,
+      minutes_recent: a.m90,
+      last_entry_date: a.last,
+      people_30d: a.users30.size,
+    }));
+    notes.push(`${hoursResult.value.length} time entries`);
+  } else {
+    notes.push(hoursResult.reason instanceof Error ? hoursResult.reason.message : "time entries failed");
   }
 
   let groups: Record<string, unknown>[] = [];
@@ -264,7 +359,7 @@ async function pullKantata(token: string): Promise<{
     notes.push(cfvResult.reason instanceof Error ? cfvResult.reason.message : "custom fields failed");
   }
 
-  return { projects, milestones, groups, customFields, note: notes.join(" · ") };
+  return { projects, milestones, tasks, groups, customFields, hours, note: notes.join(" · ") };
 }
 
 import { requireAuth } from "./_lib/entraAuth.js";
@@ -306,6 +401,8 @@ export default async function handler(
     kantataMilestones: [],
     kantataGroups: [],
     kantataCustomFields: [],
+    kantataTasks: [],
+    kantataHours: [],
   };
 
   // Both sources pull in parallel — wall time is the slower source, not the sum.
@@ -332,6 +429,8 @@ export default async function handler(
       payload.kantataMilestones = k.milestones;
       payload.kantataGroups = k.groups;
       payload.kantataCustomFields = k.customFields;
+      payload.kantataTasks = k.tasks;
+      payload.kantataHours = k.hours;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } else {
       payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;

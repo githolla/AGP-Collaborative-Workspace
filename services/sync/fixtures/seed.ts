@@ -378,9 +378,14 @@ export function hubspotSeed(): HubSpotFixtureData {
           client_health_index__c: "Green",
           renewal: "2026-11-01",
           gdna_subscription_level: "Pro",
+          notes_last_contacted: "2026-07-14",
+          notes_next_activity_date: "2026-07-28",
+          num_contacted_notes: 42,
           hs_lastmodifieddate: "2026-07-01T10:00:00Z",
         },
         {
+          // Deliberately "gone quiet": no next activity, last touch 30+ days
+          // back — exercises the relationship radar in demo mode.
           id: "hs-co-78",
           name: "KPBX Public Media",
           domain: "kpbx.example.org",
@@ -388,6 +393,8 @@ export function hubspotSeed(): HubSpotFixtureData {
           lifecyclestage: "customer",
           client_health_index__c: "Yellow",
           renewal: "2026-09-15",
+          notes_last_contacted: "2026-06-02",
+          num_contacted_notes: 17,
           hs_lastmodifieddate: "2026-07-03T10:00:00Z",
         },
         {
@@ -396,6 +403,11 @@ export function hubspotSeed(): HubSpotFixtureData {
           domain: "stanselm.example.org",
           agp_industry: "hospitals",
           lifecyclestage: "opportunity",
+          hs_ideal_customer_profile: "tier_1",
+          hs_is_target_account: "true",
+          notes_last_contacted: "2026-07-11",
+          notes_next_activity_date: "2026-07-24",
+          num_contacted_notes: 9,
           hs_lastmodifieddate: "2026-07-05T10:00:00Z",
         },
       ],

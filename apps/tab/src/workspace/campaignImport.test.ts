@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, campaignsFromMirror } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -201,12 +201,29 @@ describe("accountLiveContext", () => {
         },
       ],
       projects: [
-        { id: "ws-1", title: "HHFB Fall Acquisition", serviceLine: "", vertical: "", model: "", status: "in_progress", dueDate: "2026-11-20" },
+        {
+          id: "ws-1",
+          title: "HHFB Fall Acquisition",
+          serviceLine: "",
+          vertical: "",
+          model: "",
+          status: "in_progress",
+          dueDate: "2026-11-20",
+          team: ["Dana Whitfield", "Priya Raman"],
+          minutes30d: 720,
+          minutesRecent: 2400,
+          lastEntryDate: "2026-07-13",
+          people30d: 2,
+        },
         { id: "ws-2", title: "Unrelated Org Appeal", serviceLine: "", vertical: "", model: "" },
       ],
       milestones: [
         { id: "m1", projectId: "ws-1", title: "In-home date", dueDate: "2026-10-12", state: "not_started", hard: true },
         { id: "m2", projectId: "ws-1", title: "Kickoff", dueDate: "2026-06-01", state: "completed" },
+      ],
+      tasks: [
+        { id: "t1", projectId: "ws-1", title: "Package creative", state: "started", dueDate: "2026-08-15" },
+        { id: "t2", projectId: "ws-2", title: "Someone else's task", state: "started" },
       ],
       campaigns: [
         { id: "d1", title: "FY27 Renewal", clientName: "Harvest Hope Food Bank", stage: "contractsent", kind: "deal", closeDate: "2026-08-30T00:00:00Z" },
@@ -221,6 +238,10 @@ describe("accountLiveContext", () => {
     expect(ctx.projects[0]?.milestones[1]?.hard).toBe(true);
     expect(ctx.deals).toHaveLength(1);
     expect(ctx.deals[0]).toMatchObject({ title: "FY27 Renewal", won: false, closeDate: "2026-08-30" });
+    // Task tree, delivery team, and hours ride along — only THIS client's.
+    expect(ctx.projects[0]?.tasks).toEqual([{ title: "Package creative", state: "started", dueDate: "2026-08-15" }]);
+    expect(ctx.projects[0]?.team).toEqual(["Dana Whitfield", "Priya Raman"]);
+    expect(ctx.projects[0]).toMatchObject({ minutes30d: 720, people30d: 2, lastEntryDate: "2026-07-13" });
   });
 
   it("matches the workspace name to the CRM record case-insensitively", () => {
@@ -242,5 +263,26 @@ describe("accountLiveContext", () => {
     expect(ctx.crm).toBeUndefined();
     expect(ctx.projects).toHaveLength(0);
     expect(ctx.deals).toHaveLength(0);
+  });
+});
+
+describe("quiet signals", () => {
+  it("crmGoneQuiet: stale last touch with nothing booked → quiet", () => {
+    expect(crmGoneQuiet({ name: "X", lastTouch: "2026-06-01" }, TODAY)).toBe(true);
+    expect(crmGoneQuiet({ name: "X" }, TODAY)).toBe(true); // never touched
+  });
+
+  it("crmGoneQuiet: a future activity or a recent touch → not quiet", () => {
+    expect(crmGoneQuiet({ name: "X", lastTouch: "2026-06-01", nextActivity: "2026-07-28" }, TODAY)).toBe(false);
+    expect(crmGoneQuiet({ name: "X", lastTouch: "2026-07-14" }, TODAY)).toBe(false);
+    expect(crmGoneQuiet(undefined, TODAY)).toBe(false); // no record ≠ quiet
+  });
+
+  it("deliveryQuiet: hours pulled but zero in 30 days → quiet; no hours data → unknown, not quiet", () => {
+    const base = { title: "P", milestones: [], tasks: [] };
+    expect(deliveryQuiet([{ ...base, minutesRecent: 900, minutes30d: 0 }])).toBe(true);
+    expect(deliveryQuiet([{ ...base, minutesRecent: 900, minutes30d: 120 }])).toBe(false);
+    expect(deliveryQuiet([base])).toBe(false);
+    expect(deliveryQuiet([])).toBe(false);
   });
 });

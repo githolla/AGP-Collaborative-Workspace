@@ -67,21 +67,25 @@ it historical rather than actively maintained."
 | invoices / expenses | ⛔ grounding-doc-gated | Fee vs. pass-through margin math — needs the GL-coded COGS categories, rate semantics, hard/soft allocation flag from `kantata-tenant-grounding.md`. |
 | Subscribed Events | ◻ not yet | Real-time-ish change feed (9-day retention — poller must be deployed promptly once the events scope is granted). |
 
-## 4. Ranked next pulls (impact ÷ effort)
+## 4. Ranked next pulls (impact ÷ effort) — items 1–4 SHIPPED 2026-07-20
 
-1. **Kantata `time_entries` + `participations`** — turns the Copilot's estimates
-   from patterns into *calibrated history* and its casting from org-chart to
-   demonstrated capability. No PII concerns (internal staff), no financial
-   fields required (hours only, rates excluded until grounding doc).
-2. **HubSpot next/last-activity fields** (Tier 1 row 1) — the "gone quiet"
-   radar; trivial to add to the existing pull; feeds client-workspace
-   notifications and digests.
-3. **Full Kantata story tree** — enables the task-sync flagship when the
-   backend lands; the milestone pull already proved the shape.
-4. **Target-account/ICP fields** — one-line pull addition; makes the
-   book-of-business picker BD-aware.
-5. **Deal property export** (ask: run the same property-reference export for
-   Deals) — unlocks AGP-custom deal fields we can't see today.
+1. ✅ **Kantata `time_entries` + participants** — pulled and aggregated
+   server-side (minutes + dates only; rates stripped before the wire). Powers
+   the per-project delivery pulse (hrs/30d, people, last entry), the
+   "delivery quiet" flag, and the real team roster per workspace. Full
+   calibrated-estimate use in the Copilot remains open (needs story-level
+   join depth).
+2. ✅ **HubSpot next/last-activity fields** — `notes_last_contacted`,
+   `notes_next_activity_date`, `num_contacted_notes` pulled; "gone quiet"
+   radar live in the workspace header + account record card.
+3. ✅ **Full Kantata story tree** — `story_type=task` pulled (cap 1000,
+   recent-first); open tasks flow into the Project Plan through the same
+   review-gated import as campaigns, labeled "from Kantata".
+4. ✅ **Target-account/ICP fields** — `hs_ideal_customer_profile` +
+   `hs_is_target_account` pulled; ★ Target badge + sort boost in the
+   book-of-business picker; ICP fit row in the account record.
+5. ◻ **Deal property export** (ask: run the same property-reference export
+   for Deals) — unlocks AGP-custom deal fields we can't see today.
 
 ## 5. Asks that unblock the rest
 

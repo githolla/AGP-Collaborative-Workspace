@@ -204,12 +204,15 @@ export function App() {
         name: c.name,
         vertical: c.vertical,
         ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
+        ...(c.targetAccount ? { targetAccount: true } : {}),
+        ...(c.icpTier ? { icpTier: c.icpTier } : {}),
         workCount: campaignsFromMirror(mirror, c.name, today).length,
       }))
       .sort(
         (a, b) =>
           b.workCount - a.workCount ||
           Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
+          Number(b.targetAccount ?? false) - Number(a.targetAccount ?? false) ||
           a.name.localeCompare(b.name),
       );
     // liveStatus flips when the live mirror arrives — the trigger to recompute.
@@ -219,6 +222,23 @@ export function App() {
     route.view === "initiative" ? ws.initiatives.find((i) => i.id === route.id) ?? null : null;
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
   const selectedAccount = route.view === "account" ? ws.accounts.find((a) => a.id === route.id) ?? null : null;
+
+  // Everything the mirror knows about the open account, computed once per
+  // render of that workspace — the workspace renders it as plain props.
+  const selectedLiveCtx = selectedAccount ? accountLiveContext(loadMirror(), selectedAccount.clientName) : null;
+  const selectedTaskCandidates = selectedAccount && selectedLiveCtx
+    ? selectedLiveCtx.projects.flatMap((p) =>
+        p.tasks
+          .filter((t) => t.state !== "completed")
+          .filter((t) => !selectedAccount.tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase()))
+          .map((t) => ({
+            title: t.title,
+            status: (t.state === "started" || t.state === "in_progress" ? "doing" : "todo") as "doing" | "todo",
+            ...(t.dueDate ? { due: t.dueDate } : {}),
+            project: p.title,
+          })),
+      )
+    : [];
 
   const section = sectionOf(route);
   const listView = route.view === "clients" || route.view === "sandbox";
@@ -383,7 +403,9 @@ export function App() {
             onImportCampaigns={(selected) => ws.importCampaigns(selectedAccount.id, selected)}
             onRemoveCampaign={(campaignId) => ws.removeCampaign(selectedAccount.id, campaignId)}
             onClearCampaigns={() => ws.clearCampaigns(selectedAccount.id)}
-            liveContext={accountLiveContext(loadMirror(), selectedAccount.clientName)}
+            taskCandidates={selectedTaskCandidates}
+            onImportTasks={(selected) => ws.importTasks(selectedAccount.id, selected)}
+            {...(selectedLiveCtx ? { liveContext: selectedLiveCtx } : {})}
             liveDataOn={liveStatus.live}
           />
         )}

@@ -31,6 +31,8 @@ export interface RawMirrorPayload {
   kantataMilestones?: Record<string, unknown>[];
   kantataGroups?: Record<string, unknown>[];
   kantataCustomFields?: Record<string, unknown>[];
+  kantataTasks?: Record<string, unknown>[];
+  kantataHours?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -39,7 +41,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 3;
+const CACHE_SCHEMA = 4;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -65,6 +67,11 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
       intentSummary: str(c.hs_signals_summary),
       intentCount30d: num(c.hs_count_intent_signals_created_last_30_days),
       owner: str(c.ownername),
+      ...(str(c.notes_last_contacted) ? { lastTouch: str(c.notes_last_contacted).slice(0, 10) } : {}),
+      ...(str(c.notes_next_activity_date) ? { nextActivity: str(c.notes_next_activity_date).slice(0, 10) } : {}),
+      ...(c.num_contacted_notes != null && str(c.num_contacted_notes) !== "" ? { touches: num(c.num_contacted_notes) } : {}),
+      ...(str(c.hs_ideal_customer_profile) ? { icpTier: str(c.hs_ideal_customer_profile) } : {}),
+      ...(str(c.hs_is_target_account) === "true" ? { targetAccount: true } : {}),
     }));
 
   const nameOf = (id: unknown): string => clients.find((c) => c.id === String(id))?.name ?? "";
@@ -85,6 +92,10 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         const fieldsFor = (p.kantataCustomFields ?? []).filter((f) => String(f.subject_id) === id);
         const serviceLine = str(fieldsFor.find((f) => /service\s*line/i.test(str(f.name)))?.value);
         const vertical = str(fieldsFor.find((f) => /vertical|industry/i.test(str(f.name)))?.value);
+        const team = Array.isArray(w.participant_names)
+          ? (w.participant_names as unknown[]).map(String).filter((n) => n.length > 0)
+          : [];
+        const hoursRow = (p.kantataHours ?? []).find((h) => String(h.workspace_id) === id);
         return {
           id,
           title: str(w.title),
@@ -95,8 +106,26 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
           ...(str(w.due_date) ? { dueDate: str(w.due_date) } : {}),
           ...(str(w.status) ? { status: str(w.status) } : {}),
           ...(clientGroup ? { clientGroup } : {}),
+          ...(team.length > 0 ? { team } : {}),
+          ...(hoursRow
+            ? {
+                minutes30d: num(hoursRow.minutes_30d),
+                minutesRecent: num(hoursRow.minutes_recent),
+                people30d: num(hoursRow.people_30d),
+                ...(str(hoursRow.last_entry_date) ? { lastEntryDate: str(hoursRow.last_entry_date) } : {}),
+              }
+            : {}),
         };
       }),
+    tasks: (p.kantataTasks ?? [])
+      .filter((t) => str(t.title).trim().length > 0)
+      .map((t) => ({
+        id: String(t.id),
+        projectId: String(t.workspace_id),
+        title: str(t.title),
+        state: str(t.state),
+        ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
+      })),
     campaigns: p.deals
       .filter((d) => str(d.dealname).trim().length > 0)
       .map((d) => ({

@@ -224,6 +224,22 @@ export interface MirrorProject {
    * heuristics needed when present.
    */
   clientGroup?: string;
+  /** Real delivery team — Kantata workspace participants. */
+  team?: string[];
+  /** Time logged in MINUTES (display converts to hours); rates never pulled. */
+  minutes30d?: number;
+  minutesRecent?: number;
+  lastEntryDate?: string;
+  people30d?: number;
+}
+
+/** Kantata task (story_type "task") — feeds the review-gated task import. */
+export interface MirrorTask {
+  id: string;
+  projectId: string;
+  title: string;
+  state: string;
+  dueDate?: string;
 }
 
 /** Kantata milestone (story_type "milestone") — the dates client work hangs on. */
@@ -258,6 +274,13 @@ export interface MirrorClient {
   intentSummary?: string;
   intentCount30d?: number;
   owner?: string;
+  /** Relationship-activity fields — the "gone quiet" radar. */
+  lastTouch?: string;
+  nextActivity?: string;
+  touches?: number;
+  /** BD-fit fields: HubSpot ICP tier + target-account flag. */
+  icpTier?: string;
+  targetAccount?: boolean;
 }
 
 export interface AgpMirror {
@@ -265,6 +288,8 @@ export interface AgpMirror {
   projects: MirrorProject[];
   campaigns: MirrorCampaign[];
   milestones: MirrorMilestone[];
+  /** Optional so older cached mirrors and minimal test fixtures stay valid. */
+  tasks?: MirrorTask[];
 }
 
 /**
@@ -292,14 +317,45 @@ export function loadMirror(): AgpMirror {
     ...(c.client_health_index__c ? { healthIndex: String(c.client_health_index__c) } : {}),
     ...(c.renewal ? { renewal: String(c.renewal) } : {}),
     ...(c.gdna_subscription_level ? { gdnaLevel: String(c.gdna_subscription_level) } : {}),
+    ...(c.notes_last_contacted ? { lastTouch: String(c.notes_last_contacted) } : {}),
+    ...(c.notes_next_activity_date ? { nextActivity: String(c.notes_next_activity_date) } : {}),
+    ...(c.num_contacted_notes != null ? { touches: Number(c.num_contacted_notes) } : {}),
+    ...(c.hs_ideal_customer_profile ? { icpTier: String(c.hs_ideal_customer_profile) } : {}),
+    ...(c.hs_is_target_account === "true" || c.hs_is_target_account === true ? { targetAccount: true } : {}),
   }));
   const nameOf = (id: unknown) => clients.find((c) => c.id === String(id))?.name ?? "";
+  // Delivery team per workspace from the allocation plan + user roster.
+  const userName = (id: unknown) => {
+    const u = (k.user ?? []).find((x) => String(x.id) === String(id));
+    return u ? String(u.full_name) : "";
+  };
+  const teamFor = (wsId: string): string[] => [
+    ...new Set(
+      (k.allocation ?? [])
+        .filter((a) => String(a.workspace_id) === wsId)
+        .map((a) => userName(a.user_id))
+        .filter(Boolean),
+    ),
+  ];
+  // Hours per workspace from time entries — minutes only, rates ignored.
+  const cutoff30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const hoursFor = (wsId: string) => {
+    const entries = (k.time_entry ?? []).filter((t) => String(t.workspace_id) === wsId);
+    const mins = (list: typeof entries) => list.reduce((s, t) => s + (Number(t.time_in_minutes) || 0), 0);
+    const recent = entries.filter((t) => String(t.date_performed ?? "") >= cutoff30);
+    const last = entries.map((t) => String(t.date_performed ?? "")).sort().at(-1) ?? "";
+    return {
+      ...(entries.length > 0 ? { minutesRecent: mins(entries), minutes30d: mins(recent), people30d: new Set(recent.map((t) => String(t.user_id))).size } : {}),
+      ...(last ? { lastEntryDate: last } : {}),
+    };
+  };
   return {
     clients,
     projects: (k.workspace ?? []).map((w) => {
       // Fixture models the real join directly: workspace_group_company_id
       // points at the HubSpot company.
       const joined = clients.find((c) => c.id === String(w.workspace_group_company_id ?? ""));
+      const team = teamFor(String(w.id));
       return {
         id: String(w.id),
         title: String(w.title),
@@ -310,8 +366,19 @@ export function loadMirror(): AgpMirror {
         ...(w.due_date ? { dueDate: String(w.due_date) } : {}),
         ...(w.status ? { status: String(w.status) } : {}),
         ...(joined ? { clientGroup: joined.name } : {}),
+        ...(team.length > 0 ? { team } : {}),
+        ...hoursFor(String(w.id)),
       };
     }),
+    tasks: (k.story ?? [])
+      .filter((s) => s.story_type === "task")
+      .map((s) => ({
+        id: String(s.id),
+        projectId: String(s.workspace_id),
+        title: String(s.title),
+        state: String(s.state ?? ""),
+        ...(s.due_date ? { dueDate: String(s.due_date) } : {}),
+      })),
     milestones: (k.story ?? [])
       .filter((s) => s.story_type === "milestone")
       .map((s) => ({

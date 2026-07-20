@@ -151,6 +151,58 @@ describe("mapLivePayload", () => {
     expect(mirror.campaigns[0]?.closeDate).toBe("2026-08-30T12:00:00Z");
   });
 
+  it("maps activity + BD-fit company fields (gone-quiet radar, ICP)", () => {
+    const mirror = mapLivePayload(
+      payload({
+        companies: [
+          {
+            id: "1",
+            name: "Harvest Hope",
+            notes_last_contacted: "2026-07-14T09:00:00Z",
+            notes_next_activity_date: "2026-07-28T15:00:00Z",
+            num_contacted_notes: "42",
+            hs_ideal_customer_profile: "tier_1",
+            hs_is_target_account: "true",
+          },
+        ],
+      }),
+    );
+    expect(mirror.clients[0]).toMatchObject({
+      lastTouch: "2026-07-14",
+      nextActivity: "2026-07-28",
+      touches: 42,
+      icpTier: "tier_1",
+      targetAccount: true,
+    });
+  });
+
+  it("maps the Kantata task tree, delivery team, and server-aggregated hours", () => {
+    const mirror = mapLivePayload(
+      payload({
+        kantataProjects: [
+          { id: "900", title: "Fall Mail", status: "In Progress", participant_names: ["Dana Whitfield", "Priya Raman"] },
+        ],
+        kantataTasks: [
+          { id: "t1", workspace_id: 900, title: "Package creative", state: "started", due_date: "2026-08-15T00:00:00Z" },
+          { id: "t2", workspace_id: 900, title: "", state: "started" }, // nameless dropped
+        ],
+        kantataHours: [
+          { workspace_id: "900", minutes_30d: 720, minutes_recent: 2400, last_entry_date: "2026-07-13", people_30d: 2 },
+        ],
+      }),
+    );
+    expect(mirror.tasks).toEqual([
+      { id: "t1", projectId: "900", title: "Package creative", state: "started", dueDate: "2026-08-15" },
+    ]);
+    expect(mirror.projects[0]).toMatchObject({
+      team: ["Dana Whitfield", "Priya Raman"],
+      minutes30d: 720,
+      minutesRecent: 2400,
+      lastEntryDate: "2026-07-13",
+      people30d: 2,
+    });
+  });
+
   it("returns an empty mirror for an empty payload", () => {
     const mirror = mapLivePayload(payload({}));
     expect(mirror.clients).toHaveLength(0);

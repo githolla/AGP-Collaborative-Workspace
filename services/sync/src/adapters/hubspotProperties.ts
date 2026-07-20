@@ -36,9 +36,14 @@ export const HUBSPOT_COMPANY_PROPERTIES = [
   "hs_signals_summary",
   "hs_count_intent_signals_created_last_30_days",
   "hs_latest_intent_signal_occurred_at",
-  // Activity + change tracking
+  // Activity + change tracking — the "gone quiet" radar
   "hs_last_sales_activity_type",
   "notes_last_contacted",
+  "notes_next_activity_date",
+  "num_contacted_notes",
+  // BD fit
+  "hs_ideal_customer_profile",
+  "hs_is_target_account",
   "num_associated_deals",
   "hs_lastmodifieddate",
 ] as const;

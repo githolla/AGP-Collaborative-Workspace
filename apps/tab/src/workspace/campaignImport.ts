@@ -183,6 +183,12 @@ export interface LiveMilestone {
   hard?: boolean;
 }
 
+export interface LiveTask {
+  title: string;
+  state: string;
+  dueDate?: string;
+}
+
 export interface LiveProject {
   title: string;
   status?: string;
@@ -191,6 +197,15 @@ export interface LiveProject {
   clientGroup?: string;
   /** Every milestone Kantata has for this project, date-sorted. */
   milestones: LiveMilestone[];
+  /** Kantata task tree for this project (open + done). */
+  tasks: LiveTask[];
+  /** Real delivery team — Kantata participants. */
+  team?: string[];
+  /** Time logged, minutes (rates never pulled). */
+  minutes30d?: number;
+  minutesRecent?: number;
+  lastEntryDate?: string;
+  people30d?: number;
 }
 
 export interface LiveDeal {
@@ -212,6 +227,11 @@ export interface AccountCrmRecord {
   intentSummary?: string;
   intentCount30d?: number;
   owner?: string;
+  lastTouch?: string;
+  nextActivity?: string;
+  touches?: number;
+  icpTier?: string;
+  targetAccount?: boolean;
 }
 
 export interface AccountLiveContext {
@@ -236,6 +256,14 @@ export function accountLiveContext(mirror: AgpMirror, clientName: string): Accou
       .filter((m) => m.projectId === p.id)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
       .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
+    tasks: (mirror.tasks ?? [])
+      .filter((t) => t.projectId === p.id)
+      .map((t) => ({ title: t.title, state: t.state, ...(t.dueDate ? { dueDate: t.dueDate } : {}) })),
+    ...(p.team && p.team.length > 0 ? { team: p.team } : {}),
+    ...(p.minutes30d != null ? { minutes30d: p.minutes30d } : {}),
+    ...(p.minutesRecent != null ? { minutesRecent: p.minutesRecent } : {}),
+    ...(p.lastEntryDate ? { lastEntryDate: p.lastEntryDate } : {}),
+    ...(p.people30d != null ? { people30d: p.people30d } : {}),
   }));
 
   const deals: LiveDeal[] = mirror.campaigns
@@ -259,8 +287,35 @@ export function accountLiveContext(mirror: AgpMirror, clientName: string): Accou
         ...(client.intentSummary ? { intentSummary: client.intentSummary } : {}),
         ...(client.intentCount30d != null ? { intentCount30d: client.intentCount30d } : {}),
         ...(client.owner ? { owner: client.owner } : {}),
+        ...(client.lastTouch ? { lastTouch: client.lastTouch.slice(0, 10) } : {}),
+        ...(client.nextActivity ? { nextActivity: client.nextActivity.slice(0, 10) } : {}),
+        ...(client.touches != null ? { touches: client.touches } : {}),
+        ...(client.icpTier ? { icpTier: client.icpTier } : {}),
+        ...(client.targetAccount ? { targetAccount: true } : {}),
       }
     : undefined;
 
   return { ...(crm ? { crm } : {}), projects, deals };
+}
+
+/**
+ * "Gone quiet" (relationship): no future activity is booked AND the last
+ * logged touch is 30+ days old (or missing entirely). CRM-activity signal —
+ * internal surfaces only.
+ */
+export function crmGoneQuiet(crm: AccountCrmRecord | undefined, today: string): boolean {
+  if (!crm) return false;
+  if (crm.nextActivity && crm.nextActivity >= today) return false;
+  const cutoff = new Date(new Date(`${today}T00:00:00Z`).getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+  return !crm.lastTouch || crm.lastTouch < cutoff;
+}
+
+/**
+ * "Delivery quiet": Kantata projects exist and hours data was pulled, but
+ * nobody has logged time in 30 days — work sold but not moving.
+ */
+export function deliveryQuiet(projects: LiveProject[]): boolean {
+  const withHours = projects.filter((p) => p.minutesRecent != null || p.minutes30d != null);
+  if (withHours.length === 0) return false;
+  return withHours.every((p) => (p.minutes30d ?? 0) === 0);
 }

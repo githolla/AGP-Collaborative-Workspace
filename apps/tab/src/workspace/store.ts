@@ -695,6 +695,40 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Review-gated Kantata task import — same contract as campaigns: the
+   * user picked these in the review panel; merge by title, never duplicate. */
+  const importTasks = useCallback(
+    (id: string, selected: { title: string; status: TaskStatus; due?: string }[]) => {
+      if (selected.length === 0) return;
+      mutateAccount(id, (a) => {
+        const tasks = [...a.tasks];
+        let added = 0;
+        for (const t of selected) {
+          if (tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase())) continue;
+          tasks.push({
+            id: newId("task"),
+            title: t.title,
+            status: t.status,
+            ...(t.due ? { due: t.due } : {}),
+            label: "from Kantata",
+            source: "manual" as const,
+            createdAt: new Date().toISOString(),
+          });
+          added += 1;
+        }
+        if (added === 0) return a;
+        const summary = `${added} task${added === 1 ? "" : "s"} imported from Kantata — your selection.`;
+        return {
+          ...a,
+          tasks,
+          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
+          activity: [...a.activity, activityEvent(summary, "task")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /** Remove one campaign (e.g. a wrong import). */
   const removeCampaign = useCallback(
     (id: string, campaignId: string) => {
@@ -921,6 +955,7 @@ export function useWorkspace() {
     createAccount,
     createAccountFromMirror,
     importCampaigns,
+    importTasks,
     removeCampaign,
     clearCampaigns,
     addAccountTask,
