@@ -96,6 +96,101 @@ function glyphFor(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Setup checklist — a fresh workspace walks you through going live. Rows
+// check themselves off as the workspace fills in; the card disappears when
+// everything's done.
+// ---------------------------------------------------------------------------
+
+function SetupChecklist({
+  account,
+  tasks,
+  candidatesCount,
+  goTo,
+  onOpenReview,
+}: {
+  account: ClientAccount;
+  tasks: Task[];
+  candidatesCount: number;
+  goTo: (t: ClientTab) => void;
+  onOpenReview?: () => void;
+}) {
+  const steps = [
+    {
+      key: "import",
+      done: account.campaigns.length > 0,
+      label:
+        account.campaigns.length > 0
+          ? `Campaigns imported (${account.campaigns.length})`
+          : candidatesCount > 0
+            ? `Import this client's work — ${candidatesCount} campaign${candidatesCount === 1 ? "" : "s"} matched in Kantata & HubSpot`
+            : "No Kantata/HubSpot work matched yet — add campaigns as they start",
+      action: candidatesCount > 0 && onOpenReview ? { label: "Review & import", onClick: onOpenReview } : null,
+    },
+    {
+      key: "access",
+      done: account.externals.length > 0,
+      label:
+        account.externals.length > 0
+          ? `Client & contractor access set (${account.externals.length})`
+          : "Give the client (and any contractors) access",
+      action: { label: "Open access", onClick: () => goTo("access") },
+    },
+    {
+      key: "tasks",
+      done: tasks.length > 0,
+      label: tasks.length > 0 ? `Plan started (${tasks.length} task${tasks.length === 1 ? "" : "s"})` : "Add the first tasks with owners and due dates",
+      action: { label: "Open plan", onClick: () => goTo("plan") },
+    },
+    {
+      key: "files",
+      done: account.files.length > 0,
+      label: account.files.length > 0 ? `Files linked (${account.files.length})` : "Link the real files (SharePoint) behind the core docs",
+      action: { label: "Open files", onClick: () => goTo("files") },
+    },
+  ];
+  if (steps.every((s) => s.done)) return null;
+  const doneCount = steps.filter((s) => s.done).length;
+
+  return (
+    <div style={{ ...card, borderColor: navy, borderWidth: 1.5 }}>
+      <SectionTitle right={<span style={{ fontSize: 11, color: T.inkMuted }}>{doneCount}/{steps.length} done</span>}>
+        Get this workspace live
+      </SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {steps.map((s) => (
+          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${T.grid}` }}>
+            <span
+              aria-hidden
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                flexShrink: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                fontWeight: 800,
+                background: s.done ? "#e3f4ec" : "#f0efec",
+                color: s.done ? "#116a43" : T.inkMuted,
+              }}
+            >
+              {s.done ? "✓" : "○"}
+            </span>
+            <span style={{ flex: 1, fontSize: 12.5, color: s.done ? T.inkMuted : T.ink, fontWeight: s.done ? 400 : 600 }}>{s.label}</span>
+            {!s.done && s.action && (
+              <button type="button" className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={s.action.onClick}>
+                {s.action.label} ›
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
 
@@ -800,7 +895,11 @@ export function ClientWorkspace({
   onOffboardEverywhere: (personName: string) => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
-  const [reviewOpen, setReviewOpen] = useState(false);
+  // A fresh workspace with matched work opens the review panel by itself —
+  // the next action should be on screen, not hidden behind a corner button.
+  const [reviewOpen, setReviewOpen] = useState(
+    () => importCandidates.length > 0 && account.campaigns.length === 0,
+  );
   // Mirrored internal tasks get a display label so their origin is visible.
   const tasks: Task[] = sharedTasks.map(({ task, fromInternal }) =>
     fromInternal && !task.label ? { ...task, label: "shared from internal plan" } : task,
@@ -857,7 +956,20 @@ export function ClientWorkspace({
         />
       )}
 
-      {tab === "home" && <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />}
+      {tab === "home" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {onImportCampaigns && (
+            <SetupChecklist
+              account={account}
+              tasks={tasks}
+              candidatesCount={importCandidates.length}
+              goTo={setTab}
+              onOpenReview={() => setReviewOpen(true)}
+            />
+          )}
+          <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />
+        </div>
+      )}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
