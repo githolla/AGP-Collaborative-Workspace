@@ -25,7 +25,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 | Requirement | Pri | Status | Where / how — and deltas that make it better |
 |---|---|---|---|
 | Workspace per client/project, no cross-visibility | Must | 🔨 + 🧭 | Each initiative/idea is an isolated workspace object today; true access isolation needs the auth layer (Supabase RLS keyed to Entra ID — schema already exists in `supabase/migrations/0006_rls.sql`). |
-| Workspace templates | Must | ✅ **better** | Templates aren't static channel/page lists — the Copilot *generates* the workspace from a sentence: 12-factor ROI template + dated phase plan + per-person work packages, per engagement type. A blank mode exists when humans want to shape it themselves. |
+| Workspace templates | Must | ✅ **better** | Three layers (2026-07-20): every client workspace is created from the standard template; **“Start from a template” on the Project Plan applies AGP service-line playbooks** (Direct Mail, Digital Fundraising, GivingDNA Onboarding, Mid-Major Gifts Sprint) as dated task skeletons from a chosen start date, labeled and dedupe-safe; and in the Sandbox the Copilot *generates* a workspace from a sentence. |
 | Home / landing view (find updates, tasks, files in 60s) | Must | 🔨 | "What's new" feed at the top of every workspace + task summary + the decision numbers on the right rail. Global home = portfolio with per-card status. |
 
 ### Access control, external users & governance

@@ -124,6 +124,10 @@ export function Tour({
         onClose();
         return;
       }
+      // Enter on a focused control means THAT control — Back must go back,
+      // Skip must skip. Hijacking it globally made the tour "skip ahead".
+      const onInteractive = !!(e.target as HTMLElement | null)?.closest?.("button, [href], input, select, textarea");
+      if (e.key === "Enter" && onInteractive) return;
       if ((e.key === "ArrowRight" || e.key === "Enter") && step < steps.length - 1) {
         e.preventDefault();
         onStep(step + 1);

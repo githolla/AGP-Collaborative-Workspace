@@ -448,6 +448,7 @@ export function App() {
               ws.setAccountArchived(selectedAccount.id, true);
               setRoute({ view: "clients" });
             }}
+            onApplyTemplate={(templateKey, startDate) => ws.applyTemplate(selectedAccount.id, templateKey, startDate)}
           />
         )}
 

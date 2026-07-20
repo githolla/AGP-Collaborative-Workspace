@@ -7,6 +7,7 @@ import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { crmGoneQuiet, deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
+import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
@@ -453,6 +454,52 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Template picker (Collab Hub Must: "apply a template for consistent set
+ * up"): AGP's service-line playbooks as dated task skeletons. Pick, set a
+ * start date, see the shape, apply — re-applying never duplicates.
+ */
+function TemplatePicker({ onApply }: { onApply: (templateKey: string, startDate: string) => void }) {
+  const [key, setKey] = useState(TEMPLATES[0]?.key ?? "");
+  const [start, setStart] = useState(AS_OF_TODAY());
+  const tpl = TEMPLATES.find((t) => t.key === key);
+  if (!tpl) return null;
+  const preview = instantiateTemplate(tpl, start);
+  const weeks = Math.max(1, Math.round((tpl.tasks[tpl.tasks.length - 1]?.offsetDays ?? 0) / 7));
+
+  return (
+    <div style={card}>
+      <SectionTitle
+        right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>consistent set up — the same playbook every time</span>}
+      >
+        Start from a template
+      </SectionTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="select" value={key} onChange={(e) => setKey(e.target.value)} aria-label="Template">
+          {TEMPLATES.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.name} ({t.tasks.length} tasks · ~{Math.max(1, Math.round((t.tasks[t.tasks.length - 1]?.offsetDays ?? 0) / 7))} wks)
+            </option>
+          ))}
+        </select>
+        <label style={{ fontSize: 11.5, color: T.inkSecondary, display: "flex", alignItems: "center", gap: 6 }}>
+          starting
+          <input type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} style={{ padding: "7px 10px", fontSize: 12 }} />
+        </label>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => onApply(tpl.key, start)}>
+          Apply — add {tpl.tasks.length} dated tasks →
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: T.inkSecondary, marginTop: 8, lineHeight: 1.5 }}>
+        {tpl.description} Over ~{weeks} weeks:{" "}
+        {preview.slice(0, 3).map((t) => `${t.title} (${fmtDay(t.due)})`).join(" · ")}
+        {preview.length > 3 ? ` · +${preview.length - 3} more` : ""}. Tasks land labeled “{tpl.name}” —
+        assign owners as the team firms up; already-existing titles are never duplicated.
       </div>
     </div>
   );
@@ -1282,6 +1329,7 @@ export function ClientWorkspace({
   linkSuggestions = [],
   onRelink,
   onArchive,
+  onApplyTemplate,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
@@ -1303,6 +1351,8 @@ export function ClientWorkspace({
   onRelink?: (name: string) => void;
   /** Archive: hide from the list, keep all history (auditability). */
   onArchive?: () => void;
+  /** Apply a service-line template: dated task skeleton from a start date. */
+  onApplyTemplate?: (templateKey: string, startDate: string) => void;
   onImportCampaigns?: (selected: ImportCandidate[]) => void;
   onRemoveCampaign?: (campaignId: string) => void;
   onClearCampaigns?: () => void;
@@ -1482,6 +1532,7 @@ export function ClientWorkspace({
       )}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} />}
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button

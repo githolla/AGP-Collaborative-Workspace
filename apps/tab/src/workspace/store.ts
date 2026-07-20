@@ -10,6 +10,7 @@ import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
 import { tasksFromPlan } from "./planner.js";
+import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
 
 /**
@@ -846,6 +847,42 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Apply a service-line template inside a workspace (Collab Hub Must:
+   * "apply a template for consistent set up") — a dated task skeleton from
+   * the chosen start date. Merge-by-title, so re-applying never duplicates. */
+  const applyTemplate = useCallback(
+    (id: string, templateKey: string, startDate: string) => {
+      const tpl = TEMPLATES.find((t) => t.key === templateKey);
+      if (!tpl) return;
+      mutateAccount(id, (a) => {
+        const tasks = [...a.tasks];
+        let added = 0;
+        for (const draft of instantiateTemplate(tpl, startDate)) {
+          if (tasks.some((e) => e.title.toLowerCase() === draft.title.toLowerCase())) continue;
+          tasks.push({
+            id: newId("task"),
+            title: draft.title,
+            due: draft.due,
+            label: tpl.name,
+            status: "todo" as const,
+            source: "manual" as const,
+            createdAt: new Date().toISOString(),
+          });
+          added += 1;
+        }
+        if (added === 0) return a;
+        const summary = `Template applied — ${tpl.name} (${added} dated task${added === 1 ? "" : "s"})`;
+        return {
+          ...a,
+          tasks,
+          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
+          activity: [...a.activity, activityEvent(summary, "task")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /** Archive/restore a client workspace — history retained, hidden from the
    * list (Collab Hub "Archiving": close projects, keep auditability). */
   const setAccountArchived = useCallback(
@@ -1024,6 +1061,7 @@ export function useWorkspace() {
     setAccountTaskStatus,
     postAccountMessage,
     setAccountArchived,
+    applyTemplate,
     addAccountLink,
     addExternal,
     removeExternal,
