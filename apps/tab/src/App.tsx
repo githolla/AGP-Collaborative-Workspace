@@ -69,7 +69,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     key: "welcome",
     route: "",
-    title: "Welcome to the prototype",
+    title: "Welcome to the workspace",
     body: "A 60-second spotlight tour: the client workspace built from Cara's wireframe, and the Sandbox where the AI helps ideas become plans. Next (or →) to continue, Esc to bail any time.",
   },
   {
@@ -195,7 +195,7 @@ export function App() {
             {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
             {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
           </span>
-          <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the prototype">
+          <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
             ✦ Tour
           </button>
           <SearchBox initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />

@@ -3,7 +3,7 @@ import { T } from "../theme.js";
 
 /**
  * Spotlight tour: dims the app and walks through it one highlighted area at a
- * time — built for demoing the prototype (auto-starts on first visit, restarts
+ * time — built for demoing the workspace (auto-starts on first visit, restarts
  * from the nav "Tour" button). Steps can navigate by hash; the target is found
  * by [data-tour] selector after the route renders. A missing target degrades
  * to a centered card, never a broken tour.
