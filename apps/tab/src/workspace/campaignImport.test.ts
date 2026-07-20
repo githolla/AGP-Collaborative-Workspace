@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, isInBook, suggestClients } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -263,6 +263,28 @@ describe("accountLiveContext", () => {
     expect(ctx.crm).toBeUndefined();
     expect(ctx.projects).toHaveLength(0);
     expect(ctx.deals).toHaveLength(0);
+  });
+});
+
+describe("link rescue", () => {
+  const book = mirror({
+    clients: [
+      { id: "1", name: "Church World Service", vertical: "" },
+      { id: "2", name: "Harvest Hope of the Carolinas", vertical: "" },
+      { id: "3", name: "Totally Different Org", vertical: "" },
+    ],
+  });
+
+  it("isInBook: case/punctuation-insensitive membership", () => {
+    expect(isInBook(book, "church world service")).toBe(true);
+    expect(isInBook(book, "Church World Service, Inc.")).toBe(false); // different name is different
+    expect(isInBook(book, "ABC Foodbank of the Southeast")).toBe(false);
+  });
+
+  it("suggestClients: finds the near-miss, skips unrelated, ranks containment first", () => {
+    expect(suggestClients(book, "Church World Services")).toEqual(["Church World Service"]); // typo rescued
+    expect(suggestClients(book, "Harvest Hope Food Bank")).toEqual(["Harvest Hope of the Carolinas"]); // shared distinctive words
+    expect(suggestClients(book, "Riverside Animal Shelter")).toEqual([]); // nothing similar → say so honestly
   });
 });
 

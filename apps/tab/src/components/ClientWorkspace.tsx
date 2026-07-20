@@ -214,6 +214,71 @@ const prettyValue = (v: string) => {
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
 
+/**
+ * Link doctor — when live data is on but a workspace attached to nothing,
+ * this banner (on EVERY tab) says exactly what was pulled, what didn't
+ * match, and how to fix it. A blank workspace with no explanation is a
+ * product failure; this is the anti-blank.
+ */
+function LinkDoctor({
+  context,
+  clientName,
+  suggestions,
+  onRelink,
+}: {
+  context: AccountLiveContext;
+  clientName: string;
+  suggestions: string[];
+  onRelink?: ((name: string) => void) | undefined;
+}) {
+  const { crm, projects, deals, book } = context;
+  if (projects.length > 0 || deals.length > 0) return null; // linked + matched — healthy
+  const pulled = `Pulled live: ${book.clients} clients · ${book.projects} projects · ${book.milestones} milestones · ${book.tasks} tasks · ${book.deals} deals.`;
+
+  return (
+    <div style={{ background: "#faf3dc", border: "1.5px solid #e7c66f", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#6b5410", lineHeight: 1.6 }}>
+      {!crm ? (
+        <>
+          <strong>This workspace isn’t linked to the live book.</strong> No HubSpot company is
+          named “{clientName}” — it was likely created from demo data, or the name differs from
+          the CRM. {pulled}
+          {suggestions.length > 0 && (
+            <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+              <span style={{ fontWeight: 700 }}>Closest real clients:</span>
+              {suggestions.map((s) => (
+                <button key={s} type="button" className="btn btn-primary btn-sm" onClick={() => onRelink?.(s)}>
+                  Link to “{s}” →
+                </button>
+              ))}
+            </span>
+          )}
+          <span style={{ display: "block", marginTop: 6, fontSize: 11.5 }}>
+            {suggestions.length === 0 ? "No similar name found in the book. " : ""}
+            Real clients can be set up from the <strong>Clients</strong> page — pick from the live
+            book there. If this client genuinely isn’t in HubSpot yet, keep working; data pulls
+            attach as soon as it is.
+          </span>
+        </>
+      ) : (
+        <>
+          <strong>“{clientName}” is in HubSpot, but no Kantata work matched it.</strong> {pulled}{" "}
+          Matching uses (1) the Kantata workspace group named for the client, (2) the HubSpot{" "}
+          <strong>Client Abbreviation</strong> as a title prefix (“ARMS: …”), or (3) the client’s
+          name in the project title.
+          {!crm.abbreviation && (
+            <span style={{ display: "block", marginTop: 6 }}>
+              ⚠ The <strong>Client Abbreviation</strong> field is empty for this company in
+              HubSpot — that’s the strongest signal, since AGP’s Kantata titles lead with it. Fill
+              it (e.g. “{clientName.split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 5)}”), then
+              refresh with the ⟳ pill.
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function FactRow({ label, value }: { label: string; value?: string | undefined }) {
   return (
     <div style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: `1px solid ${T.grid}` }}>
@@ -1176,6 +1241,8 @@ export function ClientWorkspace({
   onClearCampaigns,
   liveContext,
   liveDataOn = false,
+  linkSuggestions = [],
+  onRelink,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
@@ -1191,6 +1258,10 @@ export function ClientWorkspace({
   liveContext?: AccountLiveContext;
   /** True when the mirror is the live pull, not demo data. */
   liveDataOn?: boolean;
+  /** Closest live-book client names when this workspace matched nothing. */
+  linkSuggestions?: string[];
+  /** One-click relink: rename this workspace to a real CRM client. */
+  onRelink?: (name: string) => void;
   onImportCampaigns?: (selected: ImportCandidate[]) => void;
   onRemoveCampaign?: (campaignId: string) => void;
   onClearCampaigns?: () => void;
@@ -1287,6 +1358,10 @@ export function ClientWorkspace({
           })}
         </div>
       </div>
+
+      {liveDataOn && liveContext && (
+        <LinkDoctor context={liveContext} clientName={account.clientName} suggestions={linkSuggestions} onRelink={onRelink} />
+      )}
 
       {reviewOpen && onImportCampaigns && onRemoveCampaign && onClearCampaigns && (
         <ImportReview

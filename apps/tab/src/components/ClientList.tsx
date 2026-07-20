@@ -221,6 +221,7 @@ export function ClientList({
   accounts,
   candidates = [],
   candidatesLive = false,
+  unlinkedNames = [],
   onOpen,
   onCreate,
   onCreateFromClient,
@@ -230,6 +231,8 @@ export function ClientList({
   candidates?: ClientCandidate[];
   /** True when the candidate list comes from the live pull, not demo data. */
   candidatesLive?: boolean;
+  /** Workspace names with NO matching company in the live book (demo leftovers). */
+  unlinkedNames?: string[];
   onOpen: (id: string) => void;
   onCreate: (clientName: string) => void;
   onCreateFromClient?: (clientName: string) => void;
@@ -251,7 +254,17 @@ export function ClientList({
               className="card card-hover"
               style={{ display: "flex", flexDirection: "column", gap: 8 }}
             >
-              <span style={{ fontSize: 14, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>{a.clientName}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>
+                {a.clientName}
+                {unlinkedNames.includes(a.clientName) && (
+                  <span
+                    title="No company with this name exists in the live HubSpot book — open the workspace to link it to a real client (or it's a demo leftover)."
+                    style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", marginLeft: 8, textTransform: "uppercase", letterSpacing: 0.4, verticalAlign: "middle" }}
+                  >
+                    ⚠ not in CRM
+                  </span>
+                )}
+              </span>
               <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 <TagChip>{a.campaigns.filter((c) => c.status === "active").length} active campaigns</TagChip>
                 <TagChip>{a.externals.length} external</TagChip>

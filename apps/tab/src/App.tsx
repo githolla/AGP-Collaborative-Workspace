@@ -12,7 +12,7 @@ import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
-import { accountLiveContext, campaignsFromMirror } from "./workspace/campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import { T } from "./theme.js";
 
@@ -223,9 +223,21 @@ export function App() {
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
   const selectedAccount = route.view === "account" ? ws.accounts.find((a) => a.id === route.id) ?? null : null;
 
+  // Workspaces pointing at names that don't exist in the live book (demo
+  // leftovers, misspellings) — badged on the Clients list.
+  const unlinkedNames = useMemo(() => {
+    if (!liveStatus.live) return [];
+    const mirror = loadMirror();
+    return ws.accounts.filter((a) => !a.archived && !isInBook(mirror, a.clientName)).map((a) => a.clientName);
+  }, [ws.accounts, liveStatus]);
+
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
   const selectedLiveCtx = selectedAccount ? accountLiveContext(loadMirror(), selectedAccount.clientName) : null;
+  const selectedLinkSuggestions =
+    selectedAccount && selectedLiveCtx && liveStatus.live && !selectedLiveCtx.crm
+      ? suggestClients(loadMirror(), selectedAccount.clientName)
+      : [];
   const selectedTaskCandidates = selectedAccount && selectedLiveCtx
     ? selectedLiveCtx.projects.flatMap((p) =>
         p.tasks
@@ -297,6 +309,7 @@ export function App() {
               accounts={ws.accounts.filter((a) => !a.archived)}
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
+              unlinkedNames={unlinkedNames}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
               onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
@@ -407,6 +420,8 @@ export function App() {
             onImportTasks={(selected) => ws.importTasks(selectedAccount.id, selected)}
             {...(selectedLiveCtx ? { liveContext: selectedLiveCtx } : {})}
             liveDataOn={liveStatus.live}
+            linkSuggestions={selectedLinkSuggestions}
+            onRelink={(name) => ws.renameAccount(selectedAccount.id, name)}
           />
         )}
 

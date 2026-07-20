@@ -239,6 +239,9 @@ export interface AccountLiveContext {
   crm?: AccountCrmRecord;
   projects: LiveProject[];
   deals: LiveDeal[];
+  /** What the whole mirror holds — so a zero-match workspace can show the
+   * denominator ("422 projects pulled, 0 matched") instead of a bare blank. */
+  book: { clients: number; projects: number; milestones: number; tasks: number; deals: number };
 }
 
 export function accountLiveContext(mirror: AgpMirror, clientName: string): AccountLiveContext {
@@ -295,7 +298,18 @@ export function accountLiveContext(mirror: AgpMirror, clientName: string): Accou
       }
     : undefined;
 
-  return { ...(crm ? { crm } : {}), projects, deals };
+  return {
+    ...(crm ? { crm } : {}),
+    projects,
+    deals,
+    book: {
+      clients: mirror.clients.length,
+      projects: mirror.projects.length,
+      milestones: mirror.milestones.length,
+      tasks: (mirror.tasks ?? []).length,
+      deals: mirror.campaigns.filter((c) => c.kind === "deal").length,
+    },
+  };
 }
 
 /**
@@ -308,6 +322,39 @@ export function crmGoneQuiet(crm: AccountCrmRecord | undefined, today: string): 
   if (crm.nextActivity && crm.nextActivity >= today) return false;
   const cutoff = new Date(new Date(`${today}T00:00:00Z`).getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
   return !crm.lastTouch || crm.lastTouch < cutoff;
+}
+
+/** Is this workspace name an actual client in the (live) book? */
+export function isInBook(mirror: AgpMirror, name: string): boolean {
+  return mirror.clients.some((c) => normName(c.name) === normName(name));
+}
+
+/**
+ * Closest live clients to a workspace name that matched nothing — powers the
+ * one-click "Link to …" rescue for demo-seeded or misspelled workspaces.
+ * Scored by exact/containment first, then shared distinctive words (generic
+ * sector words never count, same rule as matching).
+ */
+export function suggestClients(mirror: AgpMirror, name: string, limit = 3): string[] {
+  const targetNorm = normName(name);
+  const targetWords = new Set(significantWords(name));
+  const targetTokens = new Set(distinctiveTokens(name));
+  return mirror.clients
+    .map((c) => {
+      const cNorm = normName(c.name);
+      let score = 0;
+      if (cNorm === targetNorm) score += 100;
+      else if (cNorm.includes(targetNorm) || targetNorm.includes(cNorm)) score += 50;
+      score += significantWords(c.name).filter((w) => targetWords.has(w)).length * 10;
+      score += distinctiveTokens(c.name).filter((t) => targetTokens.has(t)).length * 15;
+      const abbr = c.abbreviation?.trim().toLowerCase();
+      if (abbr && (targetTokens.has(abbr) || targetWords.has(abbr))) score += 25;
+      return { name: c.name, score };
+    })
+    .filter((s) => s.score >= 10)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map((s) => s.name);
 }
 
 /**

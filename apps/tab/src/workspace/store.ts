@@ -695,6 +695,21 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Relink a workspace to a real CRM client (fixes demo-seeded or
+   * misspelled names) — matching, imports, and context follow the new name. */
+  const renameAccount = useCallback(
+    (id: string, newName: string) => {
+      const clean = newName.trim();
+      if (!clean) return;
+      mutateAccount(id, (a) => ({
+        ...a,
+        clientName: clean,
+        activity: [...a.activity, activityEvent(`Workspace linked to CRM client “${clean}” (was “${a.clientName}”)`, "workspace")],
+      }));
+    },
+    [mutateAccount],
+  );
+
   /** Review-gated Kantata task import — same contract as campaigns: the
    * user picked these in the review panel; merge by title, never duplicate. */
   const importTasks = useCallback(
@@ -956,6 +971,7 @@ export function useWorkspace() {
     createAccountFromMirror,
     importCampaigns,
     importTasks,
+    renameAccount,
     removeCampaign,
     clearCampaigns,
     addAccountTask,
