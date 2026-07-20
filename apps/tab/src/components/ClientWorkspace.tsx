@@ -5,6 +5,7 @@ import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
+import { composeClientDigest } from "../workspace/clientDigest.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
@@ -398,6 +399,64 @@ function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Ta
 }
 
 // ---------------------------------------------------------------------------
+// Weekly digest composer — AI drafts, the account manager approves.
+// Research-backed (docs/research-best-practices.md): AI status drafting is
+// the highest-ROI AI feature in the category, and draft-then-approve is the
+// pattern behind every liked implementation. Composed only from client-safe
+// account data.
+// ---------------------------------------------------------------------------
+
+function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; tasks: Task[]; onPost: (body: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (draft === null) {
+    return (
+      <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12.5, color: T.inkSecondary }}>
+          <strong style={{ color: T.ink }}>Weekly update, drafted for you.</strong> The Copilot writes
+          the client status from campaigns, milestones, and tasks — you review, edit, and post it.
+          Nothing reaches the client until you say so.
+        </span>
+        <button type="button" className="btn btn-ai" onClick={() => setDraft(composeClientDigest(account, tasks, AS_OF_TODAY()))}>
+          ✍ Draft weekly update
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={card}>
+      <SectionTitle>Review the draft — you're the author</SectionTitle>
+      <textarea
+        className="textarea"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={16}
+        style={{ width: "100%", fontSize: 12.5, lineHeight: 1.55, padding: "12px 14px" }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            onPost(draft);
+            setDraft(null);
+          }}
+        >
+          Post to Discussions →
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDraft(null)}>
+          Discard
+        </button>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>
+          Drafted from this workspace's campaigns, milestones, and tasks — edit freely before posting.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
@@ -474,6 +533,10 @@ function AccessTab({
   const [org, setOrg] = useState("");
   const [role, setRole] = useState<ExternalMember["role"]>("contractor");
   const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
+  // Entra access-review pattern (docs/research-best-practices.md): flag
+  // guests with no activity in 30+ days so the account lead re-attests them.
+  const staleCutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const isStale = (e: ExternalMember) => !!e.lastActive && e.lastActive.slice(0, 10) < staleCutoff;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -500,6 +563,14 @@ function AccessTab({
             <span style={{ fontSize: 10.5, color: T.inkMuted }}>
               invited by {e.invitedBy ?? "—"} · last active {e.lastActive ?? "—"}
             </span>
+            {isStale(e) && (
+              <span
+                title="No activity in 30+ days — confirm this person still needs access, or remove them"
+                style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}
+              >
+                ⚠ review access
+              </span>
+            )}
             <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button
                 type="button"
@@ -658,7 +729,12 @@ export function ClientWorkspace({
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} />}
-      {tab === "discussions" && <Thread messages={account.thread} onPost={onPost} />}
+      {tab === "discussions" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <DigestComposer account={account} tasks={tasks} onPost={onPost} />
+          <Thread messages={account.thread} onPost={onPost} />
+        </div>
+      )}
       {tab === "access" && (
         <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} />
       )}
