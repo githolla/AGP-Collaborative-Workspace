@@ -215,6 +215,19 @@ export interface MirrorProject {
   serviceLine: string;
   vertical: string;
   model: string;
+  startDate?: string;
+  dueDate?: string;
+  status?: string;
+}
+
+/** Kantata milestone (story_type "milestone") — the dates client work hangs on. */
+export interface MirrorMilestone {
+  id: string;
+  projectId: string;
+  title: string;
+  dueDate: string;
+  state: string;
+  hard?: boolean;
 }
 
 export interface MirrorCampaign {
@@ -223,6 +236,7 @@ export interface MirrorCampaign {
   clientName: string;
   stage: string;
   kind: "deal" | "engagement";
+  closeDate?: string;
 }
 
 export interface MirrorClient {
@@ -243,6 +257,7 @@ export interface AgpMirror {
   clients: MirrorClient[];
   projects: MirrorProject[];
   campaigns: MirrorCampaign[];
+  milestones: MirrorMilestone[];
 }
 
 /**
@@ -279,7 +294,20 @@ export function loadMirror(): AgpMirror {
       serviceLine: String(w.service_line),
       vertical: String(w.vertical),
       model: String(w.commercial_model),
+      ...(w.start_date ? { startDate: String(w.start_date) } : {}),
+      ...(w.due_date ? { dueDate: String(w.due_date) } : {}),
+      ...(w.status ? { status: String(w.status) } : {}),
     })),
+    milestones: (k.story ?? [])
+      .filter((s) => s.story_type === "milestone")
+      .map((s) => ({
+        id: String(s.id),
+        projectId: String(s.workspace_id),
+        title: String(s.title),
+        dueDate: String(s.due_date ?? ""),
+        state: String(s.state ?? ""),
+        ...(s.hard_date ? { hard: true } : {}),
+      })),
     campaigns: [
       ...(h.deal ?? []).map((d) => ({
         id: String(d.id),

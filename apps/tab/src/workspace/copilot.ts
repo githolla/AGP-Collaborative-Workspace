@@ -107,12 +107,24 @@ function relatedContext(text: string, classification: IdeaClassification): {
   const slKey = SERVICE_LINES.find((s) => s.label === classification.serviceLine)?.key;
   const vKey = VERTICALS.find((v) => v.label === classification.vertical)?.key;
 
+  // Live Kantata projects carry no custom fields yet (grounding doc pending),
+  // so client-name matching does the heavy lifting on real data.
+  const clientFirstWords = classification.clientNames
+    .map((n) => norm(n).split(/\s+/)[0] ?? "~")
+    .filter((w) => w.length > 2);
   const relatedProjects = mirror.projects
-    .filter((p) => p.serviceLine === slKey || p.vertical === vKey || t.includes(norm(p.title).split(" ")[0] ?? "~"))
+    .filter(
+      (p) =>
+        p.serviceLine === slKey ||
+        p.vertical === vKey ||
+        clientFirstWords.some((w) => norm(p.title).includes(w)) ||
+        t.includes(norm(p.title).split(" ")[0] ?? "~"),
+    )
     .map((p) => ({
       title: p.title,
-      why:
-        p.serviceLine === slKey
+      why: clientFirstWords.some((w) => norm(p.title).includes(w))
+        ? `live Kantata project for ${classification.clientNames[0]}${p.dueDate ? ` — due ${p.dueDate}` : ""}`
+        : p.serviceLine === slKey
           ? `same service line (${classification.serviceLine}) — its actuals can calibrate this estimate`
           : `same vertical (${classification.vertical}) — comparable client context`,
     }))
@@ -277,9 +289,10 @@ function composeBriefing(args: {
       : "I couldn't classify this against AGP's service lines yet — tell me more about what it touches (mail? email? reporting? donor data?).",
   );
 
-  // Live HubSpot account intelligence for matched clients — internal only.
+  // Live account intelligence for matched clients — internal only.
   for (const clientName of classification.clientNames) {
-    const client = loadMirror().clients.find((c) => c.name === clientName);
+    const mirror = loadMirror();
+    const client = mirror.clients.find((c) => c.name === clientName);
     if (!client) continue;
     const ctx = [
       client.healthIndex && `health ${client.healthIndex}`,
@@ -290,6 +303,22 @@ function composeBriefing(args: {
     ].filter(Boolean);
     if (ctx.length > 0) {
       lines.push(`${clientName} account context (HubSpot, live): ${ctx.join(" · ")}.`);
+    }
+
+    // The client's Kantata delivery portfolio: how busy they already are, and
+    // the next date their work hangs on — plan around it, don't collide.
+    const first = norm(clientName).split(/\s+/)[0] ?? "~";
+    const projects = mirror.projects.filter((p) => norm(p.title).includes(first));
+    if (projects.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      const nextMilestone = mirror.milestones
+        .filter((m) => projects.some((p) => p.id === m.projectId) && m.state !== "completed" && m.dueDate >= today)
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+      lines.push(
+        `Kantata delivery context: ${projects.length} project${projects.length === 1 ? "" : "s"} in flight for ${clientName}${
+          nextMilestone ? ` — next milestone “${nextMilestone.title}” lands ${nextMilestone.dueDate}; schedule this build around it` : ""
+        }.`,
+      );
     }
   }
 

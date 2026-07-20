@@ -5,6 +5,8 @@ import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
 import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
+import { campaignsFromMirror } from "./campaignImport.js";
+import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
 import { tasksFromPlan } from "./planner.js";
@@ -551,30 +553,9 @@ export function useWorkspace() {
   const createAccountFromMirror = useCallback(
     (clientName: string): string => {
       const id = createAccount(clientName);
-      const mirror = loadMirror();
-      const firstWord = clientName.toLowerCase().split(/\s+/)[0] ?? "~";
-
-      const fromProjects = mirror.projects
-        .filter((p) => p.title.toLowerCase().includes(firstWord))
-        .map((p) => ({
-          id: newId("cmp"),
-          // Kantata titles often lead with the client name — trim it.
-          name: p.title.replace(new RegExp(`^${clientName}\\s*[—-]\\s*`, "i"), ""),
-          status: "active" as const,
-        }));
-      const fromDeals = mirror.campaigns
-        .filter((c) => c.clientName === clientName && c.stage !== "closedlost")
-        .map((c) => ({
-          id: newId("cmp"),
-          name: c.title,
-          status: c.stage === "closedwon" ? ("active" as const) : ("planned" as const),
-        }));
-      // Dedupe: a won deal usually became the Kantata project of the same work.
-      const campaigns = [...fromProjects, ...fromDeals].filter(
-        (c, i, all) => all.findIndex((x) => x.name.toLowerCase() === c.name.toLowerCase()) === i,
-      );
-
-      if (campaigns.length > 0) {
+      const imported = campaignsFromMirror(loadMirror(), clientName, AS_OF_TODAY());
+      if (imported.length > 0) {
+        const campaigns = imported.map((c) => ({ ...c, id: newId("cmp") }));
         mutateAccount(id, (a) => ({
           ...a,
           campaigns,
@@ -582,7 +563,7 @@ export function useWorkspace() {
             ...a.notifications,
             {
               id: newId("n"),
-              text: `${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} imported from Kantata & HubSpot for ${clientName}.`,
+              text: `${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} imported from Kantata & HubSpot for ${clientName} — milestones included.`,
               at: new Date().toISOString(),
             },
           ],
@@ -592,6 +573,53 @@ export function useWorkspace() {
       return id;
     },
     [createAccount, mutateAccount],
+  );
+
+  /**
+   * Re-sync an existing client workspace against the live mirror: campaign
+   * statuses and milestones refresh from Kantata/HubSpot, new campaigns are
+   * added, manually created ones are left alone. Safe to click any time.
+   */
+  const syncAccountFromMirror = useCallback(
+    (id: string) => {
+      mutateAccount(id, (a) => {
+        const imported = campaignsFromMirror(loadMirror(), a.clientName, AS_OF_TODAY());
+        let added = 0;
+        let updated = 0;
+        const campaigns = [...a.campaigns];
+        for (const imp of imported) {
+          const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
+          if (idx === -1) {
+            campaigns.push({ ...imp, id: newId("cmp") });
+            added += 1;
+          } else {
+            const existing = campaigns[idx]!;
+            const next = {
+              ...existing,
+              status: imp.status,
+              ...(imp.nextMilestone
+                ? { nextMilestone: imp.nextMilestone, nextMilestoneDate: imp.nextMilestoneDate }
+                : {}),
+            };
+            if (JSON.stringify(next) !== JSON.stringify(existing)) {
+              campaigns[idx] = next;
+              updated += 1;
+            }
+          }
+        }
+        const summary =
+          added + updated > 0
+            ? `Synced with Kantata & HubSpot — ${added} campaign${added === 1 ? "" : "s"} added, ${updated} updated.`
+            : "Synced with Kantata & HubSpot — already up to date.";
+        return {
+          ...a,
+          campaigns,
+          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
+          activity: [...a.activity, activityEvent(summary, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
   );
 
   const addAccountTask = useCallback(
@@ -786,6 +814,7 @@ export function useWorkspace() {
     accounts,
     createAccount,
     createAccountFromMirror,
+    syncAccountFromMirror,
     addAccountTask,
     setAccountTaskStatus,
     postAccountMessage,

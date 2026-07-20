@@ -50,6 +50,7 @@ interface MirrorPayload {
   companies: Record<string, unknown>[];
   deals: Record<string, unknown>[];
   kantataProjects: Record<string, unknown>[];
+  kantataMilestones: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -95,22 +96,57 @@ async function pullHubSpot(token: string): Promise<{
   return { companies, deals, note };
 }
 
-async function pullKantata(token: string): Promise<{ projects: Record<string, unknown>[]; note: string }> {
-  const res = await fetch("https://api.mavenlink.com/api/v1/workspaces?per_page=50&order=updated_at:desc", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+async function pullKantata(token: string): Promise<{
+  projects: Record<string, unknown>[];
+  milestones: Record<string, unknown>[];
+  note: string;
+}> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const res = await fetch("https://api.mavenlink.com/api/v1/workspaces?per_page=50&order=updated_at:desc", { headers });
   if (!res.ok) throw new Error(`workspaces HTTP ${res.status}`);
-  const json = (await res.json()) as { workspaces?: Record<string, { id: string; title?: string; status?: { message?: string }; updated_at?: string; archived?: boolean }> };
-  const projects = Object.values(json.workspaces ?? {}).map((w) => ({
-    id: String(w.id),
-    title: w.title ?? "",
-    status: w.status?.message ?? "",
-    archived: Boolean(w.archived),
-    updated_at: w.updated_at ?? "",
-    // service_line / vertical / commercial_model are AGP custom fields —
-    // mapping them needs the tenant grounding doc (BLOCKERS #1).
-  }));
-  return { projects, note: "workspaces ok (custom fields await tenant grounding doc)" };
+  const json = (await res.json()) as {
+    workspaces?: Record<
+      string,
+      { id: string; title?: string; status?: { message?: string }; start_date?: string; due_date?: string; updated_at?: string; archived?: boolean }
+    >;
+  };
+  const projects = Object.values(json.workspaces ?? {})
+    .filter((w) => !w.archived)
+    .map((w) => ({
+      id: String(w.id),
+      title: w.title ?? "",
+      status: w.status?.message ?? "",
+      start_date: w.start_date ?? "",
+      due_date: w.due_date ?? "",
+      updated_at: w.updated_at ?? "",
+      // service_line / vertical / commercial_model are AGP custom fields —
+      // mapping them needs the tenant grounding doc (BLOCKERS #1).
+    }));
+
+  // Milestones: the dates client work hangs on. Degrade gracefully if the
+  // token lacks story access.
+  let milestones: Record<string, unknown>[] = [];
+  let note = "workspaces ok (custom fields await tenant grounding doc)";
+  const storiesRes = await fetch(
+    "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
+    { headers },
+  );
+  if (storiesRes.ok) {
+    const storiesJson = (await storiesRes.json()) as {
+      stories?: Record<string, { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string }>;
+    };
+    milestones = Object.values(storiesJson.stories ?? {}).map((s) => ({
+      id: String(s.id),
+      title: s.title ?? "",
+      workspace_id: String(s.workspace_id ?? ""),
+      due_date: s.due_date ?? "",
+      state: s.state ?? "",
+    }));
+    note = `workspaces + ${milestones.length} milestones ok (custom fields await tenant grounding doc)`;
+  } else {
+    note = `workspaces ok; milestones HTTP ${storiesRes.status}`;
+  }
+  return { projects, milestones, note };
 }
 
 export default async function handler(
@@ -140,6 +176,7 @@ export default async function handler(
     companies: [],
     deals: [],
     kantataProjects: [],
+    kantataMilestones: [],
   };
 
   if (hubspotToken) {
@@ -157,6 +194,7 @@ export default async function handler(
     try {
       const k = await pullKantata(kantataToken);
       payload.kantataProjects = k.projects;
+      payload.kantataMilestones = k.milestones;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } catch (err) {
       payload.sources.kantata.note = `pull failed: ${err instanceof Error ? err.message : "unknown"}`;

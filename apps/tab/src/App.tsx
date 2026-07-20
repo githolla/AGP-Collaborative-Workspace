@@ -338,6 +338,7 @@ export function App() {
             onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
+            onSyncFromMirror={() => ws.syncAccountFromMirror(selectedAccount.id)}
           />
         )}
 

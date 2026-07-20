@@ -582,12 +582,15 @@ export function ClientWorkspace({
   onAddExternal,
   onRemoveExternal,
   onOffboardEverywhere,
+  onSyncFromMirror,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
   onBack: () => void;
+  /** Refresh campaigns/milestones from the live Kantata+HubSpot mirror. */
+  onSyncFromMirror?: () => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string) => void;
@@ -610,6 +613,17 @@ export function ClientWorkspace({
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
           <TagChip>Client account</TagChip>
+          {onSyncFromMirror && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ marginLeft: "auto" }}
+              title="Refresh campaign statuses and milestones from Kantata & HubSpot. New campaigns are added; anything created by hand is left alone."
+              onClick={onSyncFromMirror}
+            >
+              ⟳ Sync Kantata &amp; HubSpot
+            </button>
+          )}
         </div>
         <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
           {TABS.map((t) => {

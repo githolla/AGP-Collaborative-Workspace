@@ -28,6 +28,7 @@ export interface RawMirrorPayload {
   companies: Record<string, unknown>[];
   deals: Record<string, unknown>[];
   kantataProjects: Record<string, unknown>[];
+  kantataMilestones?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -71,6 +72,9 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         serviceLine: "",
         vertical: "",
         model: str(w.status),
+        ...(str(w.start_date) ? { startDate: str(w.start_date) } : {}),
+        ...(str(w.due_date) ? { dueDate: str(w.due_date) } : {}),
+        ...(str(w.status) ? { status: str(w.status) } : {}),
       })),
     campaigns: p.deals
       .filter((d) => str(d.dealname).trim().length > 0)
@@ -80,6 +84,16 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         clientName: nameOf(d.company_id),
         stage: str(d.dealstage),
         kind: "deal" as const,
+        ...(str(d.closedate) ? { closeDate: str(d.closedate) } : {}),
+      })),
+    milestones: (p.kantataMilestones ?? [])
+      .filter((m) => str(m.title).trim().length > 0 && str(m.due_date).length > 0)
+      .map((m) => ({
+        id: String(m.id),
+        projectId: String(m.workspace_id),
+        title: str(m.title),
+        dueDate: str(m.due_date).slice(0, 10),
+        state: str(m.state),
       })),
   };
 }
