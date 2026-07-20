@@ -1,5 +1,9 @@
-import { card, T } from "../theme.js";
+import { useState } from "react";
+import { computeProjectROI } from "@agp/roi";
+import { T } from "../theme.js";
 import { TagChip } from "./bits.js";
+import { Button, Card, Crumbs } from "./ui.js";
+import { GradeBadge } from "./GradeBadge.js";
 import { FactorEditor } from "./FactorEditor.js";
 import { ExecCard, GatherList, ScenarioStrip, Waterfall } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
@@ -10,6 +14,21 @@ import { AGENTS } from "../workspace/agents.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
 import { TYPE_LABEL, type Initiative, type TaskStatus } from "../workspace/types.js";
 import type { WorkspaceFactor } from "@agp/roi";
+
+/**
+ * The Build workspace, tabbed for calm (the manager's simplicity mandate,
+ * applied to our own side): Overview is glanceable; the ROI depth lives in
+ * Numbers; delivery lives in Plan & Tasks; conversation in Discussion.
+ */
+
+type BuildTab = "overview" | "numbers" | "plan" | "discussion";
+
+const TABS: { key: BuildTab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "numbers", label: "Numbers" },
+  { key: "plan", label: "Plan & Tasks" },
+  { key: "discussion", label: "Discussion" },
+];
 
 export function InitiativeWorkspace({
   initiative,
@@ -42,125 +61,180 @@ export function InitiativeWorkspace({
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onArchive: (archived: boolean) => void;
 }) {
+  const [tab, setTab] = useState<BuildTab>("overview");
+  const roi = computeProjectROI(initiative.factors);
+  const openTasks = initiative.tasks.filter((t) => t.status !== "done").length;
+  const partsIn = initiative.plan ? initiative.plan.packages.filter((p) => p.status === "part_added").length : 0;
   const owners = [
     ...new Set([
       ...(initiative.plan?.packages.map((p) => p.name) ?? []),
       ...initiative.tasks.map((t) => t.ownerName).filter((o): o is string => !!o),
     ]),
   ];
+
+  const badge = (n: number) =>
+    n > 0 ? <span style={{ opacity: 0.8, fontWeight: 500, marginLeft: 5 }}>{n}</span> : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <button
-          type="button"
-          onClick={onBack}
-          style={{ fontSize: 12, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", padding: 0 }}
-        >
-          ← All initiatives
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>{initiative.name}</h1>
+        <Crumbs trail={[{ label: "Builds", onClick: onBack }, { label: initiative.name }]} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+          <GradeBadge grade={roi.grade} size={30} />
+          <h1 style={{ fontSize: 19, fontWeight: 700, color: T.ink }}>{initiative.name}</h1>
           <TagChip>{TYPE_LABEL[initiative.type]}</TagChip>
           {initiative.archived && <TagChip>Archived — history retained</TagChip>}
-          <button
-            type="button"
-            onClick={() => onArchive(!initiative.archived)}
-            style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.grid}`, background: "transparent", color: T.inkSecondary, cursor: "pointer" }}
-          >
-            {initiative.archived ? "Restore" : "Archive"}
-          </button>
-        </div>
-        <textarea
-          value={initiative.summary}
-          onChange={(e) => onSummaryChange(e.target.value)}
-          placeholder="What is this initiative? One or two sentences."
-          rows={2}
-          style={{
-            marginTop: 8,
-            width: "100%",
-            fontSize: 12.5,
-            color: T.inkSecondary,
-            padding: "8px 10px",
-            border: `1px solid ${T.grid}`,
-            borderRadius: 8,
-            resize: "vertical",
-            fontFamily: "inherit",
-            background: T.surface,
-          }}
-        />
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr)", gap: 14, alignItems: "start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <WhatsNew activity={initiative.activity} thread={initiative.thread} />
-          <div style={{ ...card, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>Internal zone of:</span>
-            <select
-              value={initiative.clientAccountId ?? ""}
-              onChange={(e) => onSetClientAccount(e.target.value || null)}
-              style={{ fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
-            >
-              <option value="">No client account (fully internal)</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.clientName}
-                </option>
-              ))}
-            </select>
-            <span style={{ fontSize: 11, color: T.inkMuted }}>
-              {initiative.clientAccountId
-                ? "Tasks marked “client ✓” mirror onto the client's shared plan; everything else stays internal — including all financials."
-                : "Link to a client account to share selected tasks onto its plan."}
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 12 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, color: T.ink }} className="num">
+              {fmtUsd(roi.netRecurringAnnual)}<span style={{ fontSize: 11, fontWeight: 500, color: T.inkMuted }}>/yr net</span>
             </span>
-          </div>
-          <TasksCard
-            tasks={initiative.tasks}
-            owners={owners}
-            onAdd={onAddTask}
-            onStatus={onTaskStatus}
-            {...(initiative.clientAccountId ? { onToggleClientVisible } : {})}
-          />
-          <div style={card}>
-            <FactorEditor factors={initiative.factors} onChange={onFactorChange} />
-          </div>
-          <Thread messages={initiative.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} roster={AGENTS} />
+            <Button variant="ghost" size="sm" onClick={() => onArchive(!initiative.archived)}>
+              {initiative.archived ? "Restore" : "Archive"}
+            </Button>
+          </span>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <ExecCard factors={initiative.factors} />
-          {initiative.plan && <PhaseTimeline plan={initiative.plan} />}
-          {initiative.plan && (
-            <TeamParts plan={initiative.plan} onInvite={onInvite} onPartAdded={onPartAdded} />
-          )}
-          {initiative.plan && <BriefCard brief={initiative.plan.brief} />}
-          <ScenarioStrip
-            factors={initiative.factors}
-            onApply={(option) => onFactorChange("realism", { selectedOption: option, status: "estimated" })}
-          />
-          <Waterfall factors={initiative.factors} />
-          <GatherList factors={initiative.factors} onChange={onFactorChange} />
-
-          <div style={card}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, marginBottom: 8 }}>
-              Snapshot history (audit trail)
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }}>
-              {[...initiative.snapshots].reverse().map((s, idx) => (
-                <div key={`${s.at}-${idx}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.inkSecondary }}>
-                  <span>{timeAgoLabel(s.at)}</span>
-                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                    {fmtUsd(s.netRecurringAnnual)}/yr · {fmtUsd(s.netOneTime)} once · {s.grade}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 6 }}>
-              A snapshot is written on every factor change — the provenance trail when these numbers
-              go in front of finance.
-            </div>
-          </div>
+        <div role="tablist" aria-label="Build workspace" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${T.roi.navy}`, flexWrap: "wrap" }}>
+          {TABS.map((t) => (
+            <button key={t.key} role="tab" aria-selected={t.key === tab} type="button" className="ws-tab" onClick={() => setTab(t.key)}>
+              {t.label}
+              {t.key === "plan" && badge(openTasks)}
+              {t.key === "numbers" && roi.hasUnknowns && (
+                <span style={{ marginLeft: 5, fontSize: 9, fontWeight: 800, color: t.key === tab ? "#fff" : T.roi.amber }}>●</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
+
+      {tab === "overview" && (
+        <div className="two-col fade-in">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Card title="Summary">
+              <textarea
+                className="textarea"
+                value={initiative.summary}
+                onChange={(e) => onSummaryChange(e.target.value)}
+                placeholder="What is this build? One or two sentences."
+                rows={2}
+                style={{ width: "100%" }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>Internal zone of:</span>
+                <select
+                  className="select"
+                  value={initiative.clientAccountId ?? ""}
+                  onChange={(e) => onSetClientAccount(e.target.value || null)}
+                >
+                  <option value="">No client account (fully internal)</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.clientName}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: 11, color: T.inkMuted, flex: 1, minWidth: 200 }}>
+                  {initiative.clientAccountId
+                    ? "Tasks marked “client ✓” mirror onto the client's shared plan; financials never leave this side."
+                    : "Link to a client account to share selected tasks onto its plan."}
+                </span>
+              </div>
+            </Card>
+            <WhatsNew activity={initiative.activity} thread={initiative.thread} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <ExecCard factors={initiative.factors} />
+            {initiative.plan && <PhaseTimeline plan={initiative.plan} />}
+            {initiative.plan && (
+              <Card title="Team at a glance" right={<Button variant="link" onClick={() => setTab("plan")}>Open Plan & Tasks ›</Button>}>
+                <div style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.6 }}>
+                  {initiative.plan.packages.length} people · {partsIn}/{initiative.plan.packages.length} parts in ·{" "}
+                  {openTasks} open task{openTasks === 1 ? "" : "s"}
+                </div>
+                <div style={{ display: "flex", marginTop: 8 }}>
+                  {initiative.plan.packages.slice(0, 6).map((p, i) => (
+                    <span
+                      key={p.personId}
+                      title={`${p.name} — ${p.part}`}
+                      style={{
+                        width: 30, height: 30, borderRadius: "50%", background: "#e6e4ee", color: T.roi.navy,
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 11, fontWeight: 700, border: "2px solid #fff", marginLeft: i === 0 ? 0 : -8,
+                      }}
+                    >
+                      {p.name.split(" ").map((w) => w[0]).join("")}
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "numbers" && (
+        <div className="two-col fade-in">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Card>
+              <FactorEditor factors={initiative.factors} onChange={onFactorChange} />
+            </Card>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <ExecCard factors={initiative.factors} />
+            <ScenarioStrip
+              factors={initiative.factors}
+              onApply={(option) => onFactorChange("realism", { selectedOption: option, status: "estimated" })}
+            />
+            <Waterfall factors={initiative.factors} />
+            <GatherList factors={initiative.factors} onChange={onFactorChange} />
+            <Card title="Snapshot history (audit trail)">
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }}>
+                {[...initiative.snapshots].reverse().map((s, idx) => (
+                  <div key={`${s.at}-${idx}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.inkSecondary }}>
+                    <span>{timeAgoLabel(s.at)}</span>
+                    <span className="num">
+                      {fmtUsd(s.netRecurringAnnual)}/yr · {fmtUsd(s.netOneTime)} once · {s.grade}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 6 }}>
+                A snapshot is written on every factor change — the provenance trail when these
+                numbers go in front of finance.
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {tab === "plan" && (
+        <div className="two-col fade-in">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <TasksCard
+              tasks={initiative.tasks}
+              owners={owners}
+              onAdd={onAddTask}
+              onStatus={onTaskStatus}
+              {...(initiative.clientAccountId ? { onToggleClientVisible } : {})}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {initiative.plan && <PhaseTimeline plan={initiative.plan} />}
+            {initiative.plan && <TeamParts plan={initiative.plan} onInvite={onInvite} onPartAdded={onPartAdded} />}
+            {initiative.plan && <BriefCard brief={initiative.plan.brief} />}
+          </div>
+        </div>
+      )}
+
+      {tab === "discussion" && (
+        <div className="two-col fade-in">
+          <Thread messages={initiative.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} roster={AGENTS} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <ExecCard factors={initiative.factors} />
+            <WhatsNew activity={initiative.activity} thread={initiative.thread} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -49,20 +49,7 @@ export function StatusBadge({ severity, label }: { severity: Severity; label: st
 }
 
 export function TagChip({ children }: { children: ReactNode }) {
-  return (
-    <span
-      style={{
-        fontSize: 10.5,
-        color: T.inkSecondary,
-        background: "#f0efec",
-        borderRadius: 4,
-        padding: "2px 6px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
+  return <span className="chip">{children}</span>;
 }
 
 export interface StatTileProps {

@@ -103,7 +103,7 @@ export function TeamParts({
                       <button
                         type="button"
                         onClick={() => onInvite(p.personId)}
-                        style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: "none", background: T.roi.navy, color: "#fff", cursor: "pointer" }}
+                        className="btn btn-primary btn-sm"
                       >
                         Invite{p.viaManager ? ` via ${p.viaManager.split(" ")[0]}` : ""}
                       </button>
@@ -112,7 +112,8 @@ export function TeamParts({
                       <button
                         type="button"
                         onClick={() => onPartAdded(p.personId)}
-                        style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.roi.confirmed}`, background: "transparent", color: T.roi.confirmed, cursor: "pointer" }}
+                        className="btn btn-success btn-sm"
+                        style={{ background: "transparent", color: "#116a43", borderColor: "#1f9d6b", border: "1px solid #1f9d6b" }}
                       >
                         Mark part added
                       </button>
@@ -121,7 +122,7 @@ export function TeamParts({
                       <button
                         type="button"
                         onClick={() => onRemove(p.personId)}
-                        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.grid}`, background: "transparent", color: T.inkMuted, cursor: "pointer" }}
+                        className="btn btn-ghost btn-sm"
                       >
                         Remove
                       </button>

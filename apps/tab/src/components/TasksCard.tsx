@@ -91,14 +91,7 @@ export function TasksCard({
   );
   const done = tasks.filter((t) => t.status === "done").length;
 
-  const controls: React.CSSProperties = {
-    fontSize: 11.5,
-    padding: "5px 8px",
-    border: `1px solid ${T.grid}`,
-    borderRadius: 6,
-    color: T.ink,
-    background: "#fff",
-  };
+  const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
   const taskLine = (t: Task, compact = false) => (
     <div
@@ -160,16 +153,8 @@ export function TasksCard({
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  border: `1px solid ${view === v ? T.series1 : T.grid}`,
-                  background: view === v ? T.series1 : "transparent",
-                  color: view === v ? "#fff" : T.inkSecondary,
-                }}
+                className={`nav-pill${view === v ? " active" : ""}`}
+                style={{ fontSize: 10.5, padding: "3px 10px" }}
               >
                 {v === "list" ? "List" : "Board"}
               </button>
@@ -181,7 +166,7 @@ export function TasksCard({
       </SectionTitle>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-        <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={controls}>
+        <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} className="select" style={controls}>
           <option value="">All owners</option>
           {owners.map((o) => (
             <option key={o} value={o}>
@@ -189,7 +174,7 @@ export function TasksCard({
             </option>
           ))}
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "" | TaskStatus)} style={controls}>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "" | TaskStatus)} className="select" style={controls}>
           <option value="">All statuses</option>
           {(Object.keys(STATUS_LABEL) as TaskStatus[]).map((s) => (
             <option key={s} value={s}>
@@ -197,13 +182,13 @@ export function TasksCard({
             </option>
           ))}
         </select>
-        <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value as "" | "overdue" | "week")} style={controls}>
+        <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value as "" | "overdue" | "week")} className="select" style={controls}>
           <option value="">Any due date</option>
           <option value="overdue">Overdue</option>
           <option value="week">Due this week</option>
         </select>
         {labels.length > 0 && (
-          <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} style={controls}>
+          <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} className="select" style={controls}>
             <option value="">All labels</option>
             {labels.map((l) => (
               <option key={l} value={l}>
@@ -237,7 +222,7 @@ export function TasksCard({
           placeholder="Add a task…"
           style={{ ...controls, flex: 2, minWidth: 160 }}
         />
-        <select value={newOwner} onChange={(e) => setNewOwner(e.target.value)} style={controls}>
+        <select value={newOwner} onChange={(e) => setNewOwner(e.target.value)} className="select" style={controls}>
           <option value="">Owner…</option>
           {owners.map((o) => (
             <option key={o} value={o}>
@@ -245,7 +230,7 @@ export function TasksCard({
             </option>
           ))}
         </select>
-        <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} style={controls} />
+        <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} className="input" style={controls} />
         <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label" style={{ ...controls, width: 90 }} />
         <button
           type="button"
@@ -257,7 +242,7 @@ export function TasksCard({
             setNewDue("");
             setNewLabel("");
           }}
-          style={{ fontSize: 11.5, fontWeight: 700, padding: "5px 14px", borderRadius: 6, border: "none", background: newTitle.trim() ? T.roi.navy : T.grid, color: "#fff", cursor: newTitle.trim() ? "pointer" : "default" }}
+          className="btn btn-primary btn-sm"
         >
           Add
         </button>

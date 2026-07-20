@@ -7,6 +7,7 @@ import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
+import { Button, EmptyState } from "./components/ui.js";
 import { useWorkspace } from "./workspace/store.js";
 import { T } from "./theme.js";
 
@@ -50,12 +51,29 @@ function hashOf(route: Route): string {
 
 const USER_NAME = "Barry Medley";
 
+/** Which top-level section a route belongs to (keeps nav lit inside workspaces). */
+function sectionOf(route: Route): "clients" | "initiatives" | "sandbox" {
+  if (route.view === "clients" || route.view === "account") return "clients";
+  if (route.view === "sandbox" || route.view === "idea") return "sandbox";
+  return "initiatives";
+}
+
+function PageIntro({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <h1 style={{ fontSize: 19, fontWeight: 700, color: T.ink }}>{title}</h1>
+      <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>{children}</p>
+    </div>
+  );
+}
+
 export function App() {
   const ws = useWorkspace();
   const [route, setRouteState] = useState<Route>(parseHash);
   const setRoute = (r: Route) => {
     setRouteState(r);
     window.location.hash = hashOf(r);
+    window.scrollTo({ top: 0 });
   };
 
   const selectedInitiative =
@@ -63,106 +81,81 @@ export function App() {
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
   const selectedAccount = route.view === "account" ? ws.accounts.find((a) => a.id === route.id) ?? null : null;
 
-  const navTab = (label: string, active: boolean, onClick: () => void) => (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        fontSize: 12.5,
-        fontWeight: 600,
-        padding: "7px 16px",
-        borderRadius: 999,
-        cursor: "pointer",
-        border: `1px solid ${active ? T.series1 : T.grid}`,
-        background: active ? T.series1 : "transparent",
-        color: active ? "#fff" : T.inkSecondary,
-      }}
-    >
+  const section = sectionOf(route);
+  const listView = route.view === "initiatives" || route.view === "sandbox" || route.view === "clients";
+
+  const navPill = (label: string, key: "clients" | "initiatives" | "sandbox", target: Route) => (
+    <button type="button" className={`nav-pill${section === key ? " active" : ""}`} onClick={() => setRoute(target)}>
       {label}
     </button>
   );
 
-  const listView = route.view === "initiatives" || route.view === "sandbox" || route.view === "clients";
-
   return (
     <div style={{ minHeight: "100vh", background: T.page }}>
       <AppHeader userInitials="BM" />
-      <div style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
-        {listView && (
+
+      {/* Persistent navigation — visible on every page, including workspaces. */}
+      <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>
+        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
+          {navPill(`Builds (${ws.initiatives.filter((i) => !i.archived).length})`, "initiatives", { view: "initiatives" })}
+          {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
+          <SearchBox initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />
+        </div>
+      </div>
+
+      <div className="fade-in" key={hashOf(route)} style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
+        {route.view === "clients" && (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center" }}>
-              {navTab(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, route.view === "clients", () => setRoute({ view: "clients" }))}
-              {navTab(`Builds (${ws.initiatives.filter((i) => !i.archived).length})`, route.view === "initiatives", () => setRoute({ view: "initiatives" }))}
-              {navTab(`Sandbox (${ws.ideas.length})`, route.view === "sandbox", () => setRoute({ view: "sandbox" }))}
-              <SearchBox
-                initiatives={ws.initiatives}
-                ideas={ws.ideas}
-                onNavigate={(target) => setRoute(target)}
-              />
-            </div>
-
-            {route.view === "clients" && (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Client workspaces</h1>
-                  <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720 }}>
-                    One standardized execution workspace per client account — communication, tasks,
-                    files, and visibility for internal teams, clients, and contractors. Internal
-                    financials never appear here.
-                  </p>
-                </div>
-                <ClientList
-                  accounts={ws.accounts.filter((a) => !a.archived)}
-                  onOpen={(id) => setRoute({ view: "account", id })}
-                  onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
-                />
-              </>
-            )}
-            {route.view === "initiatives" && (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Product initiatives</h1>
-                  <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720 }}>
-                    Collaborate with the team and AI agents on new product builds and AI iterations of
-                    existing products. Every initiative runs the shared ROI engine in the background —
-                    the headline, grade, and scenarios update live as evidence lands.
-                  </p>
-                </div>
-                <Portfolio
-                  initiatives={ws.initiatives}
-                  onOpen={(id) => setRoute({ view: "initiative", id })}
-                  onStartInSandbox={() => setRoute({ view: "sandbox" })}
-                />
-              </>
-            )}
-            {route.view === "sandbox" && (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Sandbox</h1>
-                  <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720 }}>
-                    Ideas not tied to any product. Drop one in, rough out what it would replace with
-                    the ROI Analyst, and promote it to a real build when the napkin math earns it.
-                  </p>
-                </div>
-                <Sandbox
-                  ideas={ws.ideas}
-                  onOpen={(id) => setRoute({ view: "idea", id })}
-                  onCreate={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
-                />
-              </>
-            )}
-
-            <div style={{ marginTop: 18, fontSize: 11, color: T.inkMuted }}>
-              Demo data is stored locally in your browser.{" "}
-              <button
-                type="button"
-                onClick={ws.resetDemo}
-                style={{ fontSize: 11, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
-              >
-                Reset demo data
-              </button>
-            </div>
+            <PageIntro title="Client workspaces">
+              One standardized execution workspace per client account — communication, tasks, files,
+              and visibility for internal teams, clients, and contractors. Internal financials never
+              appear here.
+            </PageIntro>
+            <ClientList
+              accounts={ws.accounts.filter((a) => !a.archived)}
+              onOpen={(id) => setRoute({ view: "account", id })}
+              onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
+            />
           </>
+        )}
+
+        {route.view === "initiatives" && (
+          <>
+            <PageIntro title="Builds">
+              Internal product initiatives — new builds and AI added to existing products — with the
+              ROI engine running in the background. The headline, grade, and scenarios update live as
+              evidence lands.
+            </PageIntro>
+            <Portfolio
+              initiatives={ws.initiatives}
+              onOpen={(id) => setRoute({ view: "initiative", id })}
+              onStartInSandbox={() => setRoute({ view: "sandbox" })}
+            />
+          </>
+        )}
+
+        {route.view === "sandbox" && (
+          <>
+            <PageIntro title="Sandbox">
+              Where anything starts. Describe an idea and the Copilot builds the project behind the
+              scenes — or start blank with just your team and invite the AI in later.
+            </PageIntro>
+            <Sandbox
+              ideas={ws.ideas}
+              onOpen={(id) => setRoute({ view: "idea", id })}
+              onCreate={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
+            />
+          </>
+        )}
+
+        {listView && (
+          <div style={{ marginTop: 18, fontSize: 11, color: T.inkMuted }}>
+            Demo data is stored locally in your browser.{" "}
+            <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
+              Reset demo data
+            </Button>
+          </div>
         )}
 
         {selectedInitiative && (
@@ -220,30 +213,30 @@ export function App() {
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
           />
         )}
-        {route.view === "account" && !selectedAccount && (
-          <div style={{ fontSize: 12.5, color: T.inkSecondary }}>
-            Client workspace not found.{" "}
-            <button type="button" onClick={() => setRoute({ view: "clients" })} style={{ color: T.series1, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
-              Back to clients
-            </button>
-          </div>
-        )}
 
+        {route.view === "account" && !selectedAccount && (
+          <EmptyState
+            icon="🔍"
+            title="Client workspace not found"
+            hint="It may have been removed, or the link is stale."
+            action={<Button variant="secondary" onClick={() => setRoute({ view: "clients" })}>Back to Clients</Button>}
+          />
+        )}
         {route.view === "initiative" && !selectedInitiative && (
-          <div style={{ fontSize: 12.5, color: T.inkSecondary }}>
-            Initiative not found.{" "}
-            <button type="button" onClick={() => setRoute({ view: "initiatives" })} style={{ color: T.series1, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
-              Back to initiatives
-            </button>
-          </div>
+          <EmptyState
+            icon="🔍"
+            title="Build not found"
+            hint="It may have been removed, or the link is stale."
+            action={<Button variant="secondary" onClick={() => setRoute({ view: "initiatives" })}>Back to Builds</Button>}
+          />
         )}
         {route.view === "idea" && !selectedIdea && (
-          <div style={{ fontSize: 12.5, color: T.inkSecondary }}>
-            Idea not found.{" "}
-            <button type="button" onClick={() => setRoute({ view: "sandbox" })} style={{ color: T.series1, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
-              Back to the sandbox
-            </button>
-          </div>
+          <EmptyState
+            icon="🔍"
+            title="Idea not found"
+            hint="It may have been removed, or the link is stale."
+            action={<Button variant="secondary" onClick={() => setRoute({ view: "sandbox" })}>Back to the Sandbox</Button>}
+          />
         )}
       </div>
     </div>

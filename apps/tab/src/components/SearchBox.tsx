@@ -71,15 +71,8 @@ export function SearchBox({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search workspaces, tasks, messages…"
         aria-label="Search across the workspace"
-        style={{
-          width: "100%",
-          fontSize: 12,
-          padding: "7px 12px",
-          border: `1px solid ${T.grid}`,
-          borderRadius: 999,
-          background: T.surface,
-          color: T.ink,
-        }}
+        className="input"
+        style={{ width: "100%", fontSize: 12, padding: "7px 12px", borderRadius: 999 }}
       />
       {hits.length > 0 && (
         <div
@@ -105,7 +98,7 @@ export function SearchBox({
                 onNavigate(h.target);
                 setQuery("");
               }}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
+              className="table-row-hover" style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
             >
               <span style={{ fontSize: 9.5, fontWeight: 800, color: "#fff", background: KIND_COLOR[h.kind], borderRadius: 3, padding: "1px 5px", marginRight: 7, letterSpacing: 0.5 }}>
                 {h.kind.toUpperCase()}

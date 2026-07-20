@@ -46,13 +46,14 @@ export function Portfolio({
         <button
           type="button"
           onClick={() => setShowArchived(!showArchived)}
-          style={{ alignSelf: "flex-start", fontSize: 11.5, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+          className="btn-link"
+          style={{ alignSelf: "flex-start", fontSize: 11.5 }}
         >
           {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
         </button>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
+      <div className="cards-grid">
         {visible.map((i) => {
           const roi = computeProjectROI(i.factors);
           const m = computeDecisionMetrics(i.factors);
@@ -61,7 +62,8 @@ export function Portfolio({
               key={i.id}
               type="button"
               onClick={() => onOpen(i.id)}
-              style={{ ...card, textAlign: "left", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}
+              className="card card-hover"
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3 }}>{i.name}</span>
@@ -95,7 +97,8 @@ export function Portfolio({
         <button
           type="button"
           onClick={onStartInSandbox}
-          style={{ ...card, display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", borderStyle: "dashed", cursor: "pointer", textAlign: "left" }}
+          className="card card-dashed card-hover"
+          style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}
         >
           <SectionTitle>Start something new</SectionTitle>
           <div style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>

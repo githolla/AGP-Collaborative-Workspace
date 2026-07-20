@@ -116,31 +116,19 @@ export function Thread({
           }}
           placeholder={showAgents ? "Write to the team and agents… (Ctrl+Enter to post)" : "Write to the team… (Ctrl+Enter to post)"}
           rows={2}
-          style={{
-            flex: 1,
-            fontSize: 12.5,
-            padding: "8px 10px",
-            border: `1px solid ${T.grid}`,
-            borderRadius: 8,
-            resize: "vertical",
-            fontFamily: "inherit",
-            color: T.ink,
-          }}
+          className="textarea"
+          style={{ flex: 1 }}
         />
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <button
-            type="button"
-            onClick={post}
-            style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "none", background: T.roi.navy, color: "#fff", cursor: "pointer" }}
-          >
+          <button type="button" className="btn btn-primary" onClick={post}>
             Post
           </button>
           {showAgents && onAskAnalyst && (
             <button
               type="button"
+              className="btn btn-ai btn-sm"
               onClick={onAskAnalyst}
               title="Posts a computed assessment from the shared ROI engine"
-              style={{ fontSize: 11, fontWeight: 600, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.roi.cyan}`, background: "#eef8fc", color: "#16708f", cursor: "pointer" }}
             >
               Ask ROI Analyst
             </button>

@@ -5,6 +5,7 @@ import { SectionTitle, TagChip } from "./bits.js";
 import { ExecCard } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
 import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
+import { Crumbs } from "./ui.js";
 import { AGENTS } from "../workspace/agents.js";
 import { fmtUsd } from "../workspace/format.js";
 import { factorsFromBasis } from "../workspace/basis.js";
@@ -77,9 +78,7 @@ export function SandboxWorkspace({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <button type="button" onClick={onBack} style={{ fontSize: 12, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          ← Sandbox
-        </button>
+        <Crumbs trail={[{ label: "Sandbox", onClick: onBack }, { label: idea.title }]} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
           <input
             value={idea.title}
@@ -106,7 +105,7 @@ export function SandboxWorkspace({
           <button
             type="button"
             onClick={onInviteCopilot}
-            style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, border: "none", background: T.roi.cyan, color: "#0b3c6e", cursor: "pointer" }}
+            className="btn btn-ai"
           >
             Invite the Copilot in →
           </button>
@@ -119,14 +118,14 @@ export function SandboxWorkspace({
           <button
             type="button"
             onClick={() => onOpenInitiative(idea.promotedInitiativeId!)}
-            style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: T.roi.confirmed, color: "#fff", cursor: "pointer" }}
+            className="btn btn-success"
           >
             Open the build →
           </button>
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr)", gap: 14, alignItems: "start" }}>
+      <div className="two-col">
         {/* The conversation IS the interface. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <Thread messages={idea.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} roster={AGENTS} />
@@ -254,7 +253,7 @@ export function SandboxWorkspace({
                     onAddMember(pickPerson);
                     setPickPerson("");
                   }}
-                  style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 6, border: "none", background: pickPerson ? T.roi.navy : T.grid, color: "#fff", cursor: pickPerson ? "pointer" : "default" }}
+                  className="btn btn-primary"
                 >
                   Add
                 </button>
@@ -299,7 +298,7 @@ export function SandboxWorkspace({
                 <button
                   type="button"
                   onClick={() => onPromote(promoteType)}
-                  style={{ fontSize: 12.5, fontWeight: 700, padding: "10px 14px", borderRadius: 8, border: "none", background: T.roi.navy, color: "#fff", cursor: "pointer" }}
+                  className="btn btn-primary btn-lg"
                 >
                   Promote to a build →
                 </button>

@@ -3,7 +3,7 @@
  * reference dataviz palette (light mode; Teams theme tokens arrive in M3).
  */
 export const T = {
-  page: "#f9f9f7",
+  page: "#f6f6f3",
   surface: "#fcfcfb",
   ink: "#0b0b0b",
   inkSecondary: "#52514e",

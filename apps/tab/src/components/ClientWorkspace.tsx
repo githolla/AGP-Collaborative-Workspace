@@ -3,6 +3,7 @@ import { card, T } from "../theme.js";
 import { SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
+import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
@@ -53,7 +54,7 @@ function Avatar({ name, size = 30 }: { name: string; size?: number }) {
 
 function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} style={{ alignSelf: "flex-start", marginTop: 8, fontSize: 11.5, fontWeight: 700, color: "#fff", background: navy, border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>
+    <button type="button" className="btn btn-primary btn-sm" onClick={onClick} style={{ alignSelf: "flex-start", marginTop: 8 }}>
       {label} ›
     </button>
   );
@@ -106,7 +107,7 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr 1.2fr", gap: 14, alignItems: "start" }}>
+      <div className="home-row-1">
         {/* Account overview */}
         <div style={card}>
           <SectionTitle>Account Overview</SectionTitle>
@@ -180,7 +181,7 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1.4fr", gap: 14, alignItems: "start" }}>
+      <div className="home-row-2">
         {/* Recent files */}
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Recent Files</SectionTitle>
@@ -288,7 +289,6 @@ function FilesTab({ account, onAddLink }: { account: ClientAccount; onAddLink: (
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
-  const input: React.CSSProperties = { fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink };
   const list = (title: string, items: ClientAccount["files"]) => (
     <div style={card}>
       <SectionTitle>{title}</SectionTitle>
@@ -308,19 +308,19 @@ function FilesTab({ account, onAddLink }: { account: ClientAccount; onAddLink: (
   );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "start" }}>
+      <div className="home-row-1" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {list("Files", account.files)}
         {list("Core Documentation", account.docs)}
       </div>
       <div style={card}>
         <SectionTitle>Link a file or document</SectionTitle>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Fall_Package_v2.pptx" style={{ ...input, flex: 2, minWidth: 180 }} />
-          <select value={kind} onChange={(e) => setKind(e.target.value as "file" | "doc")} style={input}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Fall_Package_v2.pptx" className="input" style={{flex: 2, minWidth: 180 }} />
+          <select value={kind} onChange={(e) => setKind(e.target.value as "file" | "doc")} className="select">
             <option value="file">File</option>
             <option value="doc">Core doc</option>
           </select>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="SharePoint link (optional)" style={{ ...input, flex: 2, minWidth: 160 }} />
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="SharePoint link (optional)" className="input" style={{flex: 2, minWidth: 160 }} />
           <button
             type="button"
             disabled={!name.trim()}
@@ -329,7 +329,7 @@ function FilesTab({ account, onAddLink }: { account: ClientAccount; onAddLink: (
               setName("");
               setUrl("");
             }}
-            style={{ fontSize: 12, fontWeight: 700, padding: "6px 16px", borderRadius: 6, border: "none", background: name.trim() ? navy : T.grid, color: "#fff", cursor: name.trim() ? "pointer" : "default" }}
+            className="btn btn-primary btn-sm"
           >
             Add
           </button>
@@ -358,7 +358,6 @@ function AccessTab({
   const [org, setOrg] = useState("");
   const [role, setRole] = useState<ExternalMember["role"]>("contractor");
   const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
-  const input: React.CSSProperties = { fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -390,7 +389,7 @@ function AccessTab({
                 type="button"
                 onClick={() => onRemove(e.id)}
                 title="Removal revokes access across this workspace immediately"
-                style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.status.critical}`, background: "transparent", color: T.status.critical, cursor: "pointer" }}
+                className="btn btn-danger btn-sm"
               >
                 Remove — revokes immediately
               </button>
@@ -398,7 +397,7 @@ function AccessTab({
                 type="button"
                 onClick={() => onOffboardEverywhere(e.name)}
                 title="One click removes this person from every client workspace, audit-logged"
-                style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: "none", background: T.status.critical, color: "#fff", cursor: "pointer" }}
+                className="btn btn-danger-solid btn-sm"
               >
                 Offboard everywhere
               </button>
@@ -408,13 +407,13 @@ function AccessTab({
         {account.externals.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No external members.</div>}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={{ ...input, flex: 1, minWidth: 130 }} />
-          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" style={{ ...input, flex: 1, minWidth: 130 }} />
-          <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} style={input}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" style={{flex: 1, minWidth: 130 }} />
+          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" className="input" style={{flex: 1, minWidth: 130 }} />
+          <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} className="select">
             <option value="client">Client</option>
             <option value="contractor">Contractor</option>
           </select>
-          <select value={access} onChange={(e) => setAccess(e.target.value as ExternalMember["access"])} style={input}>
+          <select value={access} onChange={(e) => setAccess(e.target.value as ExternalMember["access"])} className="select">
             <option value="workspace">Full workspace</option>
             <option value="files-only">Files only</option>
             <option value="tasks-only">Tasks only</option>
@@ -427,7 +426,7 @@ function AccessTab({
               setName("");
               setOrg("");
             }}
-            style={{ fontSize: 12, fontWeight: 700, padding: "6px 16px", borderRadius: 6, border: "none", background: name.trim() && org.trim() ? navy : T.grid, color: "#fff", cursor: name.trim() && org.trim() ? "pointer" : "default" }}
+            className="btn btn-primary btn-sm"
           >
             Grant access
           </button>
@@ -491,9 +490,7 @@ export function ClientWorkspace({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <button type="button" onClick={onBack} style={{ fontSize: 12, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          ← Clients
-        </button>
+        <Crumbs trail={[{ label: "Clients", onClick: onBack }, { label: account.clientName }]} />
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
           <TagChip>Client account</TagChip>
@@ -502,23 +499,7 @@ export function ClientWorkspace({
           {TABS.map((t) => {
             const active = t.key === tab;
             return (
-              <button
-                key={t.key}
-                role="tab"
-                aria-selected={active}
-                type="button"
-                onClick={() => setTab(t.key)}
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: active ? 800 : 600,
-                  padding: "9px 16px",
-                  border: "none",
-                  borderRadius: "8px 8px 0 0",
-                  cursor: "pointer",
-                  background: active ? navy : "transparent",
-                  color: active ? "#fff" : T.inkSecondary,
-                }}
-              >
+              <button key={t.key} role="tab" aria-selected={active} type="button" className="ws-tab" onClick={() => setTab(t.key)}>
                 {t.label}
               </button>
             );

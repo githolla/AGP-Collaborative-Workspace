@@ -32,7 +32,7 @@ export function Sandbox({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ ...card, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 8, padding: 20 }}>
+      <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>What should exist that doesn't?</div>
         <textarea
           value={text}
@@ -42,42 +42,25 @@ export function Sandbox({
           }}
           placeholder="One sentence is enough — “What if we drafted grant compliance reports automatically from campaign outcomes?”"
           rows={3}
-          style={{ fontSize: 13.5, padding: "12px 14px", border: `1px solid ${T.grid}`, borderRadius: 10, resize: "vertical", fontFamily: "inherit", color: T.ink, lineHeight: 1.5 }}
+          className="textarea"
+          style={{ fontSize: 13.5, padding: "12px 14px", borderRadius: 10 }}
         />
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button
             type="button"
+            className="btn btn-primary btn-lg"
             disabled={!ready}
             onClick={() => start("copilot")}
             title="The Copilot names it, sizes it, plans it, and picks the team behind the scenes"
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              padding: "10px 20px",
-              borderRadius: 8,
-              border: "none",
-              cursor: ready ? "pointer" : "default",
-              background: ready ? T.roi.navy : T.grid,
-              color: "#fff",
-            }}
           >
             Build it for me →
           </button>
           <button
             type="button"
+            className="btn btn-secondary btn-lg"
             disabled={!ready}
             onClick={() => start("observer")}
             title="No drafting — you and your team shape it; the Copilot observes quietly and joins only when invited"
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "10px 20px",
-              borderRadius: 8,
-              cursor: ready ? "pointer" : "default",
-              border: `1px solid ${ready ? T.roi.navy : T.grid}`,
-              background: "transparent",
-              color: ready ? T.roi.navy : T.inkMuted,
-            }}
           >
             Start blank — just us
           </button>
@@ -88,7 +71,7 @@ export function Sandbox({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
+      <div className="cards-grid">
         {ideas.map((idea) => {
           const roi = computeProjectROI(factorsFromBasis(idea.basis));
           const hasBasis = idea.basis.comparables.length > 0 || idea.basis.manual.length > 0;
@@ -97,7 +80,8 @@ export function Sandbox({
               key={idea.id}
               type="button"
               onClick={() => onOpen(idea.id)}
-              style={{ ...card, textAlign: "left", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}
+              className="card card-hover"
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3 }}>{idea.title}</span>

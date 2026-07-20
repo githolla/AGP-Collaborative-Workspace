@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { card, T } from "../theme.js";
+import { T } from "../theme.js";
 import { SectionTitle, TagChip } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount } from "../workspace/types.js";
@@ -18,7 +18,7 @@ export function ClientList({
   const today = AS_OF_TODAY();
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
+    <div className="cards-grid">
       {accounts.map((a) => {
         const open = a.tasks.filter((t) => t.status !== "done");
         const overdue = open.filter((t) => t.due && t.due < today).length;
@@ -27,7 +27,8 @@ export function ClientList({
             key={a.id}
             type="button"
             onClick={() => onOpen(a.id)}
-            style={{ ...card, textAlign: "left", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}
+            className="card card-hover"
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
           >
             <span style={{ fontSize: 14, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>{a.clientName}</span>
             <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -45,13 +46,13 @@ export function ClientList({
         );
       })}
 
-      <div style={{ ...card, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
+      <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
         <SectionTitle>New client workspace</SectionTitle>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Client name, e.g. “Riverside Food Bank”"
-          style={{ fontSize: 12.5, padding: "8px 10px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
+          className="input"
         />
         <button
           type="button"
@@ -60,7 +61,7 @@ export function ClientList({
             onCreate(name.trim());
             setName("");
           }}
-          style={{ fontSize: 12, fontWeight: 700, padding: "9px 14px", borderRadius: 8, border: "none", background: name.trim() ? T.roi.navy : T.grid, color: "#fff", cursor: name.trim() ? "pointer" : "default" }}
+          className="btn btn-primary"
         >
           Create from the standard template
         </button>
