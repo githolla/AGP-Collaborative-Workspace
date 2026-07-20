@@ -60,11 +60,25 @@ function projectBelongsToClient(title: string, clientName: string, abbreviation?
   return words.length === 1 ? hits === 1 : hits >= 2;
 }
 
+/** Loose equality for the group↔company join: case/punctuation-insensitive. */
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
 export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
-  const abbreviation = mirror.clients.find((c) => c.name === clientName)?.abbreviation;
+  const client = mirror.clients.find((c) => c.name === clientName);
+  const abbreviation = client?.abbreviation;
+  const wanted = normName(clientName);
+
+  // Exact join first (workspace group ↔ company); heuristics only for
+  // projects with no group.
+  const groupMatches = (p: (typeof mirror.projects)[number]): boolean | null => {
+    if (!p.clientGroup) return null;
+    const g = normName(p.clientGroup);
+    return g === wanted || g.includes(wanted) || wanted.includes(g) ||
+      (!!abbreviation && normName(abbreviation) === g);
+  };
 
   const fromProjects: ImportedCampaign[] = mirror.projects
-    .filter((p) => projectBelongsToClient(p.title, clientName, abbreviation))
+    .filter((p) => groupMatches(p) ?? projectBelongsToClient(p.title, clientName, abbreviation))
     .map((p) => {
       const upcoming = mirror.milestones
         .filter((m) => m.projectId === p.id && m.state !== "completed" && m.dueDate >= today)

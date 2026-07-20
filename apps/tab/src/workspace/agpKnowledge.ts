@@ -218,6 +218,12 @@ export interface MirrorProject {
   startDate?: string;
   dueDate?: string;
   status?: string;
+  /**
+   * The client this project belongs to, via the Kantata workspace-group ↔
+   * HubSpot company join (SPEC constraint #7) — the EXACT link, no name
+   * heuristics needed when present.
+   */
+  clientGroup?: string;
 }
 
 /** Kantata milestone (story_type "milestone") — the dates client work hangs on. */
@@ -290,16 +296,22 @@ export function loadMirror(): AgpMirror {
   const nameOf = (id: unknown) => clients.find((c) => c.id === String(id))?.name ?? "";
   return {
     clients,
-    projects: (k.workspace ?? []).map((w) => ({
-      id: String(w.id),
-      title: String(w.title),
-      serviceLine: String(w.service_line),
-      vertical: String(w.vertical),
-      model: String(w.commercial_model),
-      ...(w.start_date ? { startDate: String(w.start_date) } : {}),
-      ...(w.due_date ? { dueDate: String(w.due_date) } : {}),
-      ...(w.status ? { status: String(w.status) } : {}),
-    })),
+    projects: (k.workspace ?? []).map((w) => {
+      // Fixture models the real join directly: workspace_group_company_id
+      // points at the HubSpot company.
+      const joined = clients.find((c) => c.id === String(w.workspace_group_company_id ?? ""));
+      return {
+        id: String(w.id),
+        title: String(w.title),
+        serviceLine: String(w.service_line),
+        vertical: String(w.vertical),
+        model: String(w.commercial_model),
+        ...(w.start_date ? { startDate: String(w.start_date) } : {}),
+        ...(w.due_date ? { dueDate: String(w.due_date) } : {}),
+        ...(w.status ? { status: String(w.status) } : {}),
+        ...(joined ? { clientGroup: joined.name } : {}),
+      };
+    }),
     milestones: (k.story ?? [])
       .filter((s) => s.story_type === "milestone")
       .map((s) => ({

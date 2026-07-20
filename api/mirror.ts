@@ -52,6 +52,8 @@ interface MirrorPayload {
   deals: Record<string, unknown>[];
   kantataProjects: Record<string, unknown>[];
   kantataMilestones: Record<string, unknown>[];
+  kantataGroups: Record<string, unknown>[];
+  kantataCustomFields: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -100,6 +102,8 @@ async function pullHubSpot(token: string): Promise<{
 async function pullKantata(token: string): Promise<{
   projects: Record<string, unknown>[];
   milestones: Record<string, unknown>[];
+  groups: Record<string, unknown>[];
+  customFields: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
@@ -124,10 +128,12 @@ async function pullKantata(token: string): Promise<{
       // mapping them needs the tenant grounding doc (BLOCKERS #1).
     }));
 
-  // Milestones: the dates client work hangs on. Degrade gracefully if the
-  // token lacks story access.
+  // Milestones, workspace groups (the REAL client↔project join per SPEC
+  // constraint #7), and custom field values ("Service Line Detail" etc.).
+  // Each degrades independently if the token lacks that endpoint.
+  const notes: string[] = [`${projects.length} workspaces`];
+
   let milestones: Record<string, unknown>[] = [];
-  let note = "workspaces ok (custom fields await tenant grounding doc)";
   const storiesRes = await fetch(
     "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
     { headers },
@@ -143,11 +149,53 @@ async function pullKantata(token: string): Promise<{
       due_date: s.due_date ?? "",
       state: s.state ?? "",
     }));
-    note = `workspaces + ${milestones.length} milestones ok (custom fields await tenant grounding doc)`;
+    notes.push(`${milestones.length} milestones`);
   } else {
-    note = `workspaces ok; milestones HTTP ${storiesRes.status}`;
+    notes.push(`milestones HTTP ${storiesRes.status}`);
   }
-  return { projects, milestones, note };
+
+  let groups: Record<string, unknown>[] = [];
+  const groupsRes = await fetch("https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces", {
+    headers,
+  });
+  if (groupsRes.ok) {
+    const groupsJson = (await groupsRes.json()) as {
+      workspace_groups?: Record<string, { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] }>;
+    };
+    groups = Object.values(groupsJson.workspace_groups ?? {}).map((g) => ({
+      id: String(g.id),
+      name: g.name ?? "",
+      company: g.company ?? "",
+      workspace_ids: (g.workspace_ids ?? []).map(String),
+    }));
+    notes.push(`${groups.length} groups`);
+  } else {
+    notes.push(`groups HTTP ${groupsRes.status}`);
+  }
+
+  let customFields: Record<string, unknown>[] = [];
+  const cfRes = await fetch(
+    "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
+    { headers },
+  );
+  if (cfRes.ok) {
+    const cfJson = (await cfRes.json()) as {
+      custom_field_values?: Record<
+        string,
+        { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown }
+      >;
+    };
+    customFields = Object.values(cfJson.custom_field_values ?? {}).map((v) => ({
+      subject_id: String(v.subject_id ?? ""),
+      name: v.custom_field_name ?? "",
+      value: v.display_value ?? (typeof v.value === "string" ? v.value : ""),
+    }));
+    notes.push(`${customFields.length} custom-field values`);
+  } else {
+    notes.push(`custom fields HTTP ${cfRes.status}`);
+  }
+
+  return { projects, milestones, groups, customFields, note: notes.join(" · ") };
 }
 
 export default async function handler(
@@ -178,6 +226,8 @@ export default async function handler(
     deals: [],
     kantataProjects: [],
     kantataMilestones: [],
+    kantataGroups: [],
+    kantataCustomFields: [],
   };
 
   if (hubspotToken) {
@@ -196,6 +246,8 @@ export default async function handler(
       const k = await pullKantata(kantataToken);
       payload.kantataProjects = k.projects;
       payload.kantataMilestones = k.milestones;
+      payload.kantataGroups = k.groups;
+      payload.kantataCustomFields = k.customFields;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } catch (err) {
       payload.sources.kantata.note = `pull failed: ${err instanceof Error ? err.message : "unknown"}`;

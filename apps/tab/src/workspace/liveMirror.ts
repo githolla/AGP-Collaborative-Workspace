@@ -29,6 +29,8 @@ export interface RawMirrorPayload {
   deals: Record<string, unknown>[];
   kantataProjects: Record<string, unknown>[];
   kantataMilestones?: Record<string, unknown>[];
+  kantataGroups?: Record<string, unknown>[];
+  kantataCustomFields?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -65,18 +67,30 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
     clients,
     projects: p.kantataProjects
       .filter((w) => str(w.title).trim().length > 0)
-      .map((w) => ({
-        id: String(w.id),
-        title: str(w.title),
-        // AGP custom fields (service line / vertical / model) need the
-        // Kantata tenant grounding doc (BLOCKERS #1) — empty until then.
-        serviceLine: "",
-        vertical: "",
-        model: str(w.status),
-        ...(str(w.start_date) ? { startDate: str(w.start_date) } : {}),
-        ...(str(w.due_date) ? { dueDate: str(w.due_date) } : {}),
-        ...(str(w.status) ? { status: str(w.status) } : {}),
-      })),
+      .map((w) => {
+        const id = String(w.id);
+        // Workspace-group join: the group a project belongs to names its
+        // client (SPEC constraint #7) — exact, no title heuristics.
+        const group = (p.kantataGroups ?? []).find((g) =>
+          Array.isArray(g.workspace_ids) ? (g.workspace_ids as unknown[]).map(String).includes(id) : false,
+        );
+        const clientGroup = group ? str(group.company) || str(group.name) : "";
+        // Custom fields: "Service Line Detail" etc. per the tenant taxonomy.
+        const fieldsFor = (p.kantataCustomFields ?? []).filter((f) => String(f.subject_id) === id);
+        const serviceLine = str(fieldsFor.find((f) => /service\s*line/i.test(str(f.name)))?.value);
+        const vertical = str(fieldsFor.find((f) => /vertical|industry/i.test(str(f.name)))?.value);
+        return {
+          id,
+          title: str(w.title),
+          serviceLine,
+          vertical,
+          model: str(w.status),
+          ...(str(w.start_date) ? { startDate: str(w.start_date) } : {}),
+          ...(str(w.due_date) ? { dueDate: str(w.due_date) } : {}),
+          ...(str(w.status) ? { status: str(w.status) } : {}),
+          ...(clientGroup ? { clientGroup } : {}),
+        };
+      }),
     campaigns: p.deals
       .filter((d) => str(d.dealname).trim().length > 0)
       .map((d) => ({

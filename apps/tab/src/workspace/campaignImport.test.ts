@@ -103,6 +103,20 @@ describe("campaignsFromMirror", () => {
     expect(out).toHaveLength(0);
   });
 
+  it("uses the workspace-group join as the exact match, overriding title heuristics", () => {
+    const m = mirror({
+      projects: [
+        // Title mentions a different client entirely — the group join wins.
+        { id: "ws-9", title: "Q4 Omnichannel Program", serviceLine: "", vertical: "", model: "", clientGroup: "Harvest Hope Food Bank" },
+        // Grouped under someone else: excluded even though the title matches.
+        { id: "ws-10", title: "Harvest Hope Lookalike Audit", serviceLine: "", vertical: "", model: "", clientGroup: "Other Client Inc" },
+      ],
+    });
+    const out = campaignsFromMirror(m, "Harvest Hope Food Bank", TODAY);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.name).toBe("Q4 Omnichannel Program");
+  });
+
   it("requires two significant words for multi-word names and accepts them", () => {
     const m = mirror({
       projects: [

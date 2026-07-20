@@ -123,6 +123,24 @@ describe("mapLivePayload", () => {
     });
   });
 
+  it("joins projects to clients via workspace groups and maps custom-field service lines", () => {
+    const mirror = mapLivePayload(
+      payload({
+        kantataProjects: [{ id: "900", title: "Q4 Omnichannel Program", status: "In Progress" }],
+        kantataGroups: [{ id: "g1", name: "Harvest Hope Food Bank", company: "", workspace_ids: ["900"] }],
+        kantataCustomFields: [
+          { subject_id: "900", name: "Service Line Detail", value: "Direct Mail" },
+          { subject_id: "900", name: "Client Vertical", value: "Food Banks" },
+        ],
+      }),
+    );
+    expect(mirror.projects[0]).toMatchObject({
+      clientGroup: "Harvest Hope Food Bank",
+      serviceLine: "Direct Mail",
+      vertical: "Food Banks",
+    });
+  });
+
   it("carries deal close dates for the campaign import", () => {
     const mirror = mapLivePayload(
       payload({
