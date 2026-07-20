@@ -1435,6 +1435,7 @@ export function ClientWorkspace({
               <button
                 type="button"
                 className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
+                data-tour="review-import"
                 title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
                 onClick={() => setReviewOpen((o) => !o)}
               >

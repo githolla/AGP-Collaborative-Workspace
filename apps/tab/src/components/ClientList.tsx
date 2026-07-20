@@ -69,7 +69,7 @@ function BookOfBusiness({
   );
 
   return (
-    <div className="card" style={{ padding: 18 }}>
+    <div className="card" data-tour="book" style={{ padding: 18 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add clients from your book of business</div>

@@ -392,6 +392,12 @@ export function useWorkspace() {
     return id;
   }, []);
 
+  /** Delete a sandbox idea outright — sandbox work is exploratory, so gone
+   * is gone (a promoted idea's build lives on independently). */
+  const removeIdea = useCallback((id: string) => {
+    setState((s) => ({ ...s, ideas: s.ideas.filter((i) => i.id !== id) }));
+  }, []);
+
   /** The human signed off on the Copilot's draft — the review panel retires. */
   const acceptDraftReview = useCallback(
     (id: string) => {
@@ -1034,6 +1040,7 @@ export function useWorkspace() {
     createIdea,
     acceptDraftReview,
     updateIdea,
+    removeIdea,
     postIdeaMessage,
     askIdeaAnalyst,
     promoteIdea,

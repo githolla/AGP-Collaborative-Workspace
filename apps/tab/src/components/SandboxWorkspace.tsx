@@ -43,6 +43,7 @@ const numberInput: React.CSSProperties = {
 export function SandboxWorkspace({
   idea,
   onBack,
+  onDelete,
   onUpdate,
   onPost,
   onAskAnalyst,
@@ -58,6 +59,8 @@ export function SandboxWorkspace({
 }: {
   idea: SandboxIdea;
   onBack: () => void;
+  /** Delete this sandbox project for good (confirmed in the UI). */
+  onDelete?: () => void;
   onUpdate: (patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis" | "team">>) => void;
   onPost: (body: string) => void;
   onAskAnalyst: () => void;
@@ -96,6 +99,26 @@ export function SandboxWorkspace({
             <TagChip key={c}>{c}</TagChip>
           ))}
           {promoted && <TagChip>Promoted ✓</TagChip>}
+          {onDelete && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              style={{ marginLeft: "auto" }}
+              title={promoted ? "Delete this sandbox idea — the promoted build it created is kept" : "Delete this sandbox project permanently"}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    promoted
+                      ? `Delete “${idea.title}” from the Sandbox? The promoted build it created stays.`
+                      : `Delete “${idea.title}” permanently? Sandbox projects have no archive — this can't be undone.`,
+                  )
+                )
+                  onDelete();
+              }}
+            >
+              Delete
+            </button>
+          )}
         </div>
       </div>
 

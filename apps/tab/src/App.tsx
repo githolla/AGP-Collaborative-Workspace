@@ -87,12 +87,28 @@ const TOUR_STEPS: TourStep[] = [
     body: "Taken literally. Clients is everything client-facing; the Sandbox is where anything new starts. Search reaches the rest — including builds promoted out of the sandbox.",
   },
   {
+    key: "book",
+    route: "",
+    target: '[data-tour="book"]',
+    title: "Your whole book of business, live",
+    quote: { text: "Separate workspace per client… ability to apply a template for consistent set up.", from: "Cara's features doc — two Musts" },
+    body: "Every company in HubSpot, sectioned by vertical, with what Kantata holds for each. “With matched work” shows who has campaigns waiting; ★ Target flags the BD priorities. One click sets up the standard workspace.",
+  },
+  {
     key: "client-tabs",
     route: "c/acct-abc-foodbank",
     target: '[data-tour="client-tabs"]',
-    title: "Cara's wireframe, working",
+    title: "Cara's wireframe — to the pixel",
     quote: { text: "Home · Project Plan · Client Dashboard · Files · Discussions · Contractor Access", from: "the nav in Cara's wireframe" },
-    body: "Her tabs, exactly, and all of them live. Every client account gets this same workspace from the standard template — one workspace per account, no cross-visibility.",
+    body: "Her navy band, her tabs, the team's faces on the right — and every Home zone populated from live data: campaigns, milestone dates, tasks, files, discussions. Empty zones are doors, not dead ends.",
+  },
+  {
+    key: "review-import",
+    route: "c/acct-abc-foodbank",
+    target: '[data-tour="review-import"]',
+    title: "Nothing lands until you say so",
+    quote: { text: "…you choose what imports.", from: "the import contract" },
+    body: "Kantata projects, milestones, open tasks, and HubSpot deals matched to this client wait HERE for your approval — check what belongs, import, remove anything wrong later. Below the band: live health, renewal, hours logged, and gone-quiet flags from both systems.",
   },
   {
     key: "client-access",
@@ -100,7 +116,7 @@ const TOUR_STEPS: TourStep[] = [
     target: '[data-tour="client-access"]',
     title: "Access that revokes for real",
     quote: { text: "Offboarding revokes access immediately.", from: "Cara's features doc — a Must" },
-    body: "The register shows who invited whom and when they were last active. Remove revokes on the spot — and “Offboard everywhere” clears a person from every client workspace at once, audit-logged.",
+    body: "The register shows who invited whom and when they were last active — 30 days idle raises a review flag. Remove revokes on the spot, and “Offboard everywhere” clears a person from every client workspace at once, audit-logged.",
   },
   {
     key: "intake",
@@ -136,7 +152,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     key: "done",
     title: "That's the loop",
-    body: "Idea → AI draft → human review → team parts → promoted build, while client work runs in its own workspace. Every Must in Cara's doc is built or backend-gated, tracked line-by-line in the requirements baseline. Restart any time with “Take the tour”.",
+    body: "Live book → workspace per client → you approve what imports → the team works one plan, and the Copilot drafts the weekly client update for your sign-off. Ideas run the Sandbox loop beside it (delete the dead ones — sandbox is disposable). Every Must in Cara's doc is built or backend-gated. Restart any time with “Take the tour”.",
   },
 ];
 
@@ -381,6 +397,10 @@ export function App() {
           <SandboxWorkspace
             idea={selectedIdea}
             onBack={() => setRoute({ view: "sandbox" })}
+            onDelete={() => {
+              ws.removeIdea(selectedIdea.id);
+              setRoute({ view: "sandbox" });
+            }}
             onUpdate={(patch) => ws.updateIdea(selectedIdea.id, patch)}
             onPost={(body) => ws.postIdeaMessage(selectedIdea.id, body, userName)}
             onAskAnalyst={() => ws.askIdeaAnalyst(selectedIdea.id)}
