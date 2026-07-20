@@ -8,10 +8,12 @@ import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { Button, EmptyState } from "./components/ui.js";
+import { HomePage } from "./components/HomePage.js";
 import { useWorkspace } from "./workspace/store.js";
 import { T } from "./theme.js";
 
 type Route =
+  | { view: "home" }
   | { view: "initiatives" }
   | { view: "sandbox" }
   | { view: "clients" }
@@ -29,7 +31,8 @@ function parseHash(): Route {
   if (account?.[1]) return { view: "account", id: account[1] };
   if (hash === "#sandbox") return { view: "sandbox" };
   if (hash === "#clients") return { view: "clients" };
-  return { view: "initiatives" };
+  if (hash === "#builds") return { view: "initiatives" };
+  return { view: "home" };
 }
 
 function hashOf(route: Route): string {
@@ -44,6 +47,8 @@ function hashOf(route: Route): string {
       return "sandbox";
     case "clients":
       return "clients";
+    case "initiatives":
+      return "builds";
     default:
       return "";
   }
@@ -52,7 +57,8 @@ function hashOf(route: Route): string {
 const USER_NAME = "Barry Medley";
 
 /** Which top-level section a route belongs to (keeps nav lit inside workspaces). */
-function sectionOf(route: Route): "clients" | "initiatives" | "sandbox" {
+function sectionOf(route: Route): "home" | "clients" | "initiatives" | "sandbox" {
+  if (route.view === "home") return "home";
   if (route.view === "clients" || route.view === "account") return "clients";
   if (route.view === "sandbox" || route.view === "idea") return "sandbox";
   return "initiatives";
@@ -82,9 +88,9 @@ export function App() {
   const selectedAccount = route.view === "account" ? ws.accounts.find((a) => a.id === route.id) ?? null : null;
 
   const section = sectionOf(route);
-  const listView = route.view === "initiatives" || route.view === "sandbox" || route.view === "clients";
+  const listView = route.view === "initiatives" || route.view === "sandbox" || route.view === "clients" || route.view === "home";
 
-  const navPill = (label: string, key: "clients" | "initiatives" | "sandbox", target: Route) => (
+  const navPill = (label: string, key: "home" | "clients" | "initiatives" | "sandbox", target: Route) => (
     <button type="button" className={`nav-pill${section === key ? " active" : ""}`} onClick={() => setRoute(target)}>
       {label}
     </button>
@@ -97,6 +103,7 @@ export function App() {
       {/* Persistent navigation — visible on every page, including workspaces. */}
       <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {navPill("Home", "home", { view: "home" })}
           {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
           {navPill(`Builds (${ws.initiatives.filter((i) => !i.archived).length})`, "initiatives", { view: "initiatives" })}
           {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
@@ -105,6 +112,17 @@ export function App() {
       </div>
 
       <div className="fade-in" key={hashOf(route)} style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
+        {route.view === "home" && (
+          <HomePage
+            userName={USER_NAME}
+            accounts={ws.accounts}
+            initiatives={ws.initiatives}
+            ideas={ws.ideas}
+            onNavigate={(target) => setRoute(target)}
+            onCreateIdea={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
+          />
+        )}
+
         {route.view === "clients" && (
           <>
             <PageIntro title="Client workspaces">
