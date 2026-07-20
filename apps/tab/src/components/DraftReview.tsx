@@ -63,7 +63,7 @@ export function DraftReview({
   const plan = idea.plan;
 
   return (
-    <div className="card" style={{ borderColor: T.roi.navy, borderWidth: 1.5, padding: 18 }}>
+    <div className="card" data-tour="draft-review" style={{ borderColor: T.roi.navy, borderWidth: 1.5, padding: 18 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Review what the Copilot built</div>

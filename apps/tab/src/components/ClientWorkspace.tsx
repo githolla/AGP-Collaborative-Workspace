@@ -495,11 +495,19 @@ export function ClientWorkspace({
           <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
           <TagChip>Client account</TagChip>
         </div>
-        <div role="tablist" aria-label="Client workspace" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
           {TABS.map((t) => {
             const active = t.key === tab;
             return (
-              <button key={t.key} role="tab" aria-selected={active} type="button" className="ws-tab" onClick={() => setTab(t.key)}>
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={active}
+                type="button"
+                className="ws-tab"
+                onClick={() => setTab(t.key)}
+                {...(t.key === "access" ? { "data-tour": "client-access" } : {})}
+              >
                 {t.label}
               </button>
             );

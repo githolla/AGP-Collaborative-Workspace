@@ -147,7 +147,9 @@ export function SandboxWorkspace({
 
         {/* The living draft. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <ExecCard factors={factorsFromBasis(basis)} />
+          <div data-tour="decision-view">
+            <ExecCard factors={factorsFromBasis(basis)} />
+          </div>
 
           {idea.aiMode === "copilot" && flags.length > 0 && !promoted && (
             <div style={{ ...card, borderColor: "#e7c66f" }}>

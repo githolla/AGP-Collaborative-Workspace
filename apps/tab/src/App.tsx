@@ -7,6 +7,7 @@ import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { Button, EmptyState } from "./components/ui.js";
+import { Tour, type TourStep } from "./components/Tour.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { T } from "./theme.js";
@@ -58,6 +59,75 @@ function sectionOf(route: Route): "clients" | "sandbox" {
   return "sandbox";
 }
 
+const TOUR_KEY = "agp-collab-tour-v1";
+
+/**
+ * The spotlight walkthrough — written to be read aloud while demoing.
+ * Routes use the seeded demo data (ABC Foodbank, the grant-report idea).
+ */
+const TOUR_STEPS: TourStep[] = [
+  {
+    key: "welcome",
+    route: "",
+    title: "Welcome to the prototype",
+    body: "A 60-second spotlight tour: the client workspace built from Cara's wireframe, and the Sandbox where the AI helps ideas become plans. Next (or →) to continue, Esc to bail any time.",
+  },
+  {
+    key: "nav",
+    route: "",
+    target: '[data-tour="nav"]',
+    title: "Two surfaces, that's it",
+    body: "Clients is everything client-facing. The Sandbox is where anything new starts. Search reaches everything — including builds promoted out of the sandbox.",
+  },
+  {
+    key: "client-tabs",
+    route: "c/acct-abc-foodbank",
+    target: '[data-tour="client-tabs"]',
+    title: "Cara's wireframe, working",
+    body: "Every client account gets this exact workspace from a template: Home, Project Plan, Client Dashboard, Files, Discussions, Contractor Access. All live — click through after the tour. Internal financials never render here; a build-time test enforces it.",
+  },
+  {
+    key: "client-access",
+    route: "c/acct-abc-foodbank",
+    target: '[data-tour="client-access"]',
+    title: "Access that revokes for real",
+    body: "Contractor Access lists who can see this workspace, who invited them, and when they were last active. Remove revokes instantly, and “Offboard everywhere” clears a person from every client workspace at once.",
+  },
+  {
+    key: "intake",
+    route: "sandbox",
+    target: '[data-tour="intake-box"]',
+    title: "Start anything in a sentence",
+    body: "Type what should exist. “Build it for me” has the Copilot name it, size it, plan it, and pick the team. “Start blank” keeps it human-only — the AI observes silently until invited.",
+  },
+  {
+    key: "chips",
+    route: "sandbox",
+    target: '[data-tour="intake-chips"]',
+    title: "Tap what you already know",
+    body: "Department, service line, vertical, client — one tap each, no forms. Your picks steer the AI's draft, and the picked department's person leads the plan.",
+  },
+  {
+    key: "review",
+    route: "s/idea-grant-report",
+    target: '[data-tour="draft-review"]',
+    title: "Review what the AI built",
+    body: "The Copilot drafted the value case, the team, and a dated plan — every line with its “because”. Remove what's wrong with ×, or just tell it in the chat. Accepting records that a human reviewed the machine's work.",
+  },
+  {
+    key: "roi",
+    route: "s/idea-grant-report",
+    target: '[data-tour="decision-view"]',
+    title: "The ROI engine, always on",
+    body: "Every idea carries a live decision view — annual net, payback, grade. Grades stay capped at C until required numbers land: honest by design. None of this ever reaches a client surface.",
+  },
+  {
+    key: "done",
+    title: "That's the loop",
+    body: "Idea → AI draft → human review → team parts → promoted build, while client work runs in its own workspace. Click your avatar to set your display name. Restart this walkthrough any time with the Tour button in the nav.",
+  },
+];
+
 function PageIntro({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -70,6 +140,22 @@ function PageIntro({ title, children }: { title: string; children: React.ReactNo
 export function App() {
   const ws = useWorkspace();
   const { name: userName, setName } = useProfile();
+  // Auto-start the walkthrough on first visit; the nav button restarts it.
+  const [tourStep, setTourStep] = useState<number | null>(() => {
+    try {
+      return window.localStorage.getItem(TOUR_KEY) ? null : 0;
+    } catch {
+      return null;
+    }
+  });
+  const closeTour = () => {
+    setTourStep(null);
+    try {
+      window.localStorage.setItem(TOUR_KEY, "seen");
+    } catch {
+      // storage unavailable — the tour just won't remember it ran
+    }
+  };
   const [route, setRouteState] = useState<Route>(parseHash);
   const setRoute = (r: Route) => {
     setRouteState(r);
@@ -105,8 +191,13 @@ export function App() {
       {/* Persistent navigation — visible on every page, including workspaces. */}
       <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
-          {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
+          <span data-tour="nav" style={{ display: "inline-flex", gap: 6 }}>
+            {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
+            {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
+          </span>
+          <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the prototype">
+            ✦ Tour
+          </button>
           <SearchBox initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />
         </div>
       </div>
@@ -235,6 +326,8 @@ export function App() {
           />
         )}
       </div>
+
+      {tourStep !== null && <Tour steps={TOUR_STEPS} step={tourStep} onStep={setTourStep} onClose={closeTour} />}
     </div>
   );
 }

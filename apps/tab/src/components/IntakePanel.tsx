@@ -94,6 +94,7 @@ export function IntakePanel({
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <textarea
         className="textarea"
+        data-tour="intake-box"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -105,7 +106,7 @@ export function IntakePanel({
       />
 
       {/* Tap what you already know — every pick is optional and removable. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      <div data-tour="intake-chips" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
         {chipRow(
           "Department",
           choices.departments.map((d) => ({ value: d.fn, text: d.label })),
