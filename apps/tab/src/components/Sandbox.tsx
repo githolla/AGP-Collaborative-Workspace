@@ -23,17 +23,19 @@ export function Sandbox({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>What should exist that doesn't?</div>
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10, padding: "20px 22px" }}>
+        <div>
+          <div style={{ fontSize: 15.5, fontWeight: 800, color: T.roi.navy }}>Start a new project</div>
+          <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 3 }}>
+            Describe it in a sentence. The Copilot drafts the plan, the team, and the numbers for
+            your review — or start without AI and invite it in later.
+          </div>
+        </div>
         <IntakePanel
           onCreate={onCreate}
           rows={3}
-          placeholder="One sentence is enough — “What if we drafted grant compliance reports automatically from campaign outcomes?”"
+          placeholder="e.g. “Draft grant compliance reports automatically from campaign outcomes for our food-bank clients.”"
         />
-        <span style={{ fontSize: 11, color: T.inkMuted }}>
-          Either way the Copilot pays attention — in blank mode it stays silent until you invite it
-          in, and it arrives already knowing the project.
-        </span>
       </div>
 
       <div className="cards-grid">
@@ -46,11 +48,16 @@ export function Sandbox({
               type="button"
               onClick={() => onOpen(idea.id)}
               className="card card-hover"
-              style={{ display: "flex", flexDirection: "column", gap: 8 }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                borderTop: `3px solid ${idea.status === "promoted" ? T.roi.confirmed : T.roi.navy}`,
+              }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3 }}>{idea.title}</span>
-                <TagChip>{idea.status === "promoted" ? "Promoted ✓" : "Exploring"}</TagChip>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>{idea.title}</span>
+                <TagChip>{idea.status === "promoted" ? "Promoted ✓" : "In review"}</TagChip>
               </div>
               <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {idea.aiMode === "observer" && <TagChip>Blank — Copilot observing</TagChip>}

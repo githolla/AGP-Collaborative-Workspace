@@ -10,10 +10,15 @@ export interface ClientCandidate {
   vertical: string;
   /** HubSpot lifecycle stage; "customer" renders as a Client chip. */
   lifecycleStage?: string;
+  /** How many campaigns a one-click create would import from Kantata/HubSpot. */
+  workCount?: number;
 }
 
-/** "health_services" → "health services" — raw select values, readable. */
-const pretty = (v: string) => v.replace(/_/g, " ");
+/** "health_services" / "RELIGIOUS INSTITUTIONS" → "Health services". */
+const pretty = (v: string) => {
+  const s = v.replace(/_/g, " ").toLowerCase().trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 
 /**
  * Full-width, searchable picker over the live book of business. With 100
@@ -24,18 +29,41 @@ function BookOfBusiness({
   candidates,
   live,
   onCreate,
+  onCreateBlank,
 }: {
   candidates: ClientCandidate[];
   live: boolean;
   onCreate: (name: string) => void;
+  /** Manual creation for a client not in the CRM — folded into the footer. */
+  onCreateBlank: (name: string) => void;
 }) {
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"ready" | "clients" | "all">("ready");
+  const [manualName, setManualName] = useState("");
+
+  const readyCount = candidates.filter((c) => (c.workCount ?? 0) > 0).length;
+  const clientCount = candidates.filter((c) => c.lifecycleStage === "customer").length;
+  // "Ready" is the useful default view — but only when something is ready.
+  const effectiveView = view === "ready" && readyCount === 0 ? "all" : view;
+
   const needle = q.trim().toLowerCase();
-  const filtered = needle
-    ? candidates.filter((c) => c.name.toLowerCase().includes(needle) || c.vertical.toLowerCase().includes(needle))
-    : candidates;
+  const filtered = candidates
+    .filter((c) =>
+      effectiveView === "ready" ? (c.workCount ?? 0) > 0 : effectiveView === "clients" ? c.lifecycleStage === "customer" : true,
+    )
+    .filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.vertical.toLowerCase().includes(needle));
   const shown = filtered.slice(0, 18);
-  const clients = candidates.filter((c) => c.lifecycleStage === "customer").length;
+
+  const viewChip = (key: "ready" | "clients" | "all", label: string) => (
+    <button
+      type="button"
+      className={`chip-pick${effectiveView === key ? " active" : ""}`}
+      aria-pressed={effectiveView === key}
+      onClick={() => setView(key)}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="card" style={{ padding: 18 }}>
@@ -43,8 +71,8 @@ function BookOfBusiness({
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add clients from your book of business</div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
-            One click builds the standard workspace and imports that client's campaigns from
-            Kantata &amp; HubSpot — nothing retyped.
+            One click builds the standard workspace and imports that client's Kantata projects and
+            HubSpot campaigns — milestones included, nothing retyped.
           </div>
         </div>
         <span
@@ -58,67 +86,82 @@ function BookOfBusiness({
             whiteSpace: "nowrap",
           }}
         >
-          {live ? "● live from HubSpot" : "demo data"} · {candidates.length} without a workspace
-          {clients > 0 ? ` · ${clients} active clients` : ""}
+          {live ? "● live from HubSpot & Kantata" : "demo data"}
         </span>
       </div>
 
-      <input
-        className="input"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={`Search ${candidates.length} companies by name or vertical…`}
-        style={{ width: "100%", marginTop: 12, fontSize: 13, padding: "10px 14px" }}
-      />
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+        {viewChip("ready", `Ready to import (${readyCount})`)}
+        {viewChip("clients", `Active clients (${clientCount})`)}
+        {viewChip("all", `All (${candidates.length})`)}
+        <input
+          className="input"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search by name or vertical…"
+          style={{ flex: 1, minWidth: 220, fontSize: 12.5, padding: "8px 12px" }}
+        />
+      </div>
 
       {shown.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "16px 4px" }}>
-          No companies match “{q}”.
+          {needle ? `No companies match “${q}”.` : "Nothing in this view yet."}
         </div>
       ) : (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
             gap: "0 24px",
-            marginTop: 6,
+            marginTop: 8,
           }}
         >
-          {shown.map((c) => (
-            <div
-              key={c.name}
-              className="table-row-hover"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "9px 6px",
-                borderBottom: `1px solid ${T.grid}`,
-                borderRadius: 6,
-              }}
-            >
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: T.ink, lineHeight: 1.35 }}>
-                  {c.name}
+          {shown.map((c) => {
+            const work = c.workCount ?? 0;
+            return (
+              <div
+                key={c.name}
+                className="table-row-hover"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 6px",
+                  borderBottom: `1px solid ${T.grid}`,
+                  borderRadius: 6,
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: T.ink, lineHeight: 1.35 }}>
+                    {c.name}
+                  </span>
+                  <span style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
+                    {work > 0 ? (
+                      <span style={{ fontSize: 10, fontWeight: 800, color: "#0b3c6e", background: "#e8f0f9", borderRadius: 999, padding: "1.5px 8px" }}>
+                        {work} campaign{work === 1 ? "" : "s"} ready
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 10, fontWeight: 600, color: T.inkMuted }}>nothing to import yet</span>
+                    )}
+                    {c.lifecycleStage === "customer" && (
+                      <span style={{ fontSize: 10, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                        Client
+                      </span>
+                    )}
+                    {c.vertical && <TagChip>{pretty(c.vertical)}</TagChip>}
+                  </span>
                 </span>
-                <span style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
-                  {c.lifecycleStage === "customer" ? (
-                    <span style={{ fontSize: 10, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                      Client
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, background: "#f0efec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                      {c.lifecycleStage ? pretty(c.lifecycleStage) : "prospect"}
-                    </span>
-                  )}
-                  {c.vertical && <TagChip>{pretty(c.vertical)}</TagChip>}
-                </span>
-              </span>
-              <button type="button" className="btn btn-secondary btn-sm" style={{ flexShrink: 0 }} onClick={() => onCreate(c.name)}>
-                Create →
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  className={`btn btn-sm ${work > 0 ? "btn-primary" : "btn-secondary"}`}
+                  style={{ flexShrink: 0 }}
+                  onClick={() => onCreate(c.name)}
+                >
+                  {work > 0 ? `Create + import ${work} →` : "Create blank →"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -127,6 +170,28 @@ function BookOfBusiness({
           Showing {shown.length} of {filtered.length} — keep typing to narrow it down.
         </div>
       )}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11.5, color: T.inkMuted }}>Someone not in the CRM?</span>
+        <input
+          className="input"
+          value={manualName}
+          onChange={(e) => setManualName(e.target.value)}
+          placeholder="Client name…"
+          style={{ flex: 1, minWidth: 180, fontSize: 12.5, padding: "7px 11px" }}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={!manualName.trim()}
+          onClick={() => {
+            onCreateBlank(manualName.trim());
+            setManualName("");
+          }}
+        >
+          Create from the standard template
+        </button>
+      </div>
     </div>
   );
 }
@@ -182,34 +247,38 @@ export function ClientList({
           );
         })}
 
-        <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
-          <SectionTitle>New client workspace</SectionTitle>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Client name, e.g. “Riverside Food Bank”"
-            className="input"
-          />
-          <button
-            type="button"
-            disabled={!name.trim()}
-            onClick={() => {
-              onCreate(name.trim());
-              setName("");
-            }}
-            className="btn btn-primary"
-          >
-            Create from the standard template
-          </button>
-          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
-            Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
-            the four core documents, discussions, and access control. Consistency is the template.
+        {/* Manual creation lives in the book-of-business footer when the CRM
+            list is present; this card is the fallback without one. */}
+        {(candidates.length === 0 || !onCreateFromClient) && (
+          <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
+            <SectionTitle>New client workspace</SectionTitle>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Client name, e.g. “Riverside Food Bank”"
+              className="input"
+            />
+            <button
+              type="button"
+              disabled={!name.trim()}
+              onClick={() => {
+                onCreate(name.trim());
+                setName("");
+              }}
+              className="btn btn-primary"
+            >
+              Create from the standard template
+            </button>
+            <div style={{ fontSize: 10.5, color: T.inkMuted }}>
+              Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
+              the four core documents, discussions, and access control. Consistency is the template.
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {candidates.length > 0 && onCreateFromClient && (
-        <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} />
+        <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
       )}
     </div>
   );

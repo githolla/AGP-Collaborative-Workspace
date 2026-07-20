@@ -12,6 +12,8 @@ import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { initLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
+import { campaignsFromMirror } from "./workspace/campaignImport.js";
+import { AS_OF_TODAY } from "./workspace/format.js";
 import { T } from "./theme.js";
 
 /**
@@ -238,18 +240,26 @@ export function App() {
             </PageIntro>
             <ClientList
               accounts={ws.accounts.filter((a) => !a.archived)}
-              candidates={loadMirror()
-                .clients.filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
-                .sort(
-                  (a, b) =>
-                    Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
-                    a.name.localeCompare(b.name),
-                )
-                .map((c) => ({
-                  name: c.name,
-                  vertical: c.vertical,
-                  ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
-                }))}
+              candidates={(() => {
+                const mirror = loadMirror();
+                const today = AS_OF_TODAY();
+                return mirror.clients
+                  .filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
+                  .map((c) => ({
+                    name: c.name,
+                    vertical: c.vertical,
+                    ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
+                    // What a one-click create would actually import — the
+                    // signal that separates real work from a blank shell.
+                    workCount: campaignsFromMirror(mirror, c.name, today).length,
+                  }))
+                  .sort(
+                    (a, b) =>
+                      b.workCount - a.workCount ||
+                      Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
+                      a.name.localeCompare(b.name),
+                  );
+              })()}
               candidatesLive={liveStatus.live}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}

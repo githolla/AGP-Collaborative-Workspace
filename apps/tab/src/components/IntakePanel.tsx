@@ -105,8 +105,27 @@ export function IntakePanel({
         style={{ fontSize: 13.5, padding: "11px 14px", borderRadius: 10 }}
       />
 
-      {/* Tap what you already know — every pick is optional and removable. */}
-      <div data-tour="intake-chips" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {/* Tap what you already know — contained so the form reads calm. */}
+      <div
+        data-tour="intake-chips"
+        style={{
+          background: "#f8f9fb",
+          border: `1px solid ${T.grid}`,
+          borderRadius: 10,
+          padding: "12px 14px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>
+            Project details — optional, tap to fill
+          </span>
+          <span style={{ fontSize: 11, color: picks.length > 0 ? T.roi.navy : T.inkMuted, fontWeight: picks.length > 0 ? 700 : 400 }}>
+            {picks.length > 0 ? picks.join(" · ") : "the Copilot infers what you skip"}
+          </span>
+        </div>
         {chipRow(
           "Department",
           choices.departments.map((d) => ({ value: d.fn, text: d.label })),
@@ -139,9 +158,9 @@ export function IntakePanel({
           className="btn btn-primary btn-lg"
           disabled={!ready}
           onClick={() => start("copilot")}
-          title="The Copilot names it, sizes it, plans it, and picks the team — your taps above steer it"
+          title="The Copilot names it, sizes it, plans it, and picks the team — your selections steer it"
         >
-          Build it for me →
+          Draft the project →
         </button>
         <button
           type="button"
@@ -150,13 +169,10 @@ export function IntakePanel({
           onClick={() => start("observer")}
           title="No drafting — you and your team shape it; the Copilot observes quietly and joins only when invited"
         >
-          Start blank — just us
+          Start without AI
         </button>
-        <span style={{ fontSize: 11, color: T.inkMuted }}>
-          {picks.length > 0
-            ? `Crafting with your picks: ${picks.join(" · ")}`
-            : "Tap a department, service line, vertical, or client above — the Copilot crafts the plan around your picks."}
-          {ready && <span style={{ marginLeft: 6, color: T.inkMuted }}>Ctrl+Enter builds.</span>}
+        <span style={{ fontSize: 11, color: T.inkMuted, marginLeft: "auto" }}>
+          Every draft is reviewed by you before anything counts.{ready ? " Ctrl+Enter drafts." : ""}
         </span>
       </div>
     </div>
