@@ -55,8 +55,23 @@ function Avatar({ name, size = 30 }: { name: string; size?: number }) {
 }
 
 function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
+  // Bottom-right, as drawn in the wireframe.
   return (
-    <button type="button" className="btn btn-primary btn-sm" onClick={onClick} style={{ alignSelf: "flex-start", marginTop: 8 }}>
+    <button type="button" className="btn btn-primary btn-sm" onClick={onClick} style={{ alignSelf: "flex-end", marginTop: "auto", paddingTop: 8 }}>
+      {label} ›
+    </button>
+  );
+}
+
+/** Clickable empty-state row: a dead zone becomes the next action. */
+function EmptyZone({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="table-row-hover"
+      style={{ background: "none", border: `1px dashed ${T.grid}`, borderRadius: 8, padding: "12px 14px", fontSize: 12, color: T.inkSecondary, textAlign: "left", cursor: "pointer", marginTop: 4 }}
+    >
       {label} ›
     </button>
   );
@@ -519,21 +534,6 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
               <span style={{ fontSize: 20, fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums" }}>{row.value}</span>
             </RowButton>
           ))}
-          {milestones.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "10px 0 2px" }}>
-                Upcoming milestones
-              </div>
-              {milestones.map((c) => (
-                <RowButton key={c.id} onClick={() => goTo("dashboard")} title="Open Client Dashboard" style={{ padding: "5px 4px", borderBottom: "none" }}>
-                  <span style={{ fontSize: 11.5, color: T.inkSecondary, lineHeight: 1.45 }}>
-                    <span style={{ color: navy, fontWeight: 700 }}>{c.nextMilestone}</span> — {c.name}
-                    <span style={{ color: T.inkMuted }}> · {c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
-                  </span>
-                </RowButton>
-              ))}
-            </>
-          )}
         </div>
 
         {/* Your tasks — mini board */}
@@ -565,6 +565,9 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
               </div>
             ))}
           </div>
+          {tasks.length === 0 && (
+            <EmptyZone label="No tasks yet — review & import Kantata tasks, or add the first one on the plan" onClick={() => goTo("plan")} />
+          )}
           <ViewAll label="View All Tasks" onClick={() => goTo("plan")} />
         </div>
 
@@ -579,10 +582,21 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                 <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{t.due ? fmtDay(t.due) : ""}</span>
               </RowButton>
             ))}
-            {dueThisWeek.length === 0 && (
-              <div style={{ fontSize: 12, color: T.inkMuted, paddingTop: 6 }}>
-                {today ? "Nothing due this week." : ""}
-              </div>
+            {/* Nothing due → the next real dates: campaign milestones. */}
+            {dueThisWeek.length === 0 && milestones.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, color: T.inkMuted, padding: "4px 0 2px" }}>No tasks due — next milestones:</div>
+                {milestones.map((c, i) => (
+                  <RowButton key={c.id} onClick={() => goTo("dashboard")} title="Open Client Dashboard" style={{ padding: "9px 4px" }}>
+                    <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nextMilestone}</span>
+                    <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
+                  </RowButton>
+                ))}
+              </>
+            )}
+            {dueThisWeek.length === 0 && milestones.length === 0 && (
+              <EmptyZone label="Nothing due this week — open the plan to add dated tasks" onClick={() => goTo("plan")} />
             )}
           </div>
         </div>
@@ -602,6 +616,9 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
             </RowButton>
           ))}
+          {account.files.length === 0 && (
+            <EmptyZone label="No files yet — link the SharePoint files this account lives in" onClick={() => goTo("files")} />
+          )}
           <ViewAll label="View All Files" onClick={() => goTo("files")} />
         </div>
 
@@ -623,7 +640,7 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         </div>
 
         {/* Latest discussions */}
-        <div style={card}>
+        <div style={{ ...card, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Latest Discussions</SectionTitle>
           {[...account.thread].reverse().slice(0, 3).map((m) => {
             const [title, ...rest] = m.body.split(" — ");
@@ -639,6 +656,9 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
               </RowButton>
             );
           })}
+          {account.thread.length === 0 && (
+            <EmptyZone label="No discussions yet — post the kickoff note, or let the Copilot draft the weekly update" onClick={() => goTo("discussions")} />
+          )}
           <ViewAll label="View All Discussions" onClick={() => goTo("discussions")} />
         </div>
       </div>
@@ -1313,37 +1333,62 @@ export function ClientWorkspace({
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <Crumbs trail={[{ label: "Clients", onClick: onBack }, { label: account.clientName }]} />
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
-          <TagChip>Client account</TagChip>
-          {onArchive && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ marginLeft: "auto" }}
-              title="Hide this workspace from the Clients list — all history is retained and it can be restored"
-              onClick={() => {
-                if (window.confirm(`Archive “${account.clientName}”? History is kept; restore any time from the Clients page.`)) onArchive();
-              }}
-            >
-              Archive
-            </button>
-          )}
-          {onImportCampaigns && (
-            <button
-              type="button"
-              className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
-              style={onArchive ? {} : { marginLeft: "auto" }}
-              title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
-              onClick={() => setReviewOpen((o) => !o)}
-            >
-              Review import{matchCount > 0 ? ` (${matchCount} matched)` : ""}
-            </button>
-          )}
+        {/* Cara's wireframe header, exactly: a navy band with the workspace
+            name, the tabs INLINE, and the team's avatars on the right. */}
+        <div
+          style={{ display: "flex", alignItems: "stretch", gap: 18, background: navy, borderRadius: 10, padding: "0 18px", marginTop: 8, flexWrap: "wrap", minHeight: 52 }}
+        >
+          <h1 style={{ fontSize: 16.5, fontWeight: 800, color: "#fff", alignSelf: "center", whiteSpace: "nowrap", padding: "10px 0" }}>
+            {account.clientName}
+          </h1>
+          <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap", alignItems: "stretch" }}>
+            {TABS.map((t) => {
+              const active = t.key === tab;
+              return (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={active}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    borderBottom: active ? "3px solid #fff" : "3px solid transparent",
+                    color: active ? "#fff" : "rgba(255,255,255,0.72)",
+                    fontSize: 12.5,
+                    fontWeight: active ? 800 : 600,
+                    padding: "16px 10px 13px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  {...(t.key === "access" ? { "data-tour": "client-access" } : {})}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            title="The team on this account — open Contractor Access"
+            onClick={() => setTab("access")}
+            style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0, alignSelf: "center" }}
+          >
+            {account.members.slice(0, 3).map((m, i) => (
+              <span key={m.personId} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: "50%", border: "2px solid #fff", display: "inline-flex" }}>
+                <Avatar name={m.name} size={28} />
+              </span>
+            ))}
+            <span aria-hidden style={{ color: "#fff", fontSize: 16, fontWeight: 800, marginLeft: 8, letterSpacing: 1 }}>⋯</span>
+          </button>
         </div>
-        {/* At-a-glance facts from the systems of record — visible on every tab. */}
-        {liveContext && (liveContext.crm || liveContext.projects.length > 0 || liveContext.deals.length > 0) && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+
+        {/* Our additions live BELOW the wireframe band: internal facts left,
+            workspace actions right. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+          {liveContext && (liveContext.crm || liveContext.projects.length > 0 || liveContext.deals.length > 0) && (
+            <>
             <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase", letterSpacing: 0.4 }}>
               internal
             </span>
@@ -1371,25 +1416,32 @@ export function ClientWorkspace({
                 ⚠ delivery quiet
               </span>
             )}
-          </div>
-        )}
-        <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
-          {TABS.map((t) => {
-            const active = t.key === tab;
-            return (
+            </>
+          )}
+          <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {onArchive && (
               <button
-                key={t.key}
-                role="tab"
-                aria-selected={active}
                 type="button"
-                className="ws-tab"
-                onClick={() => setTab(t.key)}
-                {...(t.key === "access" ? { "data-tour": "client-access" } : {})}
+                className="btn btn-ghost btn-sm"
+                title="Hide this workspace from the Clients list — all history is retained and it can be restored"
+                onClick={() => {
+                  if (window.confirm(`Archive “${account.clientName}”? History is kept; restore any time from the Clients page.`)) onArchive();
+                }}
               >
-                {t.label}
+                Archive
               </button>
-            );
-          })}
+            )}
+            {onImportCampaigns && (
+              <button
+                type="button"
+                className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
+                title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
+                onClick={() => setReviewOpen((o) => !o)}
+              >
+                Review import{matchCount > 0 ? ` (${matchCount} matched)` : ""}
+              </button>
+            )}
+          </span>
         </div>
       </div>
 
