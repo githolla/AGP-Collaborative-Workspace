@@ -165,6 +165,8 @@ export function TasksCard({
         Tasks
       </SectionTitle>
 
+      {/* Filters only make sense once there are tasks to filter. */}
+      {tasks.length > 0 && (
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} className="select" style={controls}>
           <option value="">All owners</option>
@@ -198,6 +200,7 @@ export function TasksCard({
           </select>
         )}
       </div>
+      )}
 
       {view === "list" ? (
         <div>{filtered.map((t) => taskLine(t))}</div>
@@ -213,7 +216,33 @@ export function TasksCard({
           ))}
         </div>
       )}
-      {filtered.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted, padding: "8px 0" }}>No tasks match.</div>}
+      {tasks.length === 0 && (
+        <div style={{ textAlign: "center", padding: "22px 12px", color: T.inkMuted }}>
+          <div style={{ fontSize: 20 }} aria-hidden>☑</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.inkSecondary, marginTop: 4 }}>No tasks yet</div>
+          <div style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.5 }}>
+            Add the first one below — or promote an idea from the Sandbox and its plan arrives here as tasks.
+          </div>
+        </div>
+      )}
+      {tasks.length > 0 && filtered.length === 0 && (
+        <div style={{ fontSize: 12, color: T.inkMuted, padding: "8px 0", display: "flex", alignItems: "center", gap: 8 }}>
+          No tasks match these filters.
+          <button
+            type="button"
+            className="btn-link"
+            style={{ fontSize: 11.5 }}
+            onClick={() => {
+              setOwnerFilter("");
+              setStatusFilter("");
+              setLabelFilter("");
+              setDueFilter("");
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
         <input

@@ -79,7 +79,10 @@ export function StatTile({ label, value, detail, detailColor, source }: StatTile
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: T.ink, lineHeight: 1.1 }}>{value}</div>
+      {/* Long phrase values ("Never at current numbers") step down from hero size. */}
+      <div style={{ fontSize: value.length > 12 ? 15 : 26, fontWeight: 700, color: T.ink, lineHeight: value.length > 12 ? 1.35 : 1.1, minHeight: 29, display: "flex", alignItems: "center" }}>
+        {value}
+      </div>
       {detail && <div style={{ fontSize: 11.5, color: detailColor ?? T.inkSecondary }}>{detail}</div>}
       {source && <ProvenanceChip source={source} />}
     </div>

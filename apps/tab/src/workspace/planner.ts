@@ -180,6 +180,21 @@ export function tasksFromPlan(plan: ProjectPlan): import("./types.js").Task[] {
   });
 }
 
+/** Words a title must never end on — a cut mid-phrase reads as a mistake. */
+const TITLE_STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "to", "for", "from", "with", "in", "on", "at",
+  "by", "into", "that", "our", "their", "its", "this", "as", "so", "but", "we", "last",
+]);
+
+/** Trim trailing stopwords so "…email series from last" becomes "…email series". */
+function trimDangling(words: string[]): string[] {
+  const out = [...words];
+  while (out.length > 3 && TITLE_STOPWORDS.has((out[out.length - 1] ?? "").toLowerCase().replace(/[^a-z']/g, ""))) {
+    out.pop();
+  }
+  return out;
+}
+
 /** Derive a short title from a one-box description. */
 export function extractTitle(text: string): string {
   const firstSentence = text.split(/[.!?\n]/)[0] ?? text;
@@ -187,7 +202,7 @@ export function extractTitle(text: string): string {
     .replace(/^\s*(what if we|what if|let'?s|we should|i want(?: to)?|maybe we|could we|can we|build|make|create)\s+/i, "")
     .replace(/^\s*(an?|the)\s+/i, "")
     .trim();
-  const words = cleaned.split(/\s+/).slice(0, 7).join(" ");
-  const title = words.length >= 8 ? words : firstSentence.trim().split(/\s+/).slice(0, 7).join(" ");
+  const words = trimDangling(cleaned.split(/\s+/).slice(0, 7)).join(" ");
+  const title = words.length >= 8 ? words : trimDangling(firstSentence.trim().split(/\s+/).slice(0, 7)).join(" ");
   return title.charAt(0).toUpperCase() + title.slice(1);
 }

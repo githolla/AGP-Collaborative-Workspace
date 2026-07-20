@@ -86,7 +86,8 @@ export function SandboxWorkspace({
           <input
             value={idea.title}
             onChange={(e) => onUpdate({ title: e.target.value })}
-            style={{ fontSize: 18, fontWeight: 700, color: T.ink, border: "none", background: "transparent", minWidth: 300, padding: 0 }}
+            aria-label="Idea title"
+            style={{ fontSize: 18, fontWeight: 700, color: T.ink, border: "none", background: "transparent", flex: "1 1 300px", minWidth: 0, padding: 0 }}
           />
           <TagChip>Sandbox — not tied to any product</TagChip>
           {cls.serviceLine && <TagChip>{cls.serviceLine}</TagChip>}

@@ -79,6 +79,7 @@ export function IntakePanel({
             key={o.value}
             type="button"
             className={`chip-pick${selected === o.value ? " active" : ""}`}
+            aria-pressed={selected === o.value}
             onClick={() => onPick(selected === o.value ? undefined : o.value)}
           >
             {selected === o.value ? "✓ " : ""}
@@ -154,6 +155,7 @@ export function IntakePanel({
           {picks.length > 0
             ? `Crafting with your picks: ${picks.join(" · ")}`
             : "Tap a department, service line, vertical, or client above — the Copilot crafts the plan around your picks."}
+          {ready && <span style={{ marginLeft: 6, color: T.inkMuted }}>Ctrl+Enter builds.</span>}
         </span>
       </div>
     </div>

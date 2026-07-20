@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppHeader } from "./components/AppHeader.js";
 import { Portfolio } from "./components/Portfolio.js";
 import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
@@ -81,6 +81,13 @@ export function App() {
     window.location.hash = hashOf(r);
     window.scrollTo({ top: 0 });
   };
+
+  // Browser back/forward and pasted #links must navigate, not just in-app clicks.
+  useEffect(() => {
+    const onHash = () => setRouteState(parseHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const selectedInitiative =
     route.view === "initiative" ? ws.initiatives.find((i) => i.id === route.id) ?? null : null;
