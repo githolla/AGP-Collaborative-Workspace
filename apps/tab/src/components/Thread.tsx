@@ -14,10 +14,13 @@ export function Thread({
   messages,
   onPost,
   onAskAnalyst,
+  showAgents = true,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string) => void;
-  onAskAnalyst: () => void;
+  onAskAnalyst?: () => void;
+  /** Client workspaces keep AI out of the room — discussions are just people. */
+  showAgents?: boolean;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -32,6 +35,7 @@ export function Thread({
     <div style={card}>
       <SectionTitle>Collaboration</SectionTitle>
 
+      {showAgents && (
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {AGENTS.map((a) => (
           <span
@@ -55,6 +59,7 @@ export function Thread({
           </span>
         ))}
       </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 420, overflowY: "auto" }}>
         {messages.map((m) => (
@@ -99,7 +104,7 @@ export function Thread({
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post();
           }}
-          placeholder="Write to the team and agents… (Ctrl+Enter to post)"
+          placeholder={showAgents ? "Write to the team and agents… (Ctrl+Enter to post)" : "Write to the team… (Ctrl+Enter to post)"}
           rows={2}
           style={{
             flex: 1,
@@ -120,14 +125,16 @@ export function Thread({
           >
             Post
           </button>
-          <button
-            type="button"
-            onClick={onAskAnalyst}
-            title="Posts a computed assessment from the shared ROI engine"
-            style={{ fontSize: 11, fontWeight: 600, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.roi.cyan}`, background: "#eef8fc", color: "#16708f", cursor: "pointer" }}
-          >
-            Ask ROI Analyst
-          </button>
+          {showAgents && onAskAnalyst && (
+            <button
+              type="button"
+              onClick={onAskAnalyst}
+              title="Posts a computed assessment from the shared ROI engine"
+              style={{ fontSize: 11, fontWeight: 600, padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.roi.cyan}`, background: "#eef8fc", color: "#16708f", cursor: "pointer" }}
+            >
+              Ask ROI Analyst
+            </button>
+          )}
         </div>
       </div>
     </div>

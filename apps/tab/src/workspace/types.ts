@@ -22,12 +22,13 @@ export interface Snapshot {
 
 export type TaskStatus = "todo" | "doing" | "done";
 
-/** Shared task (Collab Hub Must): owner, due date, status. Plan-seeded or manual. */
+/** Shared task (Collab Hub Must): owner, due date, label, status. */
 export interface Task {
   id: string;
   title: string;
   ownerName?: string;
   due?: string;
+  label?: string;
   status: TaskStatus;
   phaseKey?: string;
   source: "plan" | "manual";
@@ -61,6 +62,64 @@ export const TYPE_LABEL: Record<InitiativeType, string> = {
   new_build: "New build",
   ai_iteration: "AI added to existing product",
 };
+
+// ---------------------------------------------------------------------------
+// Client-account workspace (Collab Hub doc + wireframe): the standardized
+// execution environment per client account — internal teams, clients, and
+// contractors. HARD RULE: internal financials (margin, ROI factors, realism,
+// human-in-the-loop) never render in this workspace type.
+// ---------------------------------------------------------------------------
+
+export interface ClientFileLink {
+  id: string;
+  name: string;
+  /** SharePoint/OneDrive link once the M365 layer lands; optional today. */
+  url?: string;
+  kind: "file" | "doc";
+  addedAt: string;
+}
+
+export interface ClientNotification {
+  id: string;
+  text: string;
+  at: string;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  status: "active" | "planned" | "complete";
+  nextMilestone?: string;
+  nextMilestoneDate?: string;
+}
+
+export interface ExternalMember {
+  id: string;
+  name: string;
+  org: string;
+  role: "client" | "contractor";
+  access: "workspace" | "files-only" | "tasks-only";
+  addedAt: string;
+}
+
+export interface ClientAccount {
+  id: string;
+  clientName: string;
+  /** Internal AGP members on the account. */
+  members: { personId: string; name: string; title: string }[];
+  /** Clients + contractors (Contractor Access tab). Removal revokes instantly. */
+  externals: ExternalMember[];
+  clientContacts: number;
+  campaigns: Campaign[];
+  notifications: ClientNotification[];
+  tasks: Task[];
+  thread: ThreadMessage[];
+  files: ClientFileLink[];
+  docs: ClientFileLink[];
+  activity: ActivityEvent[];
+  archived?: boolean;
+  createdAt: string;
+}
 
 /**
  * A sandbox idea: not tied to any product or initiative. A manager captures

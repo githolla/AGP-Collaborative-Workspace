@@ -1,0 +1,504 @@
+import { useState } from "react";
+import { card, T } from "../theme.js";
+import { SectionTitle, TagChip } from "./bits.js";
+import { TasksCard } from "./TasksCard.js";
+import { Thread } from "./Thread.js";
+import { AS_OF_TODAY } from "../workspace/format.js";
+import type { ClientAccount, ExternalMember, TaskStatus } from "../workspace/types.js";
+
+/**
+ * Client-account workspace — built to the manager's wireframe: tabs Home /
+ * Project Plan / Client Dashboard / Files / Discussions / Contractor Access,
+ * with a personal Home (greeting + notifications, account overview, your
+ * tasks, due this week, recent files, core documentation, latest discussions).
+ *
+ * HARD RULE enforced by construction: no internal financials (ROI, margin,
+ * realism, human-in-the-loop) exist anywhere in this component tree.
+ */
+
+export type ClientTab = "home" | "plan" | "dashboard" | "files" | "discussions" | "access";
+
+const TABS: { key: ClientTab; label: string }[] = [
+  { key: "home", label: "Home" },
+  { key: "plan", label: "Project Plan" },
+  { key: "dashboard", label: "Client Dashboard" },
+  { key: "files", label: "Files" },
+  { key: "discussions", label: "Discussions" },
+  { key: "access", label: "Contractor Access" },
+];
+
+const navy = T.roi.navy;
+
+function fmtDay(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function timeAgo(iso: string): string {
+  const days = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return `${days} days ago`;
+}
+
+function Avatar({ name, size = 30 }: { name: string; size?: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{ width: size, height: size, borderRadius: "50%", background: "#e6e4ee", color: navy, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.38, fontWeight: 700, flexShrink: 0 }}
+    >
+      {name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+    </span>
+  );
+}
+
+function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} style={{ alignSelf: "flex-start", marginTop: 8, fontSize: 11.5, fontWeight: 700, color: "#fff", background: navy, border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}>
+      {label} ›
+    </button>
+  );
+}
+
+const fileGlyph: Record<string, string> = { pptx: "🟥", xlsx: "🟩", docx: "🟦", default: "📄" };
+function glyphFor(name: string): string {
+  const ext = name.split(".").pop() ?? "";
+  return fileGlyph[ext] ?? fileGlyph.default!;
+}
+
+// ---------------------------------------------------------------------------
+// Home — the wireframe, zone for zone
+// ---------------------------------------------------------------------------
+
+function Home({ account, userName, goTo }: { account: ClientAccount; userName: string; goTo: (t: ClientTab) => void }) {
+  const today = AS_OF_TODAY();
+  const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const open = account.tasks.filter((t) => t.status !== "done");
+  const dueThisWeek = open
+    .filter((t) => t.due && t.due <= weekOut)
+    .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+  const byStatus = (s: TaskStatus) => account.tasks.filter((t) => t.status === s);
+  const boardCols: { key: TaskStatus; label: string }[] = [
+    { key: "todo", label: "To Do" },
+    { key: "doing", label: "In Progress" },
+    { key: "done", label: "Completed" },
+  ];
+  const squares = ["#2a78d6", "#1f9d6b", "#1f9d6b", "#eb6834"];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Greeting + team notifications */}
+      <div style={{ ...card, display: "flex", gap: 16 }}>
+        <Avatar name={userName} size={54} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: navy }}>Hi {userName.split(" ")[0]}!</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: navy, margin: "8px 0 4px" }}>Team Notifications</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+            {account.notifications.map((n) => (
+              <li key={n.id} style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>
+                {n.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr 1.2fr", gap: 14, alignItems: "start" }}>
+        {/* Account overview */}
+        <div style={card}>
+          <SectionTitle>Account Overview</SectionTitle>
+          {[
+            { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length },
+            { label: "Upcoming Tasks", value: open.length },
+            { label: "Client Contacts", value: account.clientContacts },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <span style={{ fontSize: 12.5, color: T.inkSecondary }}>{row.label}:</span>
+              <span style={{ fontSize: 20, fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums" }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Your tasks — mini board */}
+        <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+          <SectionTitle>Your Tasks</SectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {boardCols.map((col) => (
+              <div key={col.key}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: navy, borderRadius: "6px 6px 0 0", padding: "5px 8px" }}>{col.label}</div>
+                <div style={{ border: `1px solid ${T.grid}`, borderTop: "none", borderRadius: "0 0 6px 6px", padding: 6, display: "flex", flexDirection: "column", gap: 6, minHeight: 90 }}>
+                  {byStatus(col.key).slice(0, 2).map((t) => (
+                    <div key={t.id} style={{ fontSize: 11.5 }}>
+                      <div style={{ fontWeight: 600, color: col.key === "done" ? T.inkMuted : navy, lineHeight: 1.3 }}>{t.title}</div>
+                      {col.key !== "done" && (
+                        <div style={{ color: T.inkMuted, fontSize: 10.5 }}>
+                          {t.ownerName} {t.due ? `· Due ${fmtDay(t.due).split(", ")[1]}` : ""}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <ViewAll label="View All Tasks" onClick={() => goTo("plan")} />
+        </div>
+
+        {/* Due this week */}
+        <div style={card}>
+          <SectionTitle>Due This Week</SectionTitle>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {dueThisWeek.map((t, i) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
+                <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{t.due ? fmtDay(t.due) : ""}</span>
+              </div>
+            ))}
+            {dueThisWeek.length === 0 && (
+              <div style={{ fontSize: 12, color: T.inkMuted, paddingTop: 6 }}>
+                {today ? "Nothing due this week." : ""}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1.4fr", gap: 14, alignItems: "start" }}>
+        {/* Recent files */}
+        <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+          <SectionTitle>Recent Files</SectionTitle>
+          {account.files.slice(0, 4).map((f) => (
+            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+            </div>
+          ))}
+          <ViewAll label="View All Files" onClick={() => goTo("files")} />
+        </div>
+
+        {/* Core documentation */}
+        <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+          <SectionTitle>Core Documentation</SectionTitle>
+          {account.docs.map((d) => (
+            <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <span aria-hidden style={{ width: 14, height: 14, background: navy, borderRadius: 3, opacity: 0.75 }} />
+              <span style={{ fontSize: 12.5, color: T.ink }}>{d.name}</span>
+            </div>
+          ))}
+          <ViewAll label="View All Docs" onClick={() => goTo("files")} />
+        </div>
+
+        {/* Latest discussions */}
+        <div style={card}>
+          <SectionTitle>Latest Discussions</SectionTitle>
+          {[...account.thread].reverse().slice(0, 3).map((m) => {
+            const [title, ...rest] = m.body.split(" — ");
+            return (
+              <div key={m.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+                <Avatar name={m.author} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+                  <div style={{ fontSize: 11, color: T.inkSecondary }}>{m.author}</div>
+                  {rest.length > 0 && <div style={{ fontSize: 11, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rest.join(" — ")}</div>}
+                </div>
+                <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{timeAgo(m.at)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client dashboard — the client-safe view
+// ---------------------------------------------------------------------------
+
+function ClientDashboard({ account }: { account: ClientAccount }) {
+  const done = account.tasks.filter((t) => t.status === "done").length;
+  const pct = account.tasks.length > 0 ? Math.round((done / account.tasks.length) * 100) : 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ ...card, background: "#eef3f9", borderColor: navy }}>
+        <span style={{ fontSize: 12, color: navy, fontWeight: 600 }}>
+          Everything on this page is client-visible. Internal AGP financials never appear in client
+          workspaces — by rule, not by discipline.
+        </span>
+      </div>
+      <div style={card}>
+        <SectionTitle>Campaigns</SectionTitle>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                {["Campaign", "Status", "Next milestone", "Date"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", fontSize: 11, color: T.inkMuted, fontWeight: 700, padding: "6px 8px", borderBottom: `1px solid ${T.grid}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {account.campaigns.map((c) => (
+                <tr key={c.id}>
+                  <td style={{ fontSize: 12.5, color: T.ink, fontWeight: 600, padding: "8px" }}>{c.name}</td>
+                  <td style={{ padding: "8px" }}><TagChip>{c.status}</TagChip></td>
+                  <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px" }}>{c.nextMilestone ?? "—"}</td>
+                  <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px", fontVariantNumeric: "tabular-nums" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style={card}>
+        <SectionTitle>Delivery progress</SectionTitle>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, height: 12, background: "#f0efec", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, height: "100%", background: navy, borderRadius: 4 }} />
+          </div>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{done}/{account.tasks.length} tasks complete</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Files / Access tabs
+// ---------------------------------------------------------------------------
+
+function FilesTab({ account, onAddLink }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void }) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"file" | "doc">("file");
+  const [url, setUrl] = useState("");
+  const input: React.CSSProperties = { fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink };
+  const list = (title: string, items: ClientAccount["files"]) => (
+    <div style={card}>
+      <SectionTitle>{title}</SectionTitle>
+      {items.map((f) => (
+        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+          <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
+          {f.url ? (
+            <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
+          ) : (
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
+          )}
+          <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
+        </div>
+      ))}
+      {items.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>Nothing here yet.</div>}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "start" }}>
+        {list("Files", account.files)}
+        {list("Core Documentation", account.docs)}
+      </div>
+      <div style={card}>
+        <SectionTitle>Link a file or document</SectionTitle>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Fall_Package_v2.pptx" style={{ ...input, flex: 2, minWidth: 180 }} />
+          <select value={kind} onChange={(e) => setKind(e.target.value as "file" | "doc")} style={input}>
+            <option value="file">File</option>
+            <option value="doc">Core doc</option>
+          </select>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="SharePoint link (optional)" style={{ ...input, flex: 2, minWidth: 160 }} />
+          <button
+            type="button"
+            disabled={!name.trim()}
+            onClick={() => {
+              onAddLink(name.trim(), kind, url.trim() || undefined);
+              setName("");
+              setUrl("");
+            }}
+            style={{ fontSize: 12, fontWeight: 700, padding: "6px 16px", borderRadius: 6, border: "none", background: name.trim() ? navy : T.grid, color: "#fff", cursor: name.trim() ? "pointer" : "default" }}
+          >
+            Add
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>
+          Storage itself lives in SharePoint/Teams Files (single source of truth, versioning) per
+          the M365 mapping — this workspace links to it, never forks it.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessTab({
+  account,
+  onAdd,
+  onRemove,
+}: {
+  account: ClientAccount;
+  onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onRemove: (externalId: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [org, setOrg] = useState("");
+  const [role, setRole] = useState<ExternalMember["role"]>("contractor");
+  const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
+  const input: React.CSSProperties = { fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={card}>
+        <SectionTitle>AGP team</SectionTitle>
+        {account.members.map((m) => (
+          <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.grid}` }}>
+            <Avatar name={m.name} />
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{m.name}</span>
+            <span style={{ fontSize: 11.5, color: T.inkMuted }}>{m.title}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={card}>
+        <SectionTitle>External access — clients & contractors</SectionTitle>
+        {account.externals.map((e) => (
+          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
+            <Avatar name={e.name} />
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{e.name}</span>
+            <span style={{ fontSize: 11.5, color: T.inkMuted }}>{e.org}</span>
+            <TagChip>{e.role}</TagChip>
+            <TagChip>{e.access}</TagChip>
+            <button
+              type="button"
+              onClick={() => onRemove(e.id)}
+              title="Removal revokes access across the workspace immediately"
+              style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.status.critical}`, background: "transparent", color: T.status.critical, cursor: "pointer" }}
+            >
+              Remove — revokes immediately
+            </button>
+          </div>
+        ))}
+        {account.externals.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No external members.</div>}
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={{ ...input, flex: 1, minWidth: 130 }} />
+          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" style={{ ...input, flex: 1, minWidth: 130 }} />
+          <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} style={input}>
+            <option value="client">Client</option>
+            <option value="contractor">Contractor</option>
+          </select>
+          <select value={access} onChange={(e) => setAccess(e.target.value as ExternalMember["access"])} style={input}>
+            <option value="workspace">Full workspace</option>
+            <option value="files-only">Files only</option>
+            <option value="tasks-only">Tasks only</option>
+          </select>
+          <button
+            type="button"
+            disabled={!name.trim() || !org.trim()}
+            onClick={() => {
+              onAdd(name.trim(), org.trim(), role, access);
+              setName("");
+              setOrg("");
+            }}
+            style={{ fontSize: 12, fontWeight: 700, padding: "6px 16px", borderRadius: 6, border: "none", background: name.trim() && org.trim() ? navy : T.grid, color: "#fff", cursor: name.trim() && org.trim() ? "pointer" : "default" }}
+          >
+            Grant access
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>
+          Guests see only what their level allows; internal financials are never visible to
+          external roles. Real identity enforcement lands with Entra guest accounts / Supabase RLS.
+        </div>
+      </div>
+
+      <div style={card}>
+        <SectionTitle>Access log</SectionTitle>
+        {[...account.activity].reverse().filter((a) => a.kind === "team").slice(0, 8).map((a) => (
+          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: T.inkSecondary, padding: "5px 0" }}>
+            <span>{a.text}</span>
+            <span style={{ color: T.inkMuted, fontVariantNumeric: "tabular-nums" }}>{a.at.slice(0, 10)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The workspace shell
+// ---------------------------------------------------------------------------
+
+export function ClientWorkspace({
+  account,
+  userName,
+  onBack,
+  onAddTask,
+  onTaskStatus,
+  onPost,
+  onAddLink,
+  onAddExternal,
+  onRemoveExternal,
+}: {
+  account: ClientAccount;
+  userName: string;
+  onBack: () => void;
+  onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
+  onTaskStatus: (taskId: string, status: TaskStatus) => void;
+  onPost: (body: string) => void;
+  onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
+  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onRemoveExternal: (externalId: string) => void;
+}) {
+  const [tab, setTab] = useState<ClientTab>("home");
+  const owners = [...new Set(account.tasks.map((t) => t.ownerName).filter((o): o is string => !!o))];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div>
+        <button type="button" onClick={onBack} style={{ fontSize: 12, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+          ← Clients
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
+          <TagChip>Client account</TagChip>
+        </div>
+        <div role="tablist" aria-label="Client workspace" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
+          {TABS.map((t) => {
+            const active = t.key === tab;
+            return (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={active}
+                type="button"
+                onClick={() => setTab(t.key)}
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: active ? 800 : 600,
+                  padding: "9px 16px",
+                  border: "none",
+                  borderRadius: "8px 8px 0 0",
+                  cursor: "pointer",
+                  background: active ? navy : "transparent",
+                  color: active ? "#fff" : T.inkSecondary,
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {tab === "home" && <Home account={account} userName={userName} goTo={setTab} />}
+      {tab === "plan" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <TasksCard tasks={account.tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
+          <div style={{ fontSize: 11, color: T.inkMuted }}>
+            The overarching plan and these tasks are one list — no double entry. Two-way Advanced
+            Planner sync arrives with the M365 layer.
+          </div>
+        </div>
+      )}
+      {tab === "dashboard" && <ClientDashboard account={account} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} />}
+      {tab === "discussions" && <Thread messages={account.thread} onPost={onPost} showAgents={false} />}
+      {tab === "access" && <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} />}
+    </div>
+  );
+}

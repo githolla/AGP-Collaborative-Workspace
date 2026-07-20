@@ -5,14 +5,18 @@ import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
 import { Sandbox } from "./components/Sandbox.js";
 import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
+import { ClientList } from "./components/ClientList.js";
+import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { useWorkspace } from "./workspace/store.js";
 import { T } from "./theme.js";
 
 type Route =
   | { view: "initiatives" }
   | { view: "sandbox" }
+  | { view: "clients" }
   | { view: "initiative"; id: string }
-  | { view: "idea"; id: string };
+  | { view: "idea"; id: string }
+  | { view: "account"; id: string };
 
 function parseHash(): Route {
   const hash = window.location.hash;
@@ -20,7 +24,10 @@ function parseHash(): Route {
   if (initiative?.[1]) return { view: "initiative", id: initiative[1] };
   const idea = hash.match(/^#s\/(.+)$/);
   if (idea?.[1]) return { view: "idea", id: idea[1] };
+  const account = hash.match(/^#c\/(.+)$/);
+  if (account?.[1]) return { view: "account", id: account[1] };
   if (hash === "#sandbox") return { view: "sandbox" };
+  if (hash === "#clients") return { view: "clients" };
   return { view: "initiatives" };
 }
 
@@ -30,12 +37,18 @@ function hashOf(route: Route): string {
       return `i/${route.id}`;
     case "idea":
       return `s/${route.id}`;
+    case "account":
+      return `c/${route.id}`;
     case "sandbox":
       return "sandbox";
+    case "clients":
+      return "clients";
     default:
       return "";
   }
 }
+
+const USER_NAME = "Barry Medley";
 
 export function App() {
   const ws = useWorkspace();
@@ -48,6 +61,7 @@ export function App() {
   const selectedInitiative =
     route.view === "initiative" ? ws.initiatives.find((i) => i.id === route.id) ?? null : null;
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
+  const selectedAccount = route.view === "account" ? ws.accounts.find((a) => a.id === route.id) ?? null : null;
 
   const navTab = (label: string, active: boolean, onClick: () => void) => (
     <button
@@ -68,7 +82,7 @@ export function App() {
     </button>
   );
 
-  const listView = route.view === "initiatives" || route.view === "sandbox";
+  const listView = route.view === "initiatives" || route.view === "sandbox" || route.view === "clients";
 
   return (
     <div style={{ minHeight: "100vh", background: T.page }}>
@@ -77,6 +91,7 @@ export function App() {
         {listView && (
           <>
             <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center" }}>
+              {navTab(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, route.view === "clients", () => setRoute({ view: "clients" }))}
               {navTab(`Builds (${ws.initiatives.filter((i) => !i.archived).length})`, route.view === "initiatives", () => setRoute({ view: "initiatives" }))}
               {navTab(`Sandbox (${ws.ideas.length})`, route.view === "sandbox", () => setRoute({ view: "sandbox" }))}
               <SearchBox
@@ -86,7 +101,24 @@ export function App() {
               />
             </div>
 
-            {route.view === "initiatives" ? (
+            {route.view === "clients" && (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Client workspaces</h1>
+                  <p style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: 720 }}>
+                    One standardized execution workspace per client account — communication, tasks,
+                    files, and visibility for internal teams, clients, and contractors. Internal
+                    financials never appear here.
+                  </p>
+                </div>
+                <ClientList
+                  accounts={ws.accounts.filter((a) => !a.archived)}
+                  onOpen={(id) => setRoute({ view: "account", id })}
+                  onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
+                />
+              </>
+            )}
+            {route.view === "initiatives" && (
               <>
                 <div style={{ marginBottom: 14 }}>
                   <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Product initiatives</h1>
@@ -102,7 +134,8 @@ export function App() {
                   onStartInSandbox={() => setRoute({ view: "sandbox" })}
                 />
               </>
-            ) : (
+            )}
+            {route.view === "sandbox" && (
               <>
                 <div style={{ marginBottom: 14 }}>
                   <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>Sandbox</h1>
@@ -142,7 +175,7 @@ export function App() {
             onSummaryChange={(summary) => ws.setSummary(selectedInitiative.id, summary)}
             onInvite={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "invited")}
             onPartAdded={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "part_added")}
-            onAddTask={(title, ownerName, due) => ws.addTask(selectedInitiative.id, title, ownerName, due)}
+            onAddTask={(title, ownerName, due, label) => ws.addTask(selectedInitiative.id, title, ownerName, due, label)}
             onTaskStatus={(taskId, status) => ws.setTaskStatus(selectedInitiative.id, taskId, status)}
             onArchive={(archived) => ws.setArchived(selectedInitiative.id, archived)}
           />
@@ -167,6 +200,28 @@ export function App() {
             people={ws.availablePeople}
             flags={ws.copilotFlags(selectedIdea)}
           />
+        )}
+
+        {selectedAccount && (
+          <ClientWorkspace
+            account={selectedAccount}
+            userName={USER_NAME}
+            onBack={() => setRoute({ view: "clients" })}
+            onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
+            onTaskStatus={(taskId, status) => ws.setAccountTaskStatus(selectedAccount.id, taskId, status)}
+            onPost={(body) => ws.postAccountMessage(selectedAccount.id, body, USER_NAME)}
+            onAddLink={(name, kind, url) => ws.addAccountLink(selectedAccount.id, name, kind, url)}
+            onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access)}
+            onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
+          />
+        )}
+        {route.view === "account" && !selectedAccount && (
+          <div style={{ fontSize: 12.5, color: T.inkSecondary }}>
+            Client workspace not found.{" "}
+            <button type="button" onClick={() => setRoute({ view: "clients" })} style={{ color: T.series1, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+              Back to clients
+            </button>
+          </div>
         )}
 
         {route.view === "initiative" && !selectedInitiative && (

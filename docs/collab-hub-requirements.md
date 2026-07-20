@@ -24,7 +24,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 
 | Requirement | Pri | Status | Where / how — and deltas that make it better |
 |---|---|---|---|
-| Workspace per client/project, no cross-visibility | Must | 🧭 | Each initiative/idea is an isolated workspace object today; true access isolation needs the auth layer (Supabase RLS keyed to Entra ID — schema already exists in `supabase/migrations/0006_rls.sql`). |
+| Workspace per client/project, no cross-visibility | Must | 🔨 + 🧭 | Each initiative/idea is an isolated workspace object today; true access isolation needs the auth layer (Supabase RLS keyed to Entra ID — schema already exists in `supabase/migrations/0006_rls.sql`). |
 | Workspace templates | Must | ✅ **better** | Templates aren't static channel/page lists — the Copilot *generates* the workspace from a sentence: 12-factor ROI template + dated phase plan + per-person work packages, per engagement type. A blank mode exists when humans want to shape it themselves. |
 | Home / landing view (find updates, tasks, files in 60s) | Must | 🔨 | "What's new" feed at the top of every workspace + task summary + the decision numbers on the right rail. Global home = portfolio with per-card status. |
 
@@ -121,17 +121,17 @@ This Week** · Recent Files · Core Documentation · Latest Discussions.
   structurally: plan seeds tasks; parts completing close tasks.
 
 ### Honest drift register (severity order)
-1. **Workspace subject (major).** Her hub is per **client account** for
+1. **Workspace subject (major) — CLOSED 2026-07-20.** Her hub is per **client account** for
    delivery execution with clients and contractors in the room. Our primary
    surface is the internal product-initiative workspace with ROI math. These
    are two workspace *types* on the same bones — but today only the internal
    type exists. Correction: add a **Client account** workspace type whose Home
    mirrors her wireframe; keep initiative workspaces as the internal line.
-2. **Files (major).** Two of her eight home zones are files (Recent Files,
+2. **Files (major) — CLOSED 2026-07-20 (links-based; storage stays SharePoint).** Two of her eight home zones are files (Recent Files,
    Core Documentation). We have no file surface at all — not even SharePoint
    links. Correction: links-based Files & Core Docs cards now; SharePoint
    deep-links with the M365 layer.
-3. **Person-centric home (major).** "Hi Jane" + *your* tasks + due this week +
+3. **Person-centric home (major) — CLOSED for client workspaces 2026-07-20.** "Hi Jane" + *your* tasks + due this week +
    notifications. Ours is workspace-centric with no "my work" view.
    Correction: personal home + Due This Week; notifications need backend.
 4. **Client Dashboard / internal-client boundary (critical rule).** Her
@@ -143,7 +143,7 @@ This Week** · Recent Files · Core Documentation · Latest Discussions.
    complexity or overhead." Her wireframe is calm; our build page stacks 10+
    dense panels. Correction: move ROI depth behind a Numbers section/tab;
    landing view = what's new, tasks, plan, discussions.
-6. **Small gaps.** Task filters lack due-date and labels (her acceptance
+6. **Small gaps — CLOSED 2026-07-20 (labels + due-date filters shipped).** Original: task filters lacked due-date and labels (her acceptance
    criteria names both); tasks have no labels; @mentions/notifications (Must)
    still backend-gated; no export.
 

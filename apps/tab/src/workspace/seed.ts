@@ -162,6 +162,87 @@ export function seedInitiatives(): Initiative[] {
   return [proposalAssistant(), gdnaReporting(), dedupeService()];
 }
 
+/**
+ * Client-account seed — deliberately mirrors the manager's sample wireframe
+ * ("ABC Foodbank of the Southeast") so the build is checkable against it,
+ * with dates shifted into the demo window.
+ */
+export function seedAccounts(): import("./types.js").ClientAccount[] {
+  const t = (id: string, title: string, ownerName: string, due: string, status: "todo" | "doing" | "done", label?: string): import("./types.js").Task => ({
+    id,
+    title,
+    ownerName,
+    due,
+    ...(label ? { label } : {}),
+    status,
+    source: "manual",
+    createdAt: "2026-07-01T09:00:00Z",
+  });
+  const f = (id: string, name: string, kind: "file" | "doc"): import("./types.js").ClientFileLink => ({
+    id,
+    name,
+    kind,
+    addedAt: "2026-07-10T09:00:00Z",
+  });
+  return [
+    {
+      id: "acct-abc-foodbank",
+      clientName: "ABC Foodbank of the Southeast",
+      members: [
+        { personId: "u-503", name: "Priya Raman", title: "Senior Project Manager" },
+        { personId: "u-501", name: "Dana Whitfield", title: "Creative Director" },
+        { personId: "u-502", name: "Marcus Okafor", title: "Digital Strategist" },
+      ],
+      externals: [
+        { id: "ext-1", name: "Maria Ruiz", org: "ABC Foodbank", role: "client", access: "workspace", addedAt: "2026-06-01T09:00:00Z" },
+        { id: "ext-2", name: "R. Delgado", org: "FreelanceCopy Co.", role: "contractor", access: "files-only", addedAt: "2026-06-15T09:00:00Z" },
+      ],
+      clientContacts: 8,
+      campaigns: [
+        { id: "cmp-1", name: "Fall Acquisition Mail", status: "active", nextMilestone: "In-home date", nextMilestoneDate: "2026-10-12" },
+        { id: "cmp-2", name: "Sustainer Email Series", status: "active", nextMilestone: "August send", nextMilestoneDate: "2026-08-05" },
+        { id: "cmp-3", name: "GivingTuesday Digital", status: "planned", nextMilestone: "Kickoff", nextMilestoneDate: "2026-09-01" },
+        { id: "cmp-4", name: "Annual Appeal", status: "active", nextMilestone: "Copy approval", nextMilestoneDate: "2026-07-28" },
+        { id: "cmp-5", name: "Donor Care Journey", status: "active", nextMilestone: "Journey map review", nextMilestoneDate: "2026-08-12" },
+      ],
+      notifications: [
+        { id: "n1", text: "Weekly Marketing Sync on Friday at 10:00 AM. Please be ready with campaign performance updates and upcoming priorities.", at: "2026-07-20T08:00:00Z" },
+        { id: "n2", text: "Client Feedback Meeting rescheduled to Thursday at 2:00 PM. We'll review the latest creative concepts.", at: "2026-07-19T16:00:00Z" },
+        { id: "n3", text: "Reminder: Submit your time entries by end of day Friday for payroll.", at: "2026-07-19T09:00:00Z" },
+      ],
+      tasks: [
+        t("ct-1", "Develop DM Creative", "Jen M.", "2026-07-24", "todo", "creative"),
+        t("ct-2", "Update Donor List", "Eric S.", "2026-07-27", "todo", "data"),
+        t("ct-3", "Landing Page A/B Test", "Corrine D.", "2026-07-25", "doing", "digital"),
+        t("ct-4", "Email Sequence Draft", "Amy W.", "2026-07-26", "doing", "digital"),
+        t("ct-5", "June Campaign Report", "Tom A.", "2026-07-08", "done", "reporting"),
+        t("ct-6", "Annual Appeal Launch", "Priya R.", "2026-07-15", "done"),
+      ],
+      thread: [
+        { id: "cm-3", author: "Tim Arnold", kind: "human", at: "2026-07-16T10:00:00Z", body: "New CRM Integration Ideas? — worth a spike on syncing donor care flags before GivingTuesday." },
+        { id: "cm-2", author: "Kathi Batr", kind: "human", at: "2026-07-18T14:30:00Z", body: "Copy Approval Needed ASAP! — Annual Appeal letter v3 is with the client; need sign-off before print slot on the 28th." },
+        { id: "cm-1", author: "Alyssa Boger", kind: "human", at: "2026-07-19T15:00:00Z", body: "Client Call Recap: Key Actions — 1) refresh donor list before DM drop, 2) A/B the landing page headline, 3) client wants monthly impact one-pager." },
+      ],
+      files: [
+        f("cf-1", "DonateNow_Creative_Final.pptx", "file"),
+        f("cf-2", "ARP_Tracking_Report.xlsx", "file"),
+        f("cf-3", "ParentsAsTeachers_Brief.docx", "file"),
+        f("cf-4", "Core (Planner)", "file"),
+      ],
+      docs: [
+        f("cd-1", "Project Brief & Strategy", "doc"),
+        f("cd-2", "Creative Guidelines", "doc"),
+        f("cd-3", "Client Intake Form", "doc"),
+        f("cd-4", "Team Contact List", "doc"),
+      ],
+      activity: [
+        { id: "ca-1", at: "2026-07-19T15:01:00Z", text: "Client call recap posted — three follow-ups captured as tasks", kind: "workspace" },
+      ],
+      createdAt: "2026-06-01T09:00:00Z",
+    },
+  ];
+}
+
 export function seedIdeas(): import("./types.js").SandboxIdea[] {
   const title = "Grant Report Generator";
   const pitch =

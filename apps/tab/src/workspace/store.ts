@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./types.js";
-import { seedIdeas, seedInitiatives } from "./seed.js";
+import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
+import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
 import { copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus } from "./copilot.js";
@@ -23,6 +24,7 @@ const MAX_SNAPSHOTS = 100;
 interface PersistedState {
   initiatives: Initiative[];
   ideas: SandboxIdea[];
+  accounts: ClientAccount[];
 }
 
 /** Older stored ideas predate newer fields — backfill them by re-drafting. */
@@ -58,15 +60,16 @@ function load(): PersistedState {
       if (Array.isArray(parsed.initiatives) && parsed.initiatives.length > 0) {
         return {
           initiatives: parsed.initiatives.map(migrateInitiative),
-          // ideas were added after the first release — older storage lacks them
+          // ideas/accounts were added after the first release — backfill
           ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
+          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts(),
         };
       }
     }
   } catch {
     // corrupted storage falls through to seed
   }
-  return { initiatives: seedInitiatives().map(migrateInitiative), ideas: seedIdeas() };
+  return { initiatives: seedInitiatives().map(migrateInitiative), ideas: seedIdeas(), accounts: seedAccounts() };
 }
 
 function activityEvent(text: string, kind: ActivityEvent["kind"]): ActivityEvent {
@@ -101,7 +104,7 @@ function humanMessage(body: string, author: string): ThreadMessage {
 
 export function useWorkspace() {
   const [state, setState] = useState<PersistedState>(load);
-  const { initiatives, ideas } = state;
+  const { initiatives, ideas, accounts } = state;
 
   useEffect(() => {
     try {
@@ -136,12 +139,13 @@ export function useWorkspace() {
   );
 
   const addTask = useCallback(
-    (id: string, title: string, ownerName?: string, due?: string) => {
+    (id: string, title: string, ownerName?: string, due?: string, label?: string) => {
       const task: Task = {
         id: newId("task"),
         title,
         ...(ownerName ? { ownerName } : {}),
         ...(due ? { due } : {}),
+        ...(label ? { label } : {}),
         status: "todo",
         source: "manual",
         createdAt: new Date().toISOString(),
@@ -467,14 +471,143 @@ export function useWorkspace() {
     [ideas],
   );
 
+  // ---- client accounts (Collab Hub execution workspaces) ----
+
+  const mutateAccount = useCallback((id: string, fn: (a: ClientAccount) => ClientAccount) => {
+    setState((s) => ({ ...s, accounts: s.accounts.map((a) => (a.id === id ? fn(a) : a)) }));
+  }, []);
+
+  /**
+   * Workspace template (Collab Hub Must): every new client workspace gets the
+   * same consistent setup — the four core documents, a delivery-lead member,
+   * and a welcome notification. Rows, not choices.
+   */
+  const createAccount = useCallback((clientName: string): string => {
+    const id = newId("acct");
+    const now = new Date().toISOString();
+    const coreDoc = (name: string): ClientFileLink => ({ id: newId("doc"), name, kind: "doc", addedAt: now });
+    const pm = AGP_PEOPLE.find((p) => p.fn === "project_management");
+    const account: ClientAccount = {
+      id,
+      clientName,
+      members: pm ? [{ personId: pm.id, name: pm.name, title: pm.title }] : [],
+      externals: [],
+      clientContacts: 0,
+      campaigns: [],
+      notifications: [{ id: newId("n"), text: `Workspace created from the standard client template — add campaigns, files, and people.`, at: now }],
+      tasks: [],
+      thread: [],
+      files: [],
+      docs: [coreDoc("Project Brief & Strategy"), coreDoc("Creative Guidelines"), coreDoc("Client Intake Form"), coreDoc("Team Contact List")],
+      activity: [activityEvent("Workspace created from the standard client template", "workspace")],
+      createdAt: now,
+    };
+    setState((s) => ({ ...s, accounts: [...s.accounts, account] }));
+    return id;
+  }, []);
+
+  const addAccountTask = useCallback(
+    (id: string, title: string, ownerName?: string, due?: string, label?: string) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        tasks: [
+          ...a.tasks,
+          {
+            id: newId("task"),
+            title,
+            ...(ownerName ? { ownerName } : {}),
+            ...(due ? { due } : {}),
+            ...(label ? { label } : {}),
+            status: "todo" as const,
+            source: "manual" as const,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        activity: [...a.activity, activityEvent(`Task added — "${title}"`, "task")],
+      }));
+    },
+    [mutateAccount],
+  );
+
+  const setAccountTaskStatus = useCallback(
+    (id: string, taskId: string, status: TaskStatus) => {
+      mutateAccount(id, (a) => {
+        const task = a.tasks.find((t) => t.id === taskId);
+        if (!task) return a;
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)),
+          activity: [...a.activity, activityEvent(`"${task.title}" → ${status === "done" ? "completed" : status === "doing" ? "in progress" : "to do"}`, "task")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  const postAccountMessage = useCallback(
+    (id: string, body: string, author = "You") => {
+      mutateAccount(id, (a) => ({ ...a, thread: [...a.thread, humanMessage(body, author)] }));
+    },
+    [mutateAccount],
+  );
+
+  const addAccountLink = useCallback(
+    (id: string, name: string, kind: "file" | "doc", url?: string) => {
+      mutateAccount(id, (a) => {
+        const link: ClientFileLink = { id: newId("f"), name, kind, ...(url ? { url } : {}), addedAt: new Date().toISOString() };
+        return {
+          ...a,
+          files: kind === "file" ? [link, ...a.files] : a.files,
+          docs: kind === "doc" ? [...a.docs, link] : a.docs,
+          activity: [...a.activity, activityEvent(`${kind === "file" ? "File" : "Document"} linked — ${name}`, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  const addExternal = useCallback(
+    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        externals: [...a.externals, { id: newId("ext"), name, org, role, access, addedAt: new Date().toISOString() }],
+        activity: [...a.activity, activityEvent(`${role === "client" ? "Client" : "Contractor"} access granted — ${name} (${org}, ${access})`, "team")],
+      }));
+    },
+    [mutateAccount],
+  );
+
+  /** Offboarding (Must): removal revokes access across the workspace immediately. */
+  const removeExternal = useCallback(
+    (id: string, externalId: string) => {
+      mutateAccount(id, (a) => {
+        const ext = a.externals.find((e) => e.id === externalId);
+        return {
+          ...a,
+          externals: a.externals.filter((e) => e.id !== externalId),
+          activity: [...a.activity, activityEvent(`Access revoked immediately — ${ext?.name ?? externalId} (${ext?.org ?? ""})`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   const resetDemo = useCallback(() => {
     window.localStorage.removeItem(STORAGE_KEY);
-    setState({ initiatives: seedInitiatives(), ideas: seedIdeas() });
+    setState({ initiatives: seedInitiatives(), ideas: seedIdeas(), accounts: seedAccounts() });
   }, []);
 
   return {
     initiatives,
     ideas,
+    accounts,
+    createAccount,
+    addAccountTask,
+    setAccountTaskStatus,
+    postAccountMessage,
+    addAccountLink,
+    addExternal,
+    removeExternal,
     updateFactor,
     postMessage,
     askRoiAnalyst,

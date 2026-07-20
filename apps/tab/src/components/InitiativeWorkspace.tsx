@@ -31,7 +31,7 @@ export function InitiativeWorkspace({
   onSummaryChange: (summary: string) => void;
   onInvite: (personId: string) => void;
   onPartAdded: (personId: string) => void;
-  onAddTask: (title: string, ownerName?: string, due?: string) => void;
+  onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onArchive: (archived: boolean) => void;
 }) {

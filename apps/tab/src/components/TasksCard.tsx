@@ -60,18 +60,31 @@ export function TasksCard({
 }: {
   tasks: Task[];
   owners: string[];
-  onAdd: (title: string, ownerName?: string, due?: string) => void;
+  onAdd: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onStatus: (taskId: string, status: TaskStatus) => void;
 }) {
   const [view, setView] = useState<"list" | "board">("list");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
+  const [labelFilter, setLabelFilter] = useState("");
+  const [dueFilter, setDueFilter] = useState<"" | "overdue" | "week">("");
   const [newTitle, setNewTitle] = useState("");
   const [newOwner, setNewOwner] = useState("");
   const [newDue, setNewDue] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+
+  const labels = [...new Set(tasks.map((t) => t.label).filter((l): l is string => !!l))];
+  const today = AS_OF_TODAY();
+  const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
   const filtered = tasks.filter(
-    (t) => (!ownerFilter || t.ownerName === ownerFilter) && (!statusFilter || t.status === statusFilter),
+    (t) =>
+      (!ownerFilter || t.ownerName === ownerFilter) &&
+      (!statusFilter || t.status === statusFilter) &&
+      (!labelFilter || t.label === labelFilter) &&
+      (!dueFilter ||
+        (dueFilter === "overdue" && !!t.due && t.due < today && t.status !== "done") ||
+        (dueFilter === "week" && !!t.due && t.due >= today && t.due <= weekOut)),
   );
   const done = tasks.filter((t) => t.status === "done").length;
 
@@ -104,6 +117,7 @@ export function TasksCard({
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
+        {t.label && <TagChip>{t.label}</TagChip>}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
         <DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} />
         <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
@@ -161,6 +175,21 @@ export function TasksCard({
             </option>
           ))}
         </select>
+        <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value as "" | "overdue" | "week")} style={controls}>
+          <option value="">Any due date</option>
+          <option value="overdue">Overdue</option>
+          <option value="week">Due this week</option>
+        </select>
+        {labels.length > 0 && (
+          <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} style={controls}>
+            <option value="">All labels</option>
+            {labels.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {view === "list" ? (
@@ -195,14 +224,16 @@ export function TasksCard({
           ))}
         </select>
         <input type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} style={controls} />
+        <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label" style={{ ...controls, width: 90 }} />
         <button
           type="button"
           disabled={!newTitle.trim()}
           onClick={() => {
-            onAdd(newTitle.trim(), newOwner || undefined, newDue || undefined);
+            onAdd(newTitle.trim(), newOwner || undefined, newDue || undefined, newLabel.trim() || undefined);
             setNewTitle("");
             setNewOwner("");
             setNewDue("");
+            setNewLabel("");
           }}
           style={{ fontSize: 11.5, fontWeight: 700, padding: "5px 14px", borderRadius: 6, border: "none", background: newTitle.trim() ? T.roi.navy : T.grid, color: "#fff", cursor: newTitle.trim() ? "pointer" : "default" }}
         >
