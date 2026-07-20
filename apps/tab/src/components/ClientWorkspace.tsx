@@ -6,6 +6,7 @@ import { Thread } from "./Thread.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
+import type { AccountLiveContext } from "../workspace/campaignImport.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
@@ -185,6 +186,141 @@ function SetupChecklist({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live systems card — what HubSpot & Kantata actually know about THIS client.
+// Rendered from plain props (App computes the context); Cara's wireframe
+// zones stay untouched — this card sits below them, and the internal-only
+// account intelligence is labeled as such.
+// ---------------------------------------------------------------------------
+
+/** "health_services" → "Health services". */
+const prettyValue = (v: string) => {
+  const s = v.replace(/_/g, " ").toLowerCase().trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+function FactRow({ label, value }: { label: string; value?: string | undefined }) {
+  return (
+    <div style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: `1px solid ${T.grid}` }}>
+      <span style={{ width: 120, flexShrink: 0, fontSize: 11.5, color: T.inkMuted }}>{label}</span>
+      <span style={{ fontSize: 12.5, color: value ? T.ink : T.inkMuted, fontWeight: value ? 600 : 400 }}>{value ?? "—"}</span>
+    </div>
+  );
+}
+
+function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveContext; live: boolean; clientName: string }) {
+  const today = AS_OF_TODAY();
+  const crm = context.crm;
+  const hasAny = !!crm || context.projects.length > 0 || context.deals.length > 0;
+  // Demo data with nothing to show: stay quiet rather than render an empty shell.
+  if (!hasAny && !live) return null;
+
+  const upcoming = (p: AccountLiveContext["projects"][number]) =>
+    p.milestones.filter((m) => m.state !== "completed" && m.dueDate >= today);
+
+  return (
+    <div style={card} data-tour="live-systems">
+      <SectionTitle
+        right={
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: live ? "#116a43" : T.inkMuted, background: live ? "#e3f4ec" : "#f0efec", borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
+            {live ? "● live" : "demo data"}
+          </span>
+        }
+      >
+        What our systems know — HubSpot &amp; Kantata
+      </SectionTitle>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
+        {/* HubSpot company record — internal intelligence, marked as such. */}
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Account record · HubSpot</span>
+            <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase", letterSpacing: 0.4 }}>internal only</span>
+          </div>
+          {crm ? (
+            <>
+              <FactRow label="Account owner" value={crm.owner} />
+              <FactRow label="Vertical" value={crm.vertical ? prettyValue(crm.vertical) : undefined} />
+              <FactRow label="Lifecycle" value={crm.lifecycleStage ? prettyValue(crm.lifecycleStage) : undefined} />
+              <FactRow label="Health index" value={crm.healthIndex} />
+              <FactRow label="Renewal" value={crm.renewal ? fmtDay(crm.renewal) : undefined} />
+              <FactRow label="GDNA level" value={crm.gdnaLevel} />
+              <FactRow
+                label="Intent (30 days)"
+                value={
+                  crm.intentSummary || crm.intentCount30d != null
+                    ? [crm.intentSummary, crm.intentCount30d != null ? `${crm.intentCount30d} signals` : ""].filter(Boolean).join(" · ")
+                    : undefined
+                }
+              />
+              <FactRow label="Abbreviation" value={crm.abbreviation} />
+            </>
+          ) : (
+            <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
+              No HubSpot company is named “{clientName}”. Rename the workspace to match the CRM
+              company name exactly (or fix the company name in HubSpot), then refresh with the
+              ⟳ pill top right — the record will fill in here.
+            </div>
+          )}
+        </div>
+
+        {/* Kantata delivery + HubSpot pipeline — operational, date-driven. */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+            Delivery · Kantata ({context.projects.length} project{context.projects.length === 1 ? "" : "s"})
+          </div>
+          {context.projects.length === 0 ? (
+            <div style={{ fontSize: 12, color: T.inkMuted, padding: "4px 0 10px" }}>
+              No Kantata project matched this client — matching uses the workspace group, the
+              HubSpot abbreviation{crm?.abbreviation ? ` (“${crm.abbreviation}”)` : ""}, or the client name in the project title.
+            </div>
+          ) : (
+            context.projects.slice(0, 5).map((p) => {
+              const next = upcoming(p);
+              return (
+                <div key={p.title} style={{ padding: "6px 0", borderBottom: `1px solid ${T.grid}` }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{p.title}</span>
+                    {p.status && <TagChip>{prettyValue(p.status)}</TagChip>}
+                    {p.dueDate && <span style={{ fontSize: 11, color: T.inkSecondary }}>due {fmtDay(p.dueDate)}</span>}
+                  </div>
+                  {next.slice(0, 3).map((m) => (
+                    <div key={`${m.title}-${m.dueDate}`} style={{ fontSize: 11.5, color: T.inkSecondary, padding: "2px 0 0 12px" }}>
+                      ◦ {m.title} — {fmtDay(m.dueDate)}
+                      {m.hard ? <span style={{ color: "#8a6d1a", fontWeight: 700 }}> · hard date</span> : ""}
+                    </div>
+                  ))}
+                  {next.length > 3 && (
+                    <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "2px 0 0 12px" }}>+{next.length - 3} more milestones</div>
+                  )}
+                </div>
+              );
+            })
+          )}
+          {context.projects.length > 5 && (
+            <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "4px 0" }}>+{context.projects.length - 5} more projects matched</div>
+          )}
+
+          {context.deals.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "12px 0 4px" }}>
+                Pipeline · HubSpot deals
+              </div>
+              {context.deals.slice(0, 4).map((d) => (
+                <div key={d.title} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.grid}` }}>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.ink }}>{d.title}</span>
+                  <TagChip>{d.won ? "won" : prettyValue(d.stage)}</TagChip>
+                  {d.closeDate && <span style={{ fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}>close {fmtDay(d.closeDate)}</span>}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -379,9 +515,19 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
 
-function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Task[] }) {
+function ClientDashboard({ account, tasks, liveContext }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
+  const today = AS_OF_TODAY();
+  // Client-safe by content: milestone titles and dates only — the full
+  // schedule Kantata holds, not just each campaign's next milestone.
+  const schedule = (liveContext?.projects ?? [])
+    .flatMap((p) =>
+      p.milestones
+        .filter((m) => m.state !== "completed" && m.dueDate >= today)
+        .map((m) => ({ ...m, project: p.title })),
+    )
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   // Click a campaign to unfold everything the workspace knows about it.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const relatedTo = (campaignName: string) => {
@@ -480,6 +626,45 @@ function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Ta
           </table>
         </div>
       </div>
+      {schedule.length > 0 && (
+        <div style={card}>
+          <SectionTitle
+            right={<span style={{ fontSize: 10.5, fontWeight: 700, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "2px 9px" }}>from Kantata</span>}
+          >
+            Milestone schedule
+          </SectionTitle>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  {["Milestone", "Campaign", "Date"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", fontSize: 11, color: T.inkMuted, fontWeight: 700, padding: "6px 8px", borderBottom: `1px solid ${T.grid}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {schedule.slice(0, 10).map((m) => (
+                  <tr key={`${m.project}-${m.title}-${m.dueDate}`}>
+                    <td style={{ fontSize: 12.5, color: T.ink, fontWeight: 600, padding: "7px 8px" }}>
+                      {m.title}
+                      {m.hard && (
+                        <span title="Hard date — cannot move" style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", marginLeft: 8, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                          hard date
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: 12, color: T.inkSecondary, padding: "7px 8px" }}>{m.project}</td>
+                    <td style={{ fontSize: 12, color: T.inkSecondary, padding: "7px 8px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmtDay(m.dueDate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {schedule.length > 10 && (
+            <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 6 }}>+{schedule.length - 10} more scheduled dates</div>
+          )}
+        </div>
+      )}
       <div style={card}>
         <SectionTitle>Delivery progress</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -875,6 +1060,8 @@ export function ClientWorkspace({
   onImportCampaigns,
   onRemoveCampaign,
   onClearCampaigns,
+  liveContext,
+  liveDataOn = false,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
@@ -883,6 +1070,10 @@ export function ClientWorkspace({
   onBack: () => void;
   /** New Kantata/HubSpot matches not yet in this workspace — user-gated. */
   importCandidates?: ImportCandidate[];
+  /** Everything the mirror knows about this client — plain data from App. */
+  liveContext?: AccountLiveContext;
+  /** True when the mirror is the live pull, not demo data. */
+  liveDataOn?: boolean;
   onImportCampaigns?: (selected: ImportCandidate[]) => void;
   onRemoveCampaign?: (campaignId: string) => void;
   onClearCampaigns?: () => void;
@@ -925,6 +1116,24 @@ export function ClientWorkspace({
             </button>
           )}
         </div>
+        {/* At-a-glance facts from the systems of record — visible on every tab. */}
+        {liveContext && (liveContext.crm || liveContext.projects.length > 0 || liveContext.deals.length > 0) && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase", letterSpacing: 0.4 }}>
+              internal
+            </span>
+            {liveContext.crm?.owner && <TagChip>Owner: {liveContext.crm.owner}</TagChip>}
+            {liveContext.crm?.healthIndex && <TagChip>Health: {liveContext.crm.healthIndex}</TagChip>}
+            {liveContext.crm?.renewal && <TagChip>Renewal: {fmtDay(liveContext.crm.renewal)}</TagChip>}
+            {liveContext.crm?.gdnaLevel && <TagChip>GDNA: {liveContext.crm.gdnaLevel}</TagChip>}
+            <TagChip>
+              Kantata: {liveContext.projects.length} project{liveContext.projects.length === 1 ? "" : "s"}
+            </TagChip>
+            {liveContext.deals.filter((d) => !d.won).length > 0 && (
+              <TagChip>{liveContext.deals.filter((d) => !d.won).length} open deal{liveContext.deals.filter((d) => !d.won).length === 1 ? "" : "s"}</TagChip>
+            )}
+          </div>
+        )}
         <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 2, marginTop: 12, borderBottom: `2px solid ${navy}`, flexWrap: "wrap" }}>
           {TABS.map((t) => {
             const active = t.key === tab;
@@ -968,6 +1177,7 @@ export function ClientWorkspace({
             />
           )}
           <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />
+          {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
         </div>
       )}
       {tab === "plan" && (
@@ -980,7 +1190,7 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} {...(liveContext ? { liveContext } : {})} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

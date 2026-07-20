@@ -12,7 +12,7 @@ import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
-import { campaignsFromMirror } from "./workspace/campaignImport.js";
+import { accountLiveContext, campaignsFromMirror } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import { T } from "./theme.js";
 
@@ -383,6 +383,8 @@ export function App() {
             onImportCampaigns={(selected) => ws.importCampaigns(selectedAccount.id, selected)}
             onRemoveCampaign={(campaignId) => ws.removeCampaign(selectedAccount.id, campaignId)}
             onClearCampaigns={() => ws.clearCampaigns(selectedAccount.id)}
+            liveContext={accountLiveContext(loadMirror(), selectedAccount.clientName)}
+            liveDataOn={liveStatus.live}
           />
         )}
 

@@ -116,18 +116,25 @@ function groupOwners(mirror: AgpMirror): Map<string, string | null> {
   return owners;
 }
 
-export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
-  const client = mirror.clients.find((c) => c.name === clientName);
-  const abbreviation = client?.abbreviation;
+/**
+ * One matcher for both consumers: campaigns (import) and live context
+ * (display). Owner join first, title evidence only for category groups.
+ */
+function projectMatcher(mirror: AgpMirror, clientName: string, abbreviation?: string) {
   const owners = groupOwners(mirror);
-
-  const belongs = (p: (typeof mirror.projects)[number]): boolean => {
+  return (p: (typeof mirror.projects)[number]): boolean => {
     const owner = p.clientGroup ? owners.get(p.id) ?? null : null;
     if (owner === clientName) return true; // exact join
     if (owner !== null) return false; // strictly someone else's
     // Category/no group → title evidence decides.
     return projectBelongsToClient(p.title, clientName, abbreviation);
   };
+}
+
+export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
+  const client = mirror.clients.find((c) => normName(c.name) === normName(clientName));
+  const canonical = client?.name ?? clientName;
+  const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
 
   const fromProjects: ImportedCampaign[] = mirror.projects
     .filter(belongs)
@@ -142,14 +149,14 @@ export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today
           : {};
       return {
         // Kantata titles often lead with the client name — trim it.
-        name: p.title.replace(new RegExp(`^${escapeRe(clientName)}\\s*[—-]\\s*`, "i"), ""),
+        name: p.title.replace(new RegExp(`^${escapeRe(canonical)}\\s*[—-]\\s*`, "i"), ""),
         status: "active" as const,
         ...milestone,
       };
     });
 
   const fromDeals: ImportedCampaign[] = mirror.campaigns
-    .filter((c) => c.kind === "deal" && c.clientName === clientName && c.stage !== "closedlost")
+    .filter((c) => c.kind === "deal" && normName(c.clientName) === normName(canonical) && c.stage !== "closedlost")
     .map((c) => ({
       name: c.title,
       status: c.stage === "closedwon" ? ("active" as const) : ("planned" as const),
@@ -161,4 +168,99 @@ export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today
   return [...fromProjects, ...fromDeals].filter(
     (c, i, all) => all.findIndex((x) => x.name.toLowerCase() === c.name.toLowerCase()) === i,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Live context — everything the mirror knows about ONE client, as plain data.
+// The workspace renders it; computing it here keeps the guest import graph
+// clean (the component receives props, never touches the mirror itself).
+// ---------------------------------------------------------------------------
+
+export interface LiveMilestone {
+  title: string;
+  dueDate: string;
+  state: string;
+  hard?: boolean;
+}
+
+export interface LiveProject {
+  title: string;
+  status?: string;
+  startDate?: string;
+  dueDate?: string;
+  clientGroup?: string;
+  /** Every milestone Kantata has for this project, date-sorted. */
+  milestones: LiveMilestone[];
+}
+
+export interface LiveDeal {
+  title: string;
+  stage: string;
+  won: boolean;
+  closeDate?: string;
+}
+
+/** The HubSpot company record fields we pull (internal surfaces only). */
+export interface AccountCrmRecord {
+  name: string;
+  vertical?: string;
+  abbreviation?: string;
+  lifecycleStage?: string;
+  healthIndex?: string;
+  renewal?: string;
+  gdnaLevel?: string;
+  intentSummary?: string;
+  intentCount30d?: number;
+  owner?: string;
+}
+
+export interface AccountLiveContext {
+  /** Missing = no HubSpot company matched the workspace name. */
+  crm?: AccountCrmRecord;
+  projects: LiveProject[];
+  deals: LiveDeal[];
+}
+
+export function accountLiveContext(mirror: AgpMirror, clientName: string): AccountLiveContext {
+  const client = mirror.clients.find((c) => normName(c.name) === normName(clientName));
+  const canonical = client?.name ?? clientName;
+  const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
+
+  const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => ({
+    title: p.title,
+    ...(p.status ? { status: p.status } : {}),
+    ...(p.startDate ? { startDate: p.startDate } : {}),
+    ...(p.dueDate ? { dueDate: p.dueDate } : {}),
+    ...(p.clientGroup ? { clientGroup: p.clientGroup } : {}),
+    milestones: mirror.milestones
+      .filter((m) => m.projectId === p.id)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
+  }));
+
+  const deals: LiveDeal[] = mirror.campaigns
+    .filter((c) => c.kind === "deal" && normName(c.clientName) === normName(canonical) && c.stage !== "closedlost")
+    .map((c) => ({
+      title: c.title,
+      stage: c.stage,
+      won: c.stage === "closedwon",
+      ...(c.closeDate ? { closeDate: c.closeDate.slice(0, 10) } : {}),
+    }));
+
+  const crm: AccountCrmRecord | undefined = client
+    ? {
+        name: client.name,
+        ...(client.vertical ? { vertical: client.vertical } : {}),
+        ...(client.abbreviation ? { abbreviation: client.abbreviation } : {}),
+        ...(client.lifecycleStage ? { lifecycleStage: client.lifecycleStage } : {}),
+        ...(client.healthIndex ? { healthIndex: client.healthIndex } : {}),
+        ...(client.renewal ? { renewal: client.renewal.slice(0, 10) } : {}),
+        ...(client.gdnaLevel ? { gdnaLevel: client.gdnaLevel } : {}),
+        ...(client.intentSummary ? { intentSummary: client.intentSummary } : {}),
+        ...(client.intentCount30d != null ? { intentCount30d: client.intentCount30d } : {}),
+        ...(client.owner ? { owner: client.owner } : {}),
+      }
+    : undefined;
+
+  return { ...(crm ? { crm } : {}), projects, deals };
 }

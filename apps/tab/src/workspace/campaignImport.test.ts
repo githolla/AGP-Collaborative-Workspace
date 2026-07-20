@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campaignsFromMirror } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -180,5 +180,67 @@ describe("campaignsFromMirror", () => {
     });
     const out = campaignsFromMirror(m, "University of Illinois Foundation", TODAY);
     expect(out).toHaveLength(1);
+  });
+});
+
+describe("accountLiveContext", () => {
+  it("returns the CRM record, matched projects with FULL milestone lists, and deals", () => {
+    const m = mirror({
+      clients: [
+        {
+          id: "c1",
+          name: "Harvest Hope Food Bank",
+          vertical: "food_banks",
+          abbreviation: "HHFB",
+          lifecycleStage: "customer",
+          healthIndex: "82",
+          renewal: "2027-03-01T00:00:00Z",
+          gdnaLevel: "Level 2",
+          owner: "Jane Smith",
+          intentCount30d: 4,
+        },
+      ],
+      projects: [
+        { id: "ws-1", title: "HHFB Fall Acquisition", serviceLine: "", vertical: "", model: "", status: "in_progress", dueDate: "2026-11-20" },
+        { id: "ws-2", title: "Unrelated Org Appeal", serviceLine: "", vertical: "", model: "" },
+      ],
+      milestones: [
+        { id: "m1", projectId: "ws-1", title: "In-home date", dueDate: "2026-10-12", state: "not_started", hard: true },
+        { id: "m2", projectId: "ws-1", title: "Kickoff", dueDate: "2026-06-01", state: "completed" },
+      ],
+      campaigns: [
+        { id: "d1", title: "FY27 Renewal", clientName: "Harvest Hope Food Bank", stage: "contractsent", kind: "deal", closeDate: "2026-08-30T00:00:00Z" },
+        { id: "d2", title: "Lost One", clientName: "Harvest Hope Food Bank", stage: "closedlost", kind: "deal" },
+      ],
+    });
+    const ctx = accountLiveContext(m, "Harvest Hope Food Bank");
+    expect(ctx.crm).toMatchObject({ owner: "Jane Smith", healthIndex: "82", renewal: "2027-03-01", abbreviation: "HHFB" });
+    expect(ctx.projects).toHaveLength(1);
+    // Full history, date-sorted — not just the next milestone.
+    expect(ctx.projects[0]?.milestones.map((x) => x.title)).toEqual(["Kickoff", "In-home date"]);
+    expect(ctx.projects[0]?.milestones[1]?.hard).toBe(true);
+    expect(ctx.deals).toHaveLength(1);
+    expect(ctx.deals[0]).toMatchObject({ title: "FY27 Renewal", won: false, closeDate: "2026-08-30" });
+  });
+
+  it("matches the workspace name to the CRM record case-insensitively", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "KPBX Public Media", vertical: "", owner: "Sam Lee" }],
+      projects: [{ id: "ws-1", title: "KPBX Digital Retainer", serviceLine: "", vertical: "", model: "" }],
+    });
+    const ctx = accountLiveContext(m, "kpbx public media");
+    expect(ctx.crm?.owner).toBe("Sam Lee");
+    expect(ctx.projects).toHaveLength(1);
+  });
+
+  it("reports honestly when nothing matches: no crm, empty projects and deals", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "Someone Else", vertical: "" }],
+      projects: [{ id: "ws-1", title: "Someone Else Appeal", serviceLine: "", vertical: "", model: "" }],
+    });
+    const ctx = accountLiveContext(m, "Riverside Food Bank");
+    expect(ctx.crm).toBeUndefined();
+    expect(ctx.projects).toHaveLength(0);
+    expect(ctx.deals).toHaveLength(0);
   });
 });
