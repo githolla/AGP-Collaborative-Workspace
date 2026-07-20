@@ -456,7 +456,7 @@ export function useWorkspace() {
    * the sandbox conversation over so context is never lost.
    */
   const promoteIdea = useCallback(
-    (id: string, type: InitiativeType): string | null => {
+    (id: string, type: InitiativeType, author = "You"): string | null => {
       const idea = ideas.find((i) => i.id === id);
       if (!idea || idea.status === "promoted") return idea?.promotedInitiativeId ?? null;
 
@@ -492,7 +492,7 @@ export function useWorkspace() {
           ...idea.thread,
           humanMessage(
             `Promoted from the sandbox — basis, plan, and parts carried over. Time to invite the team and harden the numbers.`,
-            "You",
+            author,
           ),
         ],
         snapshots: [],

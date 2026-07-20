@@ -78,7 +78,7 @@ export function InitiativeWorkspace({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <Crumbs trail={[{ label: "Builds", onClick: onBack }, { label: initiative.name }]} />
+        <Crumbs trail={[{ label: "Sandbox", onClick: onBack }, { label: initiative.name }]} />
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
           <GradeBadge grade={roi.grade} size={30} />
           <h1 style={{ fontSize: 19, fontWeight: 700, color: T.ink }}>{initiative.name}</h1>

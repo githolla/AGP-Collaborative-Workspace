@@ -1,5 +1,6 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { APP_TITLE, BRAND } from "../branding.js";
+import { initialsOf } from "../workspace/profile.js";
 
 const styles: Record<string, CSSProperties> = {
   bar: {
@@ -50,6 +51,23 @@ const styles: Record<string, CSSProperties> = {
     color: BRAND.avatarText,
     fontSize: 12.5,
     fontWeight: 700,
+    border: "none",
+    cursor: "pointer",
+    padding: 0,
+  },
+  popover: {
+    position: "absolute",
+    top: 44,
+    right: 0,
+    width: 264,
+    background: "#fff",
+    color: "#26251f",
+    border: "1px solid #e1e0d9",
+    borderRadius: 10,
+    boxShadow: "0 10px 30px rgba(11, 60, 110, 0.18)",
+    padding: 14,
+    zIndex: 60,
+    textAlign: "left",
   },
 };
 
@@ -73,14 +91,73 @@ function SignOutIcon() {
 }
 
 export interface AppHeaderProps {
-  /** Initials shown in the avatar chip; comes from Teams SSO once M3 lands. */
-  userInitials: string;
+  /** Display name; from the local profile today, Teams SSO once M3 lands. */
+  userName: string;
+  onChangeName: (name: string) => void;
   live?: boolean;
   onSettings?: () => void;
   onSignOut?: () => void;
 }
 
-export function AppHeader({ userInitials, live = true, onSettings, onSignOut }: AppHeaderProps) {
+/** Click the avatar → the profile panel: see who you are, change your name. */
+function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeName: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(userName);
+
+  const toggle = () => {
+    setDraft(userName);
+    setOpen((o) => !o);
+  };
+  const save = () => {
+    if (!draft.trim()) return;
+    onChangeName(draft.trim());
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button type="button" style={styles.avatar} aria-label="Your profile" aria-expanded={open} onClick={toggle}>
+        {initialsOf(userName)}
+      </button>
+      {open && (
+        <div style={styles.popover} role="dialog" aria-label="Your profile">
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "#8a887f" }}>
+            Your profile
+          </div>
+          <label htmlFor="profile-name" style={{ display: "block", fontSize: 11.5, color: "#52514e", margin: "10px 0 4px" }}>
+            Display name
+          </label>
+          <input
+            id="profile-name"
+            className="input"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setOpen(false);
+            }}
+            style={{ width: "100%", fontSize: 12.5 }}
+          />
+          <div style={{ fontSize: 10.5, color: "#8a887f", marginTop: 6, lineHeight: 1.5 }}>
+            Shown in greetings and on messages you post. Stored in this browser until Teams
+            sign-in takes over.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={!draft.trim()} onClick={save}>
+              Save
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AppHeader({ userName, onChangeName, live = true, onSettings, onSignOut }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
@@ -107,7 +184,7 @@ export function AppHeader({ userInitials, live = true, onSettings, onSignOut }: 
         <button type="button" style={styles.iconButton} aria-label="Sign out" onClick={onSignOut}>
           <SignOutIcon />
         </button>
-        <span style={styles.avatar}>{userInitials}</span>
+        <ProfileMenu userName={userName} onChangeName={onChangeName} />
       </div>
     </header>
   );
