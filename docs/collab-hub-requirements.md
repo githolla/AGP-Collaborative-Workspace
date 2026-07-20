@@ -101,6 +101,61 @@ workspaces, ROI engine + grades, plans→tasks without double entry, flags, and
 the collaboration copilot. Planner sync (tasks ↔ Advanced Planner) becomes an
 adapter once Graph access lands (BLOCKERS #5/#6).
 
+## Drift review (2026-07-20) — against the full document including the wireframe
+
+The doc embeds a **sample wireframe** that is the clearest statement of intent:
+a workspace for **"ABC Foodbank of the Southeast"** — a *client account* — with
+nav tabs **Home · Project Plan · Client Dashboard · Files · Discussions ·
+Contractor Access**, and a personal home ("Hi Jane!") composed of: Team
+Notifications · Account Overview (active campaigns, upcoming tasks, client
+contacts) · **Your Tasks** (personal board with owners + due dates) · **Due
+This Week** · Recent Files · Core Documentation · Latest Discussions.
+
+### Where we match her wireframe already
+- The task board (To Do / In Progress / Completed with "Jen M. · Due Apr 30"
+  rows) is nearly identical to our board view.
+- Latest Discussions ↔ our thread + What's-new feed.
+- Account Overview counters ↔ our stat-tile pattern.
+- Search, archive, activity feed, owners/due/status all align.
+- Her Advanced-Planner worry (updates in multiple places) is answered
+  structurally: plan seeds tasks; parts completing close tasks.
+
+### Honest drift register (severity order)
+1. **Workspace subject (major).** Her hub is per **client account** for
+   delivery execution with clients and contractors in the room. Our primary
+   surface is the internal product-initiative workspace with ROI math. These
+   are two workspace *types* on the same bones — but today only the internal
+   type exists. Correction: add a **Client account** workspace type whose Home
+   mirrors her wireframe; keep initiative workspaces as the internal line.
+2. **Files (major).** Two of her eight home zones are files (Recent Files,
+   Core Documentation). We have no file surface at all — not even SharePoint
+   links. Correction: links-based Files & Core Docs cards now; SharePoint
+   deep-links with the M365 layer.
+3. **Person-centric home (major).** "Hi Jane" + *your* tasks + due this week +
+   notifications. Ours is workspace-centric with no "my work" view.
+   Correction: personal home + Due This Week; notifications need backend.
+4. **Client Dashboard / internal-client boundary (critical rule).** Her
+   wireframe has a client-facing status tab. Our numbers (margin, realism
+   haircut, human-in-the-loop tax) are **internal-only and must never be
+   guest-visible**. Rule adopted: ROI surfaces render only for internal roles;
+   the Client Dashboard is a separate, curated, client-safe view.
+5. **Simplicity (her opening sentence).** "…without adding unnecessary
+   complexity or overhead." Her wireframe is calm; our build page stacks 10+
+   dense panels. Correction: move ROI depth behind a Numbers section/tab;
+   landing view = what's new, tasks, plan, discussions.
+6. **Small gaps.** Task filters lack due-date and labels (her acceptance
+   criteria names both); tasks have no labels; @mentions/notifications (Must)
+   still backend-gated; no export.
+
+### Verdict
+The collaboration bones (tasks, discussions, feed, search, plan-to-tasks,
+archive) are on target and in places ahead of the ask. The drift is that the
+**client-account execution workspace — the actual subject of her document —
+does not exist yet as a workspace type**, files are absent, and the home is
+not person-centric. The ROI/sandbox intelligence is the product owner's
+deliberate extension, defensible as the *internal* workspace type, provided
+it is firewalled from client visibility (rule 4).
+
 ## Deltas kept deliberately (where our build improves the ask)
 
 1. **Templates are generative, not static** — a sentence produces the workspace.
