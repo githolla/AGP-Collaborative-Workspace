@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "./components/AppHeader.js";
 import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
 import { Sandbox } from "./components/Sandbox.js";
@@ -192,6 +192,29 @@ export function App() {
     void initLiveMirror(setLiveStatus);
   }, []);
 
+  // The book-of-business candidates: every mirror client without a workspace,
+  // scored by what a one-click create would import. Memoized — at a full
+  // book (1000 clients × 1000 projects) this is real work.
+  const clientCandidates = useMemo(() => {
+    const mirror = loadMirror();
+    const today = AS_OF_TODAY();
+    return mirror.clients
+      .filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
+      .map((c) => ({
+        name: c.name,
+        vertical: c.vertical,
+        ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
+        workCount: campaignsFromMirror(mirror, c.name, today).length,
+      }))
+      .sort(
+        (a, b) =>
+          b.workCount - a.workCount ||
+          Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
+          a.name.localeCompare(b.name),
+      );
+    // liveStatus flips when the live mirror arrives — the trigger to recompute.
+  }, [ws.accounts, liveStatus]);
+
   const selectedInitiative =
     route.view === "initiative" ? ws.initiatives.find((i) => i.id === route.id) ?? null : null;
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
@@ -240,26 +263,7 @@ export function App() {
             </PageIntro>
             <ClientList
               accounts={ws.accounts.filter((a) => !a.archived)}
-              candidates={(() => {
-                const mirror = loadMirror();
-                const today = AS_OF_TODAY();
-                return mirror.clients
-                  .filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
-                  .map((c) => ({
-                    name: c.name,
-                    vertical: c.vertical,
-                    ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
-                    // What a one-click create would actually import — the
-                    // signal that separates real work from a blank shell.
-                    workCount: campaignsFromMirror(mirror, c.name, today).length,
-                  }))
-                  .sort(
-                    (a, b) =>
-                      b.workCount - a.workCount ||
-                      Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
-                      a.name.localeCompare(b.name),
-                  );
-              })()}
+              candidates={clientCandidates}
               candidatesLive={liveStatus.live}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}

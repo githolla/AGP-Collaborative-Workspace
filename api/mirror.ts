@@ -61,6 +61,40 @@ interface MirrorPayload {
 let cache: { at: number; payload: MirrorPayload } | null = null;
 const TTL_MS = 5 * 60 * 1000;
 
+interface HubSpotPage {
+  results?: {
+    id: string;
+    properties: Record<string, unknown>;
+    associations?: { companies?: { results?: { id: string }[] } };
+  }[];
+  paging?: { next?: { after?: string } };
+}
+
+/** Follow HubSpot's cursor pagination up to a cap — 100 rows per page is a
+ * HubSpot API limit, NOT the size of AGP's book of business. */
+async function pullHubSpotPaged(
+  baseUrl: string,
+  headers: Record<string, string>,
+  cap: number,
+): Promise<{ rows: NonNullable<HubSpotPage["results"]>; pages: number }> {
+  const rows: NonNullable<HubSpotPage["results"]> = [];
+  let after: string | undefined;
+  let pages = 0;
+  while (rows.length < cap && pages < Math.ceil(cap / 100)) {
+    const res = await fetch(`${baseUrl}${after ? `&after=${encodeURIComponent(after)}` : ""}`, { headers });
+    if (!res.ok) {
+      if (pages === 0) throw new Error(`HTTP ${res.status}`);
+      break; // partial result beats none
+    }
+    const json = (await res.json()) as HubSpotPage;
+    rows.push(...(json.results ?? []));
+    pages += 1;
+    after = json.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows: rows.slice(0, cap), pages };
+}
+
 async function pullHubSpot(token: string): Promise<{
   companies: Record<string, unknown>[];
   deals: Record<string, unknown>[];
@@ -72,29 +106,21 @@ async function pullHubSpot(token: string): Promise<{
   const dealsUrl =
     `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
 
-  const [companiesRes, dealsRes] = await Promise.all([fetch(companiesUrl, { headers }), fetch(dealsUrl, { headers })]);
-  if (!companiesRes.ok) throw new Error(`companies HTTP ${companiesRes.status}`);
-  const companiesJson = (await companiesRes.json()) as { results?: { id: string; properties: Record<string, unknown> }[] };
-  const companies = (companiesJson.results ?? []).map((r) => ({ id: r.id, ...r.properties }));
+  const companiesPull = await pullHubSpotPaged(companiesUrl, headers, 1000);
+  const companies = companiesPull.rows.map((r) => ({ id: r.id, ...r.properties }));
 
   let deals: Record<string, unknown>[] = [];
-  let note = "companies ok";
-  if (dealsRes.ok) {
-    const dealsJson = (await dealsRes.json()) as {
-      results?: {
-        id: string;
-        properties: Record<string, unknown>;
-        associations?: { companies?: { results?: { id: string }[] } };
-      }[];
-    };
-    deals = (dealsJson.results ?? []).map((r) => ({
+  let note = `${companies.length} companies (${companiesPull.pages} pages)`;
+  try {
+    const dealsPull = await pullHubSpotPaged(dealsUrl, headers, 300);
+    deals = dealsPull.rows.map((r) => ({
       id: r.id,
       ...r.properties,
       company_id: r.associations?.companies?.results?.[0]?.id ?? null,
     }));
-    note = "companies + deals ok";
-  } else {
-    note = `companies ok; deals HTTP ${dealsRes.status} (check crm.objects.deals.read scope)`;
+    note += ` + ${deals.length} deals`;
+  } catch (err) {
+    note += `; deals failed: ${err instanceof Error ? err.message : "unknown"} (check crm.objects.deals.read scope)`;
   }
   return { companies, deals, note };
 }
@@ -107,15 +133,40 @@ async function pullKantata(token: string): Promise<{
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
-  const res = await fetch("https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc", { headers });
-  if (!res.ok) throw new Error(`workspaces HTTP ${res.status}`);
-  const json = (await res.json()) as {
-    workspaces?: Record<
-      string,
-      { id: string; title?: string; status?: { message?: string }; start_date?: string; due_date?: string; updated_at?: string; archived?: boolean }
-    >;
+
+  // Mavenlink pages are numbered, 200 rows max — walk until a short page or
+  // the cap. First-page failure throws; later failures keep partial results.
+  const pullKantataPaged = async <T>(baseUrl: string, collection: string, cap: number): Promise<T[]> => {
+    const rows: T[] = [];
+    for (let page = 1; rows.length < cap && page <= Math.ceil(cap / 200); page += 1) {
+      const res = await fetch(`${baseUrl}&page=${page}`, { headers });
+      if (!res.ok) {
+        if (page === 1) throw new Error(`${collection} HTTP ${res.status}`);
+        break;
+      }
+      const json = (await res.json()) as Record<string, Record<string, T> | unknown>;
+      const batch = Object.values((json[collection] as Record<string, T>) ?? {});
+      rows.push(...batch);
+      if (batch.length < 200) break;
+    }
+    return rows.slice(0, cap);
   };
-  const projects = Object.values(json.workspaces ?? {})
+
+  type KantataWorkspace = {
+    id: string;
+    title?: string;
+    status?: { message?: string };
+    start_date?: string;
+    due_date?: string;
+    updated_at?: string;
+    archived?: boolean;
+  };
+  const workspaces = await pullKantataPaged<KantataWorkspace>(
+    "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc",
+    "workspaces",
+    1000,
+  );
+  const projects = workspaces
     .filter((w) => !w.archived)
     .map((w) => ({
       id: String(w.id),
@@ -134,15 +185,14 @@ async function pullKantata(token: string): Promise<{
   const notes: string[] = [`${projects.length} workspaces`];
 
   let milestones: Record<string, unknown>[] = [];
-  const storiesRes = await fetch(
-    "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
-    { headers },
-  );
-  if (storiesRes.ok) {
-    const storiesJson = (await storiesRes.json()) as {
-      stories?: Record<string, { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string }>;
-    };
-    milestones = Object.values(storiesJson.stories ?? {}).map((s) => ({
+  try {
+    type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
+    const stories = await pullKantataPaged<KantataStory>(
+      "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
+      "stories",
+      600,
+    );
+    milestones = stories.map((s) => ({
       id: String(s.id),
       title: s.title ?? "",
       workspace_id: String(s.workspace_id ?? ""),
@@ -150,49 +200,45 @@ async function pullKantata(token: string): Promise<{
       state: s.state ?? "",
     }));
     notes.push(`${milestones.length} milestones`);
-  } else {
-    notes.push(`milestones HTTP ${storiesRes.status}`);
+  } catch (err) {
+    notes.push(err instanceof Error ? err.message : "milestones failed");
   }
 
   let groups: Record<string, unknown>[] = [];
-  const groupsRes = await fetch("https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces", {
-    headers,
-  });
-  if (groupsRes.ok) {
-    const groupsJson = (await groupsRes.json()) as {
-      workspace_groups?: Record<string, { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] }>;
-    };
-    groups = Object.values(groupsJson.workspace_groups ?? {}).map((g) => ({
+  try {
+    type KantataGroup = { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] };
+    const rawGroups = await pullKantataPaged<KantataGroup>(
+      "https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces",
+      "workspace_groups",
+      400,
+    );
+    groups = rawGroups.map((g) => ({
       id: String(g.id),
       name: g.name ?? "",
       company: g.company ?? "",
       workspace_ids: (g.workspace_ids ?? []).map(String),
     }));
     notes.push(`${groups.length} groups`);
-  } else {
-    notes.push(`groups HTTP ${groupsRes.status}`);
+  } catch (err) {
+    notes.push(err instanceof Error ? err.message : "groups failed");
   }
 
   let customFields: Record<string, unknown>[] = [];
-  const cfRes = await fetch(
-    "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
-    { headers },
-  );
-  if (cfRes.ok) {
-    const cfJson = (await cfRes.json()) as {
-      custom_field_values?: Record<
-        string,
-        { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown }
-      >;
-    };
-    customFields = Object.values(cfJson.custom_field_values ?? {}).map((v) => ({
+  try {
+    type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
+    const cfvs = await pullKantataPaged<KantataCfv>(
+      "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
+      "custom_field_values",
+      1000,
+    );
+    customFields = cfvs.map((v) => ({
       subject_id: String(v.subject_id ?? ""),
       name: v.custom_field_name ?? "",
       value: v.display_value ?? (typeof v.value === "string" ? v.value : ""),
     }));
     notes.push(`${customFields.length} custom-field values`);
-  } else {
-    notes.push(`custom fields HTTP ${cfRes.status}`);
+  } catch (err) {
+    notes.push(err instanceof Error ? err.message : "custom fields failed");
   }
 
   return { projects, milestones, groups, customFields, note: notes.join(" · ") };

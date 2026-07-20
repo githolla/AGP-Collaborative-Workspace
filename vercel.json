@@ -2,5 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @agp/tab build",
   "outputDirectory": "apps/tab/dist",
-  "installCommand": "pnpm install --frozen-lockfile"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "functions": {
+    "api/*.ts": { "maxDuration": 30 }
+  }
 }
