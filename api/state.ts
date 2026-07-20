@@ -63,14 +63,21 @@ async function writeEnvelope(url: string, key: string, envelope: Envelope): Prom
   return res.ok;
 }
 
+import { requireAuth } from "./_lib/entraAuth.js";
+
 export default async function handler(
-  req: { method?: string; body?: unknown },
+  req: { method?: string; body?: unknown; headers?: Record<string, string | string[] | undefined> },
   res: {
     status: (code: number) => { json: (body: unknown) => void };
     setHeader: (k: string, v: string) => void;
   },
 ): Promise<void> {
   res.setHeader("Cache-Control", "no-store");
+  const auth = await requireAuth(typeof req.headers?.authorization === "string" ? req.headers.authorization : undefined);
+  if (!auth.authorized) {
+    res.status(auth.status).json(auth.body);
+    return;
+  }
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
