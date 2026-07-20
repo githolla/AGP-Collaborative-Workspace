@@ -194,8 +194,8 @@ export function seedAccounts(): import("./types.js").ClientAccount[] {
         { personId: "u-502", name: "Marcus Okafor", title: "Digital Strategist" },
       ],
       externals: [
-        { id: "ext-1", name: "Maria Ruiz", org: "ABC Foodbank", role: "client", access: "workspace", addedAt: "2026-06-01T09:00:00Z" },
-        { id: "ext-2", name: "R. Delgado", org: "FreelanceCopy Co.", role: "contractor", access: "files-only", addedAt: "2026-06-15T09:00:00Z" },
+        { id: "ext-1", name: "Maria Ruiz", org: "ABC Foodbank", role: "client", access: "workspace", invitedBy: "Priya Raman", lastActive: "2026-07-19", addedAt: "2026-06-01T09:00:00Z" },
+        { id: "ext-2", name: "R. Delgado", org: "FreelanceCopy Co.", role: "contractor", access: "files-only", invitedBy: "Dana Whitfield", lastActive: "2026-07-14", addedAt: "2026-06-15T09:00:00Z" },
       ],
       clientContacts: 8,
       campaigns: [

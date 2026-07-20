@@ -4,7 +4,7 @@ import { SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
-import type { ClientAccount, ExternalMember, TaskStatus } from "../workspace/types.js";
+import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -69,14 +69,18 @@ function glyphFor(name: string): string {
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
 
-function Home({ account, userName, goTo }: { account: ClientAccount; userName: string; goTo: (t: ClientTab) => void }) {
+function Home({ account, tasks, userName, goTo }: { account: ClientAccount; tasks: Task[]; userName: string; goTo: (t: ClientTab) => void }) {
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-  const open = account.tasks.filter((t) => t.status !== "done");
+  const open = tasks.filter((t) => t.status !== "done");
   const dueThisWeek = open
     .filter((t) => t.due && t.due <= weekOut)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-  const byStatus = (s: TaskStatus) => account.tasks.filter((t) => t.status === s);
+  const byStatus = (s: TaskStatus) => tasks.filter((t) => t.status === s);
+  const milestones = account.campaigns
+    .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
+    .sort((a, b) => (a.nextMilestoneDate ?? "").localeCompare(b.nextMilestoneDate ?? ""))
+    .slice(0, 3);
   const boardCols: { key: TaskStatus; label: string }[] = [
     { key: "todo", label: "To Do" },
     { key: "doing", label: "In Progress" },
@@ -116,6 +120,19 @@ function Home({ account, userName, goTo }: { account: ClientAccount; userName: s
               <span style={{ fontSize: 20, fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums" }}>{row.value}</span>
             </div>
           ))}
+          {milestones.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "10px 0 2px" }}>
+                Upcoming milestones
+              </div>
+              {milestones.map((c) => (
+                <div key={c.id} style={{ fontSize: 11.5, padding: "4px 0", color: T.inkSecondary }}>
+                  <span style={{ color: navy, fontWeight: 700 }}>{c.nextMilestone}</span> — {c.name}
+                  <span style={{ color: T.inkMuted }}> · {c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Your tasks — mini board */}
@@ -215,9 +232,9 @@ function Home({ account, userName, goTo }: { account: ClientAccount; userName: s
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
 
-function ClientDashboard({ account }: { account: ClientAccount }) {
-  const done = account.tasks.filter((t) => t.status === "done").length;
-  const pct = account.tasks.length > 0 ? Math.round((done / account.tasks.length) * 100) : 0;
+function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Task[] }) {
+  const done = tasks.filter((t) => t.status === "done").length;
+  const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...card, background: "#eef3f9", borderColor: navy }}>
@@ -256,7 +273,7 @@ function ClientDashboard({ account }: { account: ClientAccount }) {
           <div style={{ flex: 1, height: 12, background: "#f0efec", borderRadius: 4, overflow: "hidden" }}>
             <div style={{ width: `${pct}%`, height: "100%", background: navy, borderRadius: 4 }} />
           </div>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{done}/{account.tasks.length} tasks complete</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{done}/{tasks.length} tasks complete</span>
         </div>
       </div>
     </div>
@@ -330,10 +347,12 @@ function AccessTab({
   account,
   onAdd,
   onRemove,
+  onOffboardEverywhere,
 }: {
   account: ClientAccount;
   onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemove: (externalId: string) => void;
+  onOffboardEverywhere: (personName: string) => void;
 }) {
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
@@ -363,14 +382,27 @@ function AccessTab({
             <span style={{ fontSize: 11.5, color: T.inkMuted }}>{e.org}</span>
             <TagChip>{e.role}</TagChip>
             <TagChip>{e.access}</TagChip>
-            <button
-              type="button"
-              onClick={() => onRemove(e.id)}
-              title="Removal revokes access across the workspace immediately"
-              style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.status.critical}`, background: "transparent", color: T.status.critical, cursor: "pointer" }}
-            >
-              Remove — revokes immediately
-            </button>
+            <span style={{ fontSize: 10.5, color: T.inkMuted }}>
+              invited by {e.invitedBy ?? "—"} · last active {e.lastActive ?? "—"}
+            </span>
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onRemove(e.id)}
+                title="Removal revokes access across this workspace immediately"
+                style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.status.critical}`, background: "transparent", color: T.status.critical, cursor: "pointer" }}
+              >
+                Remove — revokes immediately
+              </button>
+              <button
+                type="button"
+                onClick={() => onOffboardEverywhere(e.name)}
+                title="One click removes this person from every client workspace, audit-logged"
+                style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: "none", background: T.status.critical, color: "#fff", cursor: "pointer" }}
+              >
+                Offboard everywhere
+              </button>
+            </span>
           </div>
         ))}
         {account.externals.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No external members.</div>}
@@ -425,6 +457,7 @@ function AccessTab({
 
 export function ClientWorkspace({
   account,
+  sharedTasks,
   userName,
   onBack,
   onAddTask,
@@ -433,8 +466,11 @@ export function ClientWorkspace({
   onAddLink,
   onAddExternal,
   onRemoveExternal,
+  onOffboardEverywhere,
 }: {
   account: ClientAccount;
+  /** The shared plan: account tasks + client-visible tasks from linked builds. */
+  sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
   onBack: () => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
@@ -443,9 +479,14 @@ export function ClientWorkspace({
   onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemoveExternal: (externalId: string) => void;
+  onOffboardEverywhere: (personName: string) => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
-  const owners = [...new Set(account.tasks.map((t) => t.ownerName).filter((o): o is string => !!o))];
+  // Mirrored internal tasks get a display label so their origin is visible.
+  const tasks: Task[] = sharedTasks.map(({ task, fromInternal }) =>
+    fromInternal && !task.label ? { ...task, label: "shared from internal plan" } : task,
+  );
+  const owners = [...new Set(tasks.map((t) => t.ownerName).filter((o): o is string => !!o))];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -485,20 +526,23 @@ export function ClientWorkspace({
         </div>
       </div>
 
-      {tab === "home" && <Home account={account} userName={userName} goTo={setTab} />}
+      {tab === "home" && <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <TasksCard tasks={account.tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
           <div style={{ fontSize: 11, color: T.inkMuted }}>
-            The overarching plan and these tasks are one list — no double entry. Two-way Advanced
-            Planner sync arrives with the M365 layer.
+            One list, no double entry: tasks shared from a linked build appear here automatically
+            and status changes flow back to the internal plan. Two-way Advanced Planner sync
+            arrives with the M365 layer on this same shape.
           </div>
         </div>
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} />}
-      {tab === "discussions" && <Thread messages={account.thread} onPost={onPost} showAgents={false} />}
-      {tab === "access" && <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} />}
+      {tab === "discussions" && <Thread messages={account.thread} onPost={onPost} />}
+      {tab === "access" && (
+        <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} />
+      )}
     </div>
   );
 }

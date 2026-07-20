@@ -56,6 +56,17 @@ Teams Tab (React/SSO) ── Teams Bot & Adaptive Cards ── Microsoft Graph (
 - **Intelligence:** `artifacts` (type, project, version, status: draft|approved|live, provenance jsonb of source refs), `signals` (raw detected events), `actions` (proposed/executed with autonomy tier, undo_deadline), `baselines` (learned per-project/client normals), `user_prefs_learned` (per-user signal weights from behavior), `embeddings` (pgvector over time-entry notes, engagement bodies, artifact text, task descriptions).
 - RLS on all app tables keyed to Entra object ID; capability/inference tables readable only by service role + admins.
 
+## LAYER 0 — COLLABORATION CONTAINER (the manager's Collaboration Hub — build first inside Layer 1)
+
+The delivery organization has specified a governed M365 collaboration workspace (see `collab-hub-requirements-response.md` for the requirement-by-requirement mapping — treat it as requirements). It is the container everything else lives in:
+
+1. **Two-zone workspace structure, provisioned as one unit:** per client Team; per project a **client zone** (shared channel or guest-enabled standard channel: discussions, shared files, shared task view, milestones, client-safe home tab) and an **internal zone** (private channel: AGP-only discussion, working files, the Project Command tab). Separate memberships, separate SharePoint storage. **HARD RULE, enforce in code and test:** no financial data — budgets, burn, margin, rates, costs — may render on any guest-visible surface. The Project Command tab, bot, and staff cards mount only in internal zones; the guest-safe home tab has no financial component and a build-time-verified component allowlist.
+2. **Provisioning-as-template:** the Layer 1c saga expands to create the full template via Graph: both zones, standard SharePoint folder taxonomy (admin-defined, versioned), a Planner plan tabbed into the channel, standard tabs, guest invitations (Entra B2B) with correct scope, and the home tabs. Templates are code: versioned, consistent, auditable.
+3. **Kantata ⇄ Planner task sync:** mirror Kantata plan stories into the workspace's Planner plan; flow completion/status back to Kantata. Client-facing tasks are a filtered subset via a client-visible flag (Kantata custom field or platform-side flag) — internal tasks never reach the shared plan. This kills double-entry for AMs and is the delivery org's highest-felt pain; treat as a flagship Layer 0/1 deliverable, built on the same sync service.
+4. **Home tabs (two variants, one build):** What's New activity feed (zone-scoped aggregation of posts, file changes, task/milestone updates), My Tasks, file quick links, upcoming milestones. Staff variant adds budget/health. Guests' variant passes the no-financials allowlist.
+5. **Guest lifecycle & access register:** live per-workspace access register (person, level, zone, invited-by, last active); one-click cross-workspace offboard (Entra removal) with audit logging; workspace archive on project close (Team archived read-only + platform record retained).
+6. Native M365 handles what it's good at — channel discussions, mentions, chat, SharePoint versioning/co-authoring, permission-trimmed search, channel email addresses, Planner views. Do not rebuild these.
+
 ## LAYER 1 — OPERATE (foundation + workspace + provisioning)
 
 ### 1a. Sync foundation (build first)

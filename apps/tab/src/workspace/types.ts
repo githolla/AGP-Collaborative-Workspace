@@ -32,6 +32,12 @@ export interface Task {
   status: TaskStatus;
   phaseKey?: string;
   source: "plan" | "manual";
+  /**
+   * Layer 0.3: client-facing tasks are a filtered subset. Only tasks flagged
+   * clientVisible appear on the linked client account's shared plan; internal
+   * tasks never reach it.
+   */
+  clientVisible?: boolean;
   createdAt: string;
 }
 
@@ -53,6 +59,12 @@ export interface Initiative {
   tasks: Task[];
   activity: ActivityEvent[];
   archived?: boolean;
+  /**
+   * Layer 0.1 zone pairing: a build can be the INTERNAL ZONE of a client
+   * account. The link is only ever rendered on the internal side; the client
+   * workspace never exposes it.
+   */
+  clientAccountId?: string;
   thread: ThreadMessage[];
   snapshots: Snapshot[];
   createdAt: string;
@@ -99,6 +111,9 @@ export interface ExternalMember {
   org: string;
   role: "client" | "contractor";
   access: "workspace" | "files-only" | "tasks-only";
+  /** Access register (Layer 0.5): who granted access and when they last showed up. */
+  invitedBy?: string;
+  lastActive?: string;
   addedAt: string;
 }
 

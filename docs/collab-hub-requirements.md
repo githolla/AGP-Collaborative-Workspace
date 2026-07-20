@@ -90,6 +90,21 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 | External sharing controls | Must | 🧭 | With auth layer / M365. |
 | Archiving with history | Should | 🔨 | Archive/unarchive per workspace; archived items keep full history, hidden from the default portfolio. |
 
+## SPEC v2_1 Layer 0 adoption (2026-07-20)
+
+SPEC.md was updated to v2_1, whose only change is a new **Layer 0 —
+Collaboration Container** codifying the manager's hub. App-side status:
+
+| Layer 0 item | Status | Notes |
+|---|---|---|
+| 0.1 Two-zone structure | 🔨 model | Builds can be linked as the **internal zone** of a client account; the link renders only on the internal side. Teams shared/private channels carry it physically with the M365 layer. |
+| 0.1 No-financials hard rule "in code and test" | 🔨 **tested** | `apps/tab/src/clientSafety.test.ts`: build-time allowlist walking the runtime import graph of guest-visible components — fails CI if any financial/intelligence module becomes reachable, plus a word-bounded identifier check. Thread was refactored (agent roster injected by internal callers) so the guest graph is clean. |
+| 0.2 Provisioning-as-template | 🔨 app / 🧭 Graph | Standard client template on create; Graph (channels, SharePoint taxonomy, Planner tab, Entra B2B invites) blocker-gated. |
+| 0.3 Kantata ⇄ Planner, client-visible flag | 🔨 shape | `clientVisible` flag on build tasks; flagged tasks mirror onto the linked account's shared plan and **status changes flow back** — one list, no double entry. Kantata/Planner adapters ride this same shape via the sync service when credentials land. |
+| 0.4 Home tabs, two variants | 🔨 | Guest variant = client Home (wireframe); staff variant = build workspace. Upcoming milestones added to client Home. |
+| 0.5 Guest lifecycle & register | 🔨 | Register now shows invited-by + last-active; per-workspace immediate revoke and **one-click cross-workspace offboard**, all audit-logged. Entra removal attaches when identity lands. |
+| 0.6 Don't rebuild native M365 | ✅ | Unchanged position: discussions/mentions/files/search map to Teams/SharePoint. |
+
 ## M365 mapping (manager's table, with our recommendation)
 
 The manager's mapping (Teams channels, Planner, SharePoint, Power Automate) is

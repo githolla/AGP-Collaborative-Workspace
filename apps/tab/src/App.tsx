@@ -178,6 +178,9 @@ export function App() {
             onAddTask={(title, ownerName, due, label) => ws.addTask(selectedInitiative.id, title, ownerName, due, label)}
             onTaskStatus={(taskId, status) => ws.setTaskStatus(selectedInitiative.id, taskId, status)}
             onArchive={(archived) => ws.setArchived(selectedInitiative.id, archived)}
+            accounts={ws.accounts.map((a) => ({ id: a.id, clientName: a.clientName }))}
+            onSetClientAccount={(accountId) => ws.setClientAccount(selectedInitiative.id, accountId)}
+            onToggleClientVisible={(taskId) => ws.toggleTaskClientVisible(selectedInitiative.id, taskId)}
           />
         )}
 
@@ -205,14 +208,16 @@ export function App() {
         {selectedAccount && (
           <ClientWorkspace
             account={selectedAccount}
+            sharedTasks={ws.sharedTasksFor(selectedAccount.id)}
             userName={USER_NAME}
             onBack={() => setRoute({ view: "clients" })}
             onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
-            onTaskStatus={(taskId, status) => ws.setAccountTaskStatus(selectedAccount.id, taskId, status)}
+            onTaskStatus={(taskId, status) => ws.setSharedTaskStatus(selectedAccount.id, taskId, status)}
             onPost={(body) => ws.postAccountMessage(selectedAccount.id, body, USER_NAME)}
             onAddLink={(name, kind, url) => ws.addAccountLink(selectedAccount.id, name, kind, url)}
-            onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access)}
+            onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, USER_NAME)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
+            onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
           />
         )}
         {route.view === "account" && !selectedAccount && (

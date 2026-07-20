@@ -567,15 +567,35 @@ export function useWorkspace() {
   );
 
   const addExternal = useCallback(
-    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => {
+    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
       mutateAccount(id, (a) => ({
         ...a,
-        externals: [...a.externals, { id: newId("ext"), name, org, role, access, addedAt: new Date().toISOString() }],
-        activity: [...a.activity, activityEvent(`${role === "client" ? "Client" : "Contractor"} access granted — ${name} (${org}, ${access})`, "team")],
+        externals: [...a.externals, { id: newId("ext"), name, org, role, access, invitedBy, addedAt: new Date().toISOString() }],
+        activity: [...a.activity, activityEvent(`${role === "client" ? "Client" : "Contractor"} access granted — ${name} (${org}, ${access}) by ${invitedBy}`, "team")],
       }));
     },
     [mutateAccount],
   );
+
+  /**
+   * One-click cross-workspace offboard (Layer 0.5): revoke a person from
+   * EVERY client workspace at once, each removal audit-logged. Entra removal
+   * rides on this when the identity layer lands.
+   */
+  const offboardEverywhere = useCallback((personName: string) => {
+    setState((s) => ({
+      ...s,
+      accounts: s.accounts.map((a) => {
+        const hits = a.externals.filter((e) => e.name === personName);
+        if (hits.length === 0) return a;
+        return {
+          ...a,
+          externals: a.externals.filter((e) => e.name !== personName),
+          activity: [...a.activity, activityEvent(`Access revoked immediately (cross-workspace offboard) — ${personName}`, "team")],
+        };
+      }),
+    }));
+  }, []);
 
   /** Offboarding (Must): removal revokes access across the workspace immediately. */
   const removeExternal = useCallback(
@@ -590,6 +610,81 @@ export function useWorkspace() {
       });
     },
     [mutateAccount],
+  );
+
+  // ---- zone pairing + shared plan (SPEC Layer 0.1 / 0.3) ----
+
+  /** Pair a build (internal zone) with a client account. Internal-side only. */
+  const setClientAccount = useCallback(
+    (initiativeId: string, accountId: string | null) => {
+      mutate(initiativeId, (i) => {
+        const { clientAccountId: _prev, ...rest } = i;
+        const next = accountId ? { ...rest, clientAccountId: accountId } : rest;
+        return {
+          ...next,
+          activity: [
+            ...i.activity,
+            activityEvent(
+              accountId
+                ? `Linked as the internal zone of client account ${accounts.find((a) => a.id === accountId)?.clientName ?? accountId}`
+                : "Unlinked from client account",
+              "workspace",
+            ),
+          ],
+        };
+      });
+    },
+    [mutate, accounts],
+  );
+
+  /** Flip a task onto / off the client-shared plan. Internal tasks never leak. */
+  const toggleTaskClientVisible = useCallback(
+    (initiativeId: string, taskId: string) => {
+      mutate(initiativeId, (i) => {
+        const task = i.tasks.find((t) => t.id === taskId);
+        if (!task) return i;
+        const next = !task.clientVisible;
+        return {
+          ...i,
+          tasks: i.tasks.map((t) => (t.id === taskId ? { ...t, clientVisible: next } : t)),
+          activity: [...i.activity, activityEvent(`"${task.title}" ${next ? "shared to" : "removed from"} the client plan`, "task")],
+        };
+      });
+    },
+    [mutate],
+  );
+
+  /**
+   * The client account's shared plan: its own tasks plus the client-visible
+   * subset of every linked build's tasks. One list, no double entry — status
+   * changes flow back to the internal task (Kantata ⇄ Planner sync later
+   * rides the same shape).
+   */
+  const sharedTasksFor = useCallback(
+    (accountId: string): { task: Task; fromInternal: boolean }[] => {
+      const account = accounts.find((a) => a.id === accountId);
+      if (!account) return [];
+      const own = account.tasks.map((task) => ({ task, fromInternal: false }));
+      const mirrored = initiatives
+        .filter((i) => i.clientAccountId === accountId)
+        .flatMap((i) => i.tasks.filter((t) => t.clientVisible).map((task) => ({ task, fromInternal: true })));
+      return [...own, ...mirrored];
+    },
+    [accounts, initiatives],
+  );
+
+  /** Status change from the client view routes to wherever the task lives. */
+  const setSharedTaskStatus = useCallback(
+    (accountId: string, taskId: string, status: TaskStatus) => {
+      const account = accounts.find((a) => a.id === accountId);
+      if (account?.tasks.some((t) => t.id === taskId)) {
+        setAccountTaskStatus(accountId, taskId, status);
+        return;
+      }
+      const owner = initiatives.find((i) => i.clientAccountId === accountId && i.tasks.some((t) => t.id === taskId));
+      if (owner) setTaskStatus(owner.id, taskId, status);
+    },
+    [accounts, initiatives, setAccountTaskStatus, setTaskStatus],
   );
 
   const resetDemo = useCallback(() => {
@@ -608,6 +703,11 @@ export function useWorkspace() {
     addAccountLink,
     addExternal,
     removeExternal,
+    offboardEverywhere,
+    setClientAccount,
+    toggleTaskClientVisible,
+    sharedTasksFor,
+    setSharedTaskStatus,
     updateFactor,
     postMessage,
     askRoiAnalyst,

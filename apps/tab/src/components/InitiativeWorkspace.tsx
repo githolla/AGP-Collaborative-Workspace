@@ -6,6 +6,7 @@ import { Thread } from "./Thread.js";
 import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
 import { TasksCard } from "./TasksCard.js";
 import { WhatsNew } from "./WhatsNew.js";
+import { AGENTS } from "../workspace/agents.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
 import { TYPE_LABEL, type Initiative, type TaskStatus } from "../workspace/types.js";
 import type { WorkspaceFactor } from "@agp/roi";
@@ -20,6 +21,9 @@ export function InitiativeWorkspace({
   onInvite,
   onPartAdded,
   onAddTask,
+  accounts,
+  onSetClientAccount,
+  onToggleClientVisible,
   onTaskStatus,
   onArchive,
 }: {
@@ -32,6 +36,9 @@ export function InitiativeWorkspace({
   onInvite: (personId: string) => void;
   onPartAdded: (personId: string) => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
+  accounts: { id: string; clientName: string }[];
+  onSetClientAccount: (accountId: string | null) => void;
+  onToggleClientVisible: (taskId: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onArchive: (archived: boolean) => void;
 }) {
@@ -86,11 +93,37 @@ export function InitiativeWorkspace({
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr)", gap: 14, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <WhatsNew activity={initiative.activity} thread={initiative.thread} />
-          <TasksCard tasks={initiative.tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
+          <div style={{ ...card, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>Internal zone of:</span>
+            <select
+              value={initiative.clientAccountId ?? ""}
+              onChange={(e) => onSetClientAccount(e.target.value || null)}
+              style={{ fontSize: 12, padding: "6px 9px", border: `1px solid ${T.grid}`, borderRadius: 6, color: T.ink }}
+            >
+              <option value="">No client account (fully internal)</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.clientName}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>
+              {initiative.clientAccountId
+                ? "Tasks marked “client ✓” mirror onto the client's shared plan; everything else stays internal — including all financials."
+                : "Link to a client account to share selected tasks onto its plan."}
+            </span>
+          </div>
+          <TasksCard
+            tasks={initiative.tasks}
+            owners={owners}
+            onAdd={onAddTask}
+            onStatus={onTaskStatus}
+            {...(initiative.clientAccountId ? { onToggleClientVisible } : {})}
+          />
           <div style={card}>
             <FactorEditor factors={initiative.factors} onChange={onFactorChange} />
           </div>
-          <Thread messages={initiative.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} />
+          <Thread messages={initiative.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} roster={AGENTS} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

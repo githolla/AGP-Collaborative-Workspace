@@ -5,6 +5,7 @@ import { SectionTitle, TagChip } from "./bits.js";
 import { ExecCard } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
 import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
+import { AGENTS } from "../workspace/agents.js";
 import { fmtUsd } from "../workspace/format.js";
 import { factorsFromBasis } from "../workspace/basis.js";
 import { TYPE_LABEL, type InitiativeType, type SandboxIdea } from "../workspace/types.js";
@@ -128,7 +129,7 @@ export function SandboxWorkspace({
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr)", gap: 14, alignItems: "start" }}>
         {/* The conversation IS the interface. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Thread messages={idea.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} />
+          <Thread messages={idea.thread} onPost={onPost} onAskAnalyst={onAskAnalyst} roster={AGENTS} />
           <div style={{ fontSize: 11, color: T.inkMuted, padding: "0 4px" }}>
             {idea.aiMode === "copilot"
               ? "Talk to the Copilot in plain words — “assume 300 build hours” · “this is mainly for food banks” · “drop the Loopio line” · “add someone from analytics”. It re-drafts and the rail on the right updates live."

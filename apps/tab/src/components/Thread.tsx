@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { card, T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
-import { AGENTS } from "../workspace/agents.js";
 import { timeAgoLabel } from "../workspace/format.js";
 import type { ThreadMessage } from "../workspace/types.js";
+
+export interface AgentRosterEntry {
+  name: string;
+  live: boolean;
+  note: string;
+}
 
 /**
  * The collaboration thread: people and AI agents working the initiative
@@ -14,14 +19,19 @@ export function Thread({
   messages,
   onPost,
   onAskAnalyst,
-  showAgents = true,
+  roster,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string) => void;
   onAskAnalyst?: () => void;
-  /** Client workspaces keep AI out of the room — discussions are just people. */
-  showAgents?: boolean;
+  /**
+   * The AI roster is injected by internal workspaces only. Client workspaces
+   * pass nothing — keeping this component (and its import graph) free of
+   * intelligence modules so the guest-surface allowlist test can verify it.
+   */
+  roster?: readonly AgentRosterEntry[];
 }) {
+  const showAgents = !!roster && roster.length > 0;
   const [draft, setDraft] = useState("");
 
   const post = () => {
@@ -37,7 +47,7 @@ export function Thread({
 
       {showAgents && (
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-        {AGENTS.map((a) => (
+        {(roster ?? []).map((a) => (
           <span
             key={a.name}
             title={a.note}

@@ -57,11 +57,14 @@ export function TasksCard({
   owners,
   onAdd,
   onStatus,
+  onToggleClientVisible,
 }: {
   tasks: Task[];
   owners: string[];
   onAdd: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onStatus: (taskId: string, status: TaskStatus) => void;
+  /** Layer 0.3: present only on builds linked to a client account. */
+  onToggleClientVisible?: (taskId: string) => void;
 }) {
   const [view, setView] = useState<"list" | "board">("list");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -119,6 +122,25 @@ export function TasksCard({
         {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
         {t.label && <TagChip>{t.label}</TagChip>}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
+        {onToggleClientVisible && (
+          <button
+            type="button"
+            onClick={() => onToggleClientVisible(t.id)}
+            title={t.clientVisible ? "On the client-shared plan — click to make internal-only" : "Internal-only — click to share to the client plan"}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 999,
+              cursor: "pointer",
+              border: `1px solid ${t.clientVisible ? T.roi.confirmed : T.grid}`,
+              background: t.clientVisible ? "#e3f4ec" : "transparent",
+              color: t.clientVisible ? "#116a43" : T.inkMuted,
+            }}
+          >
+            {t.clientVisible ? "client ✓" : "→ client"}
+          </button>
+        )}
         <DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} />
         <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
       </span>
