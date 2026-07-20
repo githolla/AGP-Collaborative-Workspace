@@ -240,8 +240,16 @@ export function App() {
               accounts={ws.accounts.filter((a) => !a.archived)}
               candidates={loadMirror()
                 .clients.filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
-                .sort((a, b) => Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer"))
-                .map((c) => ({ name: c.name, vertical: c.vertical }))}
+                .sort(
+                  (a, b) =>
+                    Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer") ||
+                    a.name.localeCompare(b.name),
+                )
+                .map((c) => ({
+                  name: c.name,
+                  vertical: c.vertical,
+                  ...(c.lifecycleStage ? { lifecycleStage: c.lifecycleStage } : {}),
+                }))}
               candidatesLive={liveStatus.live}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}

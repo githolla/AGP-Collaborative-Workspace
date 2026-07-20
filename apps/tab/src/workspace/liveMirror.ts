@@ -109,13 +109,15 @@ function statusFrom(p: RawMirrorPayload, cached: boolean): LiveStatus {
  * fresh. onStatus fires for each state so the header stays truthful.
  */
 export async function initLiveMirror(onStatus: (s: LiveStatus) => void): Promise<void> {
+  let cachedStatus: LiveStatus | null = null;
   try {
     const raw = window.localStorage.getItem(CACHE_KEY);
     if (raw) {
       const cached = JSON.parse(raw) as RawMirrorPayload;
       if (cached.live) {
         setMirrorOverride(mapLivePayload(cached));
-        onStatus(statusFrom(cached, true));
+        cachedStatus = statusFrom(cached, true);
+        onStatus(cachedStatus);
       }
     }
   } catch {
@@ -133,14 +135,25 @@ export async function initLiveMirror(onStatus: (s: LiveStatus) => void): Promise
       } catch {
         // storage full — live data still applied in memory
       }
+      onStatus(statusFrom(payload, false));
+    } else if (cachedStatus) {
+      // Endpoint reachable but tokens now absent — the cached live mirror is
+      // still applied and still the best truth. Keep saying so.
+      onStatus({ ...cachedStatus, detail: `${cachedStatus.detail} · refresh returned no live data` });
+    } else {
+      onStatus(statusFrom(payload, false));
     }
-    onStatus(statusFrom(payload, false));
   } catch {
-    // No endpoint (local dev) or network failure — fixtures remain active.
-    onStatus({
-      live: false,
-      label: "Demo data",
-      detail: "/api/mirror unreachable — bundled fixture mirror in use",
-    });
+    // No endpoint (local dev) or network failure. A cached live mirror, if
+    // applied above, stays applied — never mislabel it as demo data.
+    if (cachedStatus) {
+      onStatus({ ...cachedStatus, detail: `${cachedStatus.detail} · /api/mirror unreachable, showing cache` });
+    } else {
+      onStatus({
+        live: false,
+        label: "Demo data",
+        detail: "/api/mirror unreachable — bundled fixture mirror in use",
+      });
+    }
   }
 }
