@@ -119,7 +119,9 @@ export function App() {
             initiatives={ws.initiatives}
             ideas={ws.ideas}
             onNavigate={(target) => setRoute(target)}
-            onCreateIdea={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
+            onCreateIdea={(title, pitch, aiMode, overrides) =>
+              setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode, overrides) })
+            }
           />
         )}
 
@@ -162,7 +164,9 @@ export function App() {
             <Sandbox
               ideas={ws.ideas}
               onOpen={(id) => setRoute({ view: "idea", id })}
-              onCreate={(title, pitch, aiMode) => setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode) })}
+              onCreate={(title, pitch, aiMode, overrides) =>
+                setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode, overrides) })
+              }
             />
           </>
         )}
@@ -211,6 +215,7 @@ export function App() {
             onPartAdded={(personId) => ws.setPackageStatus("idea", selectedIdea.id, personId, "part_added")}
             onInviteCopilot={() => ws.inviteCopilotIn(selectedIdea.id)}
             onAddMember={(personId) => ws.addTeamMember(selectedIdea.id, personId)}
+            onAcceptReview={() => ws.acceptDraftReview(selectedIdea.id)}
             people={ws.availablePeople}
             flags={ws.copilotFlags(selectedIdea)}
           />

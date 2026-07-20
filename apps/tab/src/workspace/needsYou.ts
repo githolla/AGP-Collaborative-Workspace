@@ -118,8 +118,19 @@ export function buildNeedsYou(
     }
   }
 
-  // 5. Ideas: observing copilot with flags ready, or stalled explorations.
+  // 5. Ideas: unreviewed Copilot drafts, or an observing copilot with flags.
   for (const s of ideas.filter((x) => x.status === "exploring")) {
+    if (s.aiMode === "copilot" && s.reviewed === false) {
+      items.push({
+        id: `review-${s.id}`,
+        severity: "warning",
+        icon: "◎",
+        text: `The Copilot built a draft for “${s.title}” — review what it claims, who it cast, and the plan`,
+        where: s.title,
+        actionLabel: "Review draft",
+        target: { view: "idea", id: s.id },
+      });
+    }
     const flags = copilotFlags(s);
     if (s.aiMode === "observer" && flags.length > 0) {
       items.push({

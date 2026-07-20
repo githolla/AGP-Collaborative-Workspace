@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { T } from "../theme.js";
 import { TagChip } from "./bits.js";
 import { Card, EmptyState } from "./ui.js";
-import { extractTitle } from "../workspace/planner.js";
+import { IntakePanel } from "./IntakePanel.js";
 import { buildNeedsYou, buildRecents, type NavTarget } from "../workspace/needsYou.js";
+import type { DraftOverrides } from "../workspace/copilot.js";
 import type { ClientAccount, Initiative, SandboxIdea } from "../workspace/types.js";
 
 /**
@@ -27,18 +27,10 @@ export function HomePage({
   initiatives: Initiative[];
   ideas: SandboxIdea[];
   onNavigate: (target: NavTarget) => void;
-  onCreateIdea: (title: string, pitch: string, aiMode: "copilot" | "observer") => void;
+  onCreateIdea: (title: string, pitch: string, aiMode: "copilot" | "observer", overrides: DraftOverrides) => void;
 }) {
-  const [text, setText] = useState("");
-  const ready = text.trim().split(/\s+/).length >= 3;
   const needs = buildNeedsYou(accounts, initiatives, ideas);
   const recents = buildRecents(accounts, initiatives, ideas);
-
-  const start = (aiMode: "copilot" | "observer") => {
-    if (!ready) return;
-    onCreateIdea(extractTitle(text.trim()), text.trim(), aiMode);
-    setText("");
-  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -47,28 +39,11 @@ export function HomePage({
         <div style={{ fontSize: 21, fontWeight: 800, color: T.roi.navy }}>
           Hi {userName.split(" ")[0]} — what should exist that doesn't?
         </div>
-        <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4 }}>
-          Describe it in a sentence. The Copilot names it, sizes it, plans it, and picks the team —
-          or start blank with just your people.
+        <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, marginBottom: 12 }}>
+          Describe it in a sentence, tap what you already know, and the Copilot names it, sizes it,
+          plans it, and picks the team — or start blank with just your people.
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-          <input
-            className="input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") start("copilot");
-            }}
-            placeholder="e.g. “What if we drafted grant compliance reports automatically?”"
-            style={{ flex: 1, minWidth: 260, fontSize: 13.5, padding: "11px 14px" }}
-          />
-          <button type="button" className="btn btn-primary btn-lg" disabled={!ready} onClick={() => start("copilot")}>
-            Build it for me →
-          </button>
-          <button type="button" className="btn btn-secondary btn-lg" disabled={!ready} onClick={() => start("observer")}>
-            Start blank
-          </button>
-        </div>
+        <IntakePanel onCreate={onCreateIdea} />
       </div>
 
       <div className="two-col" style={{ gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)" }}>

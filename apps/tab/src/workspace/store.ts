@@ -5,7 +5,7 @@ import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
 import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
-import { copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus } from "./copilot.js";
+import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, personById, type AgpFunction } from "./agpKnowledge.js";
 import { tasksFromPlan } from "./planner.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
@@ -29,10 +29,13 @@ interface PersistedState {
 
 /** Older stored ideas predate newer fields — backfill them by re-drafting. */
 function migrateIdea(idea: SandboxIdea): SandboxIdea {
-  if (Array.isArray(idea.team) && idea.classification && idea.plan && idea.aiMode) return idea;
+  // Ideas stored before the review panel existed were already "reviewed" —
+  // never nag someone about a draft they've been working with for days.
+  const base = { ...idea, reviewed: idea.reviewed ?? true };
+  if (Array.isArray(idea.team) && idea.classification && idea.plan && idea.aiMode) return base;
   const draft = draftFromIdea(idea.title, idea.pitch);
   return {
-    ...idea,
+    ...base,
     aiMode: idea.aiMode ?? "copilot",
     team: idea.team ?? draft.team,
     classification: idea.classification ?? draft.classification,
@@ -228,12 +231,14 @@ export function useWorkspace() {
 
   // ---- sandbox ideas ----
 
-  const createIdea = useCallback((title: string, pitch: string, aiMode: AiMode = "copilot"): string => {
+  const createIdea = useCallback((title: string, pitch: string, aiMode: AiMode = "copilot", overrides?: DraftOverrides): string => {
     const id = newId("idea");
     let idea: SandboxIdea;
     if (aiMode === "copilot") {
       // The copilot drafts everything from the pitch — never a blank page.
-      const draft = draftFromIdea(title, pitch);
+      // Intake picks (department, service line, vertical, client) win over
+      // its own inference, and the draft stays unreviewed until accepted.
+      const draft = draftFromIdea(title, pitch, undefined, overrides);
       idea = {
         id,
         title,
@@ -249,13 +254,15 @@ export function useWorkspace() {
           { id: newId("msg"), author: "AGP Copilot", kind: "agent", at: new Date().toISOString(), body: draft.briefing },
         ],
         status: "exploring",
+        reviewed: false,
         createdAt: new Date().toISOString(),
       };
     } else {
       // Blank collaboration: humans work; the Copilot observes silently and
       // joins only when invited. It still classifies quietly so context chips
-      // and its eventual arrival are informed.
+      // and its eventual arrival are informed — intake picks still apply.
       const observed = observeIdea(title, pitch);
+      const deptLabel = overrides?.departmentFn ? DEPARTMENTS.find((d) => d.fn === overrides.departmentFn)?.label : undefined;
       idea = {
         id,
         title,
@@ -263,17 +270,47 @@ export function useWorkspace() {
         pitch,
         basis: { summary: pitch, comparables: [], manual: [], buildHours: 0, buildRate: 100 },
         team: [],
-        classification: observed.classification,
+        classification: {
+          ...observed.classification,
+          ...(deptLabel ? { department: deptLabel } : {}),
+          ...(overrides?.serviceLine ? { serviceLine: overrides.serviceLine } : {}),
+          ...(overrides?.vertical ? { vertical: overrides.vertical } : {}),
+          ...(overrides?.clientName
+            ? { clientNames: [...new Set([overrides.clientName, ...observed.classification.clientNames])] }
+            : {}),
+        },
         relatedProjects: observed.relatedProjects,
         relatedCampaigns: observed.relatedCampaigns,
         thread: [],
         status: "exploring",
+        reviewed: true,
         createdAt: new Date().toISOString(),
       };
     }
     setState((s) => ({ ...s, ideas: [...s.ideas, idea] }));
     return id;
   }, []);
+
+  /** The human signed off on the Copilot's draft — the review panel retires. */
+  const acceptDraftReview = useCallback(
+    (id: string) => {
+      mutateIdea(id, (i) => ({
+        ...i,
+        reviewed: true,
+        thread: [
+          ...i.thread,
+          {
+            id: newId("msg"),
+            author: "AGP Copilot",
+            kind: "agent" as const,
+            at: new Date().toISOString(),
+            body: "Draft accepted ✓ — I'll keep the numbers, plan, and parts in sync as you refine. Tell me changes in plain words any time.",
+          },
+        ],
+      }));
+    },
+    [mutateIdea],
+  );
 
   /** Invite the observing Copilot in — it arrives already informed. */
   const inviteCopilotIn = useCallback(
@@ -714,6 +751,7 @@ export function useWorkspace() {
     setSummary,
     createInitiative,
     createIdea,
+    acceptDraftReview,
     updateIdea,
     postIdeaMessage,
     askIdeaAnalyst,

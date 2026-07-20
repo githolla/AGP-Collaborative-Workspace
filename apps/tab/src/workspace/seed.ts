@@ -278,6 +278,8 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
         },
       ],
       status: "exploring",
+      // Unreviewed on purpose — the seed demos the draft-review panel.
+      reviewed: false,
       createdAt: "2026-07-17T11:00:00Z",
     },
     {
@@ -307,6 +309,7 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
         },
       ],
       status: "exploring",
+      reviewed: true,
       createdAt: "2026-07-18T09:00:00Z",
     },
   ];

@@ -58,7 +58,8 @@ function classify(text: string): IdeaClassification {
   const t = norm(text);
   const serviceLine = matchEntries(text, SERVICE_LINES)[0];
   const vertical = matchEntries(text, VERTICALS)[0];
-  const clientNames = mirror.clients.filter((c) => t.includes(norm(c.name).split(" ")[0] ?? "")).map((c) => c.name);
+  // Word-boundary match on the client's first word — "St." must not fire on "last.".
+  const clientNames = mirror.clients.filter((c) => hasKeyword(t, norm(c.name).split(" ")[0] ?? "~")).map((c) => c.name);
   return {
     ...(serviceLine ? { serviceLine: serviceLine.label } : {}),
     ...(vertical ? { vertical: vertical.label } : {}),
@@ -128,6 +129,48 @@ function relatedContext(text: string, classification: IdeaClassification): {
   return { relatedProjects, relatedCampaigns };
 }
 
+/** Departments a user can pick at intake — mapped to org functions. */
+export const DEPARTMENTS: { fn: AgpFunction; label: string }[] = [
+  { fn: "project_management", label: "Project Management" },
+  { fn: "creative", label: "Brand & Creative" },
+  { fn: "data_solutions", label: "Data Solutions & Deployment" },
+  { fn: "analytics", label: "Analytics" },
+  { fn: "digital_fundraising", label: "Digital Fundraising" },
+  { fn: "web_development", label: "Web & AI Development" },
+  { fn: "production", label: "Print & Mail Production" },
+  { fn: "business_development", label: "Business Development" },
+  { fn: "product_givingdna", label: "GivingDNA Product" },
+];
+
+/** Overrides a user picks at intake (tap-to-fill buttons) — they win over inference. */
+export interface DraftOverrides {
+  departmentFn?: AgpFunction;
+  serviceLine?: string;
+  vertical?: string;
+  clientName?: string;
+}
+
+export interface IntakeChoices {
+  departments: { fn: AgpFunction; label: string }[];
+  serviceLines: string[];
+  verticals: string[];
+  clients: string[];
+}
+
+/**
+ * The tap-to-fill option sets shown at intake: instead of typing everything
+ * into the pitch, the user clicks the department, service line, vertical, and
+ * client — and the Copilot crafts the draft around those picks.
+ */
+export function intakeChoices(): IntakeChoices {
+  return {
+    departments: DEPARTMENTS,
+    serviceLines: SERVICE_LINES.map((s) => s.label),
+    verticals: VERTICALS.map((v) => v.label),
+    clients: loadMirror().clients.map((c) => c.name),
+  };
+}
+
 /** Silent analysis for observer mode — the Copilot knows, but stays quiet. */
 export function observeIdea(title: string, pitch: string): {
   classification: IdeaClassification;
@@ -140,9 +183,20 @@ export function observeIdea(title: string, pitch: string): {
 }
 
 /** Analyze an idea's text and draft everything — basis, cast, plan, context. */
-export function draftFromIdea(title: string, pitch: string, startDate?: string): IdeaDraft {
+export function draftFromIdea(title: string, pitch: string, startDate?: string, overrides?: DraftOverrides): IdeaDraft {
   const text = `${title}. ${pitch}`;
-  const classification = classify(text);
+  let classification = classify(text);
+  // Intake picks win over inference — the user said so explicitly.
+  if (overrides) {
+    classification = {
+      ...classification,
+      ...(overrides.serviceLine ? { serviceLine: overrides.serviceLine } : {}),
+      ...(overrides.vertical ? { vertical: overrides.vertical } : {}),
+      ...(overrides.clientName ? { clientNames: [...new Set([overrides.clientName, ...classification.clientNames])] } : {}),
+    };
+  }
+  const deptEntry = overrides?.departmentFn ? DEPARTMENTS.find((d) => d.fn === overrides.departmentFn) : undefined;
+  if (deptEntry) classification = { ...classification, department: deptEntry.label };
 
   const processes = matchEntries(text, PROCESS_PATTERNS);
   const tools = dedupeBy(matchEntries(text, TOOL_CATALOG), (c) => c.name).slice(0, 3);
@@ -157,8 +211,17 @@ export function draftFromIdea(title: string, pitch: string, startDate?: string):
   const buildHours = processes.length > 0 ? Math.max(...processes.map((p) => p.buildHours)) : 0;
 
   const basis: RoiModel = { summary: pitch, comparables, manual, buildHours, buildRate: 100 };
-  const functions = dedupeBy(processes.flatMap((p) => p.functions), (f) => f);
+  // The owning department leads the function list so its person is cast first.
+  const functions = dedupeBy(
+    [...(overrides?.departmentFn ? [overrides.departmentFn] : []), ...processes.flatMap((p) => p.functions)],
+    (f) => f,
+  );
   let team = draftCast(functions);
+  // Fill in the department label when inference (not an override) found it.
+  if (!classification.department) {
+    const inferredDept = DEPARTMENTS.find((d) => d.fn === functions[0]);
+    if (inferredDept) classification = { ...classification, department: inferredDept.label };
+  }
 
   // Every build needs a builder: if nothing suggested engineering, add it.
   if (buildHours > 0 && !team.some((m) => personById(m.personId)?.fn === "web_development")) {
@@ -197,6 +260,7 @@ function composeBriefing(args: {
   const lines: string[] = [];
 
   const clsBits = [
+    classification.department && `department: ${classification.department}`,
     classification.serviceLine && `service line: ${classification.serviceLine}`,
     classification.vertical && `vertical: ${classification.vertical}`,
     classification.clientNames.length > 0 && `client match: ${classification.clientNames.join(", ")}`,

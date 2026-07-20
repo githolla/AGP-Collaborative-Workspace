@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { computeProjectROI } from "@agp/roi";
 import { card, T } from "../theme.js";
 import { TagChip } from "./bits.js";
+import { IntakePanel } from "./IntakePanel.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
 import { factorsFromBasis } from "../workspace/basis.js";
-import { extractTitle } from "../workspace/planner.js";
+import type { DraftOverrides } from "../workspace/copilot.js";
 import type { SandboxIdea } from "../workspace/types.js";
 
 /**
@@ -19,56 +19,21 @@ export function Sandbox({
 }: {
   ideas: SandboxIdea[];
   onOpen: (id: string) => void;
-  onCreate: (title: string, pitch: string, aiMode: "copilot" | "observer") => void;
+  onCreate: (title: string, pitch: string, aiMode: "copilot" | "observer", overrides: DraftOverrides) => void;
 }) {
-  const [text, setText] = useState("");
-  const ready = text.trim().split(/\s+/).length >= 3;
-
-  const start = (aiMode: "copilot" | "observer") => {
-    if (!ready) return;
-    onCreate(extractTitle(text.trim()), text.trim(), aiMode);
-    setText("");
-  };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>What should exist that doesn't?</div>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start("copilot");
-          }}
-          placeholder="One sentence is enough — “What if we drafted grant compliance reports automatically from campaign outcomes?”"
+        <IntakePanel
+          onCreate={onCreate}
           rows={3}
-          className="textarea"
-          style={{ fontSize: 13.5, padding: "12px 14px", borderRadius: 10 }}
+          placeholder="One sentence is enough — “What if we drafted grant compliance reports automatically from campaign outcomes?”"
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            className="btn btn-primary btn-lg"
-            disabled={!ready}
-            onClick={() => start("copilot")}
-            title="The Copilot names it, sizes it, plans it, and picks the team behind the scenes"
-          >
-            Build it for me →
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-lg"
-            disabled={!ready}
-            onClick={() => start("observer")}
-            title="No drafting — you and your team shape it; the Copilot observes quietly and joins only when invited"
-          >
-            Start blank — just us
-          </button>
-          <span style={{ fontSize: 11, color: T.inkMuted }}>
-            Either way the Copilot pays attention — in blank mode it stays silent until you invite
-            it in, and it arrives already knowing the project.
-          </span>
-        </div>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>
+          Either way the Copilot pays attention — in blank mode it stays silent until you invite it
+          in, and it arrives already knowing the project.
+        </span>
       </div>
 
       <div className="cards-grid">

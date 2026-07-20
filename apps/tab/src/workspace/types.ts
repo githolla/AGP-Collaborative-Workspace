@@ -186,6 +186,8 @@ export interface ProjectPlan {
 export interface IdeaClassification {
   serviceLine?: string;
   vertical?: string;
+  /** Owning department/team, e.g. "Analytics" — inferred or user-picked. */
+  department?: string;
   clientNames: string[];
 }
 
@@ -218,6 +220,8 @@ export interface SandboxIdea {
   relatedCampaigns: RelatedItem[];
   thread: ThreadMessage[];
   status: "exploring" | "promoted";
+  /** False until the human has reviewed the Copilot's draft (copilot mode). */
+  reviewed?: boolean;
   promotedInitiativeId?: string;
   createdAt: string;
 }

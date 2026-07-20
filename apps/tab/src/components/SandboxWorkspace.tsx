@@ -4,6 +4,7 @@ import { card, T } from "../theme.js";
 import { SectionTitle, TagChip } from "./bits.js";
 import { ExecCard } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
+import { DraftReview } from "./DraftReview.js";
 import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
 import { Crumbs } from "./ui.js";
 import { AGENTS } from "../workspace/agents.js";
@@ -51,6 +52,7 @@ export function SandboxWorkspace({
   onPartAdded,
   onInviteCopilot,
   onAddMember,
+  onAcceptReview,
   people,
   flags,
 }: {
@@ -65,6 +67,7 @@ export function SandboxWorkspace({
   onPartAdded: (personId: string) => void;
   onInviteCopilot: () => void;
   onAddMember: (personId: string) => void;
+  onAcceptReview: () => void;
   people: readonly AgpPerson[];
   flags: string[];
 }) {
@@ -110,6 +113,11 @@ export function SandboxWorkspace({
             Invite the Copilot in →
           </button>
         </div>
+      )}
+
+      {/* One explicit moment of human review over everything the machine built. */}
+      {idea.aiMode === "copilot" && !idea.reviewed && !promoted && (
+        <DraftReview idea={idea} onUpdate={onUpdate} onAccept={onAcceptReview} />
       )}
 
       {promoted && idea.promotedInitiativeId && (
