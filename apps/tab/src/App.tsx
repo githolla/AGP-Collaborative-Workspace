@@ -10,7 +10,7 @@ import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
-import { initLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
+import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { campaignsFromMirror } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
@@ -237,6 +237,7 @@ export function App() {
         live={liveStatus.live}
         liveLabel={liveStatus.label}
         liveDetail={liveStatus.detail}
+        onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
       />
 
       {/* Persistent navigation — visible on every page, including workspaces. */}

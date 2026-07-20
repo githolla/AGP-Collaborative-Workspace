@@ -34,6 +34,12 @@ export interface RawMirrorPayload {
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
+/**
+ * Bump whenever the payload shape or matching logic changes — a cached
+ * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
+ * trusted. This is exactly what bit the first live deploys.
+ */
+const CACHE_SCHEMA = 3;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -137,30 +143,37 @@ function statusFrom(p: RawMirrorPayload, cached: boolean): LiveStatus {
  * Boot sequence: apply the cached live mirror instantly (if any), then fetch
  * fresh. onStatus fires for each state so the header stays truthful.
  */
-export async function initLiveMirror(onStatus: (s: LiveStatus) => void): Promise<void> {
+export async function initLiveMirror(
+  onStatus: (s: LiveStatus) => void,
+  opts?: { fresh?: boolean },
+): Promise<void> {
   let cachedStatus: LiveStatus | null = null;
-  try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (raw) {
-      const cached = JSON.parse(raw) as RawMirrorPayload;
-      if (cached.live) {
-        setMirrorOverride(mapLivePayload(cached));
-        cachedStatus = statusFrom(cached, true);
-        onStatus(cachedStatus);
+  if (!opts?.fresh) {
+    try {
+      const raw = window.localStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const wrapped = JSON.parse(raw) as { schema?: number; payload?: RawMirrorPayload };
+        if (wrapped.schema === CACHE_SCHEMA && wrapped.payload?.live) {
+          setMirrorOverride(mapLivePayload(wrapped.payload));
+          cachedStatus = statusFrom(wrapped.payload, true);
+          onStatus(cachedStatus);
+        } else {
+          window.localStorage.removeItem(CACHE_KEY); // stale schema — refetch
+        }
       }
+    } catch {
+      // corrupt cache — ignore, the fetch below decides
     }
-  } catch {
-    // corrupt cache — ignore, the fetch below decides
   }
 
   try {
-    const res = await fetch("/api/mirror");
+    const res = await fetch(opts?.fresh ? "/api/mirror?fresh=1" : "/api/mirror");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = (await res.json()) as RawMirrorPayload;
     if (payload.live) {
       setMirrorOverride(mapLivePayload(payload));
       try {
-        window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+        window.localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: CACHE_SCHEMA, payload }));
       } catch {
         // storage full — live data still applied in memory
       }
@@ -185,4 +198,15 @@ export async function initLiveMirror(onStatus: (s: LiveStatus) => void): Promise
       });
     }
   }
+}
+
+/** User-invoked hard refresh: drop every cache layer and re-pull. */
+export async function refreshLiveMirror(onStatus: (s: LiveStatus) => void): Promise<void> {
+  try {
+    window.localStorage.removeItem(CACHE_KEY);
+  } catch {
+    // storage unavailable — the fresh fetch still applies in memory
+  }
+  onStatus({ live: false, label: "Refreshing…", detail: "re-pulling HubSpot & Kantata" });
+  await initLiveMirror(onStatus, { fresh: true });
 }

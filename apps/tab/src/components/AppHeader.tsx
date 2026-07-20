@@ -98,6 +98,8 @@ export interface AppHeaderProps {
   live?: boolean;
   liveLabel?: string;
   liveDetail?: string;
+  /** Click-to-refresh: hard re-pull of HubSpot & Kantata, bypassing caches. */
+  onRefreshData?: () => void;
   onSettings?: () => void;
   onSignOut?: () => void;
 }
@@ -160,7 +162,7 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
   );
 }
 
-export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onSettings, onSignOut }: AppHeaderProps) {
+export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
@@ -175,10 +177,24 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
         </div>
       </div>
       <div style={styles.right}>
-        <span style={{ ...styles.live, ...(live ? {} : { color: "rgba(255,255,255,0.55)" }) }} title={liveDetail}>
+        <button
+          type="button"
+          onClick={onRefreshData}
+          title={`${liveDetail ?? ""}${onRefreshData ? " — click to refresh from HubSpot & Kantata now" : ""}`}
+          style={{
+            ...styles.live,
+            ...(live ? {} : { color: "rgba(255,255,255,0.55)" }),
+            background: "none",
+            border: "none",
+            cursor: onRefreshData ? "pointer" : "default",
+            padding: 0,
+            font: "inherit",
+          }}
+        >
           <span style={{ ...styles.liveDot, ...(live ? {} : { background: "rgba(255,255,255,0.35)" }) }} />
           {liveLabel ?? (live ? "Live" : "Demo data")}
-        </span>
+          {onRefreshData && <span aria-hidden style={{ marginLeft: 5, opacity: 0.7 }}>⟳</span>}
+        </button>
         <button type="button" style={styles.iconButton} aria-label="Settings" onClick={onSettings}>
           <GearIcon />
         </button>

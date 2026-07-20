@@ -247,20 +247,22 @@ async function pullKantata(token: string): Promise<{
 import { requireAuth } from "./_lib/entraAuth.js";
 
 export default async function handler(
-  req: { method?: string; headers?: Record<string, string | string[] | undefined> },
+  req: { method?: string; url?: string; headers?: Record<string, string | string[] | undefined> },
   res: {
     status: (code: number) => { json: (body: unknown) => void };
     setHeader: (k: string, v: string) => void;
   },
 ): Promise<void> {
-  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
   const auth = await requireAuth(typeof req.headers?.authorization === "string" ? req.headers.authorization : undefined);
   if (!auth.authorized) {
     res.status(auth.status).json(auth.body);
     return;
   }
 
-  if (cache && Date.now() - cache.at < TTL_MS) {
+  // ?fresh=1 (the Live pill's refresh) bypasses every cache layer.
+  const fresh = /[?&]fresh=1/.test(req.url ?? "");
+  res.setHeader("Cache-Control", fresh ? "no-store" : "s-maxage=300, stale-while-revalidate=600");
+  if (!fresh && cache && Date.now() - cache.at < TTL_MS) {
     res.status(200).json(cache.payload);
     return;
   }

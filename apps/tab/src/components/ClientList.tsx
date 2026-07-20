@@ -103,6 +103,17 @@ function BookOfBusiness({
         />
       </div>
 
+      {/* Zero-match honesty: say WHY nothing is ready instead of a bare 0. */}
+      {readyCount === 0 && candidates.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 10, lineHeight: 1.5 }}>
+          No client matched any Kantata project yet. Matching uses Kantata <strong>workspace
+          groups</strong> (group name = client), the HubSpot <strong>client abbreviation</strong>,
+          or the client's name in the project title. Click the <strong>⟳ Live</strong> pill (top
+          right) to re-pull fresh data first — if it stays zero, Kantata's groups/titles don't
+          carry client names, and the tenant grounding doc's join mapping is the fix.
+        </div>
+      )}
+
       {shown.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "16px 4px" }}>
           {needle ? `No companies match “${q}”.` : "Nothing in this view yet."}
