@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { T } from "../theme.js";
-import { SectionTitle, TagChip } from "./bits.js";
+import { SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount } from "../workspace/types.js";
 
@@ -245,75 +245,99 @@ export function ClientList({
   const [name, setName] = useState("");
   const today = AS_OF_TODAY();
 
+  // Rows, not cards: at 10+ workspaces a grid of near-empty cards is a wall
+  // of zeros. A row shows only the facts that EXIST; an empty workspace says
+  // what to do next instead of "0 · 0 · 0". Busiest first.
+  const weight = (a: ClientAccount) => a.campaigns.length + a.tasks.length + a.thread.length + a.externals.length;
+  const sorted = [...accounts].sort((a, b) => weight(b) - weight(a) || a.clientName.localeCompare(b.clientName));
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="cards-grid">
-        {accounts.map((a) => {
-          const open = a.tasks.filter((t) => t.status !== "done");
-          const overdue = open.filter((t) => t.due && t.due < today).length;
-          return (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => onOpen(a.id)}
-              className="card card-hover"
-              style={{ display: "flex", flexDirection: "column", gap: 8 }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>
-                {a.clientName}
-                {unlinkedNames.includes(a.clientName) && (
-                  <span
-                    title="No company with this name exists in the live HubSpot book — open the workspace to link it to a real client (or it's a demo leftover)."
-                    style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", marginLeft: 8, textTransform: "uppercase", letterSpacing: 0.4, verticalAlign: "middle" }}
-                  >
-                    ⚠ not in CRM
+      {sorted.length > 0 && (
+        <div className="card" style={{ padding: "4px 18px" }}>
+          {sorted.map((a) => {
+            const open = a.tasks.filter((t) => t.status !== "done");
+            const overdue = open.filter((t) => t.due && t.due < today).length;
+            const active = a.campaigns.filter((c) => c.status === "active").length;
+            const bits: ReactNode[] = [];
+            if (active > 0) bits.push(`${active} active campaign${active === 1 ? "" : "s"}`);
+            if (open.length > 0)
+              bits.push(
+                <span key="tasks">
+                  {open.length} open task{open.length === 1 ? "" : "s"}
+                  {overdue > 0 && <span style={{ color: T.status.critical, fontWeight: 700 }}> ({overdue} overdue)</span>}
+                </span>,
+              );
+            if (a.externals.length > 0) bits.push(`${a.externals.length} external`);
+            if (a.thread.length > 0) bits.push(`${a.thread.length} discussion${a.thread.length === 1 ? "" : "s"}`);
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => onOpen(a.id)}
+                className="table-row-hover"
+                style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "11px 4px", cursor: "pointer", borderRadius: 6 }}
+              >
+                <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>{a.clientName}</span>
+                    {unlinkedNames.includes(a.clientName) && (
+                      <span
+                        title="No company with this name exists in the live HubSpot book — open the workspace to link it to a real client, or archive it if it's a demo leftover."
+                        style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
+                      >
+                        ⚠ not in CRM
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-              <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <TagChip>{a.campaigns.filter((c) => c.status === "active").length} active campaigns</TagChip>
-                <TagChip>{a.externals.length} external</TagChip>
-              </span>
-              <span style={{ fontSize: 12, color: T.inkSecondary }}>
-                {open.length} open task{open.length === 1 ? "" : "s"}
-                {overdue > 0 && <span style={{ color: T.status.critical, fontWeight: 700 }}> · {overdue} overdue</span>}
-              </span>
-              <span style={{ fontSize: 11, color: T.inkMuted }}>
-                {a.thread.length} discussion{a.thread.length === 1 ? "" : "s"} · {a.files.length + a.docs.length} files & docs
-              </span>
-            </button>
-          );
-        })}
+                  <span style={{ fontSize: 11.5, color: bits.length === 0 ? T.inkMuted : T.inkSecondary, lineHeight: 1.4 }}>
+                    {bits.length === 0
+                      ? "Empty — open it to review & import this client's Kantata and HubSpot work"
+                      : bits.map((b, i) => (
+                          <span key={i}>
+                            {i > 0 && " · "}
+                            {b}
+                          </span>
+                        ))}
+                  </span>
+                </span>
+                <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
+                  Open ›
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-        {/* Manual creation lives in the book-of-business footer when the CRM
-            list is present; this card is the fallback without one. */}
-        {(candidates.length === 0 || !onCreateFromClient) && (
-          <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
-            <SectionTitle>New client workspace</SectionTitle>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Client name, e.g. “Riverside Food Bank”"
-              className="input"
-            />
-            <button
-              type="button"
-              disabled={!name.trim()}
-              onClick={() => {
-                onCreate(name.trim());
-                setName("");
-              }}
-              className="btn btn-primary"
-            >
-              Create from the standard template
-            </button>
-            <div style={{ fontSize: 10.5, color: T.inkMuted }}>
-              Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
-              the four core documents, discussions, and access control. Consistency is the template.
-            </div>
+      {/* Manual creation lives in the book-of-business footer when the CRM
+          list is present; this card is the fallback without one. */}
+      {(candidates.length === 0 || !onCreateFromClient) && (
+        <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", maxWidth: 460 }}>
+          <SectionTitle>New client workspace</SectionTitle>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Client name, e.g. “Riverside Food Bank”"
+            className="input"
+          />
+          <button
+            type="button"
+            disabled={!name.trim()}
+            onClick={() => {
+              onCreate(name.trim());
+              setName("");
+            }}
+            className="btn btn-primary"
+          >
+            Create from the standard template
+          </button>
+          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
+            Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
+            the four core documents, discussions, and access control. Consistency is the template.
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {candidates.length > 0 && onCreateFromClient && (
         <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
