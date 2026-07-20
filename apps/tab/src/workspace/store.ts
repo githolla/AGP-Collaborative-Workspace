@@ -6,7 +6,8 @@ import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
 import { copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, personById, type AgpFunction } from "./agpKnowledge.js";
-import type { AiMode, WorkPackage } from "./types.js";
+import { tasksFromPlan } from "./planner.js";
+import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
 
 /**
  * Client-side workspace store, persisted to localStorage. This is the pivot
@@ -39,6 +40,16 @@ function migrateIdea(idea: SandboxIdea): SandboxIdea {
   };
 }
 
+/** Older stored initiatives predate tasks/activity/archive — backfill. */
+function migrateInitiative(i: Initiative): Initiative {
+  return {
+    ...i,
+    tasks: Array.isArray(i.tasks) ? i.tasks : i.plan ? tasksFromPlan(i.plan) : [],
+    activity: Array.isArray(i.activity) ? i.activity : [],
+    archived: i.archived ?? false,
+  };
+}
+
 function load(): PersistedState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -46,7 +57,7 @@ function load(): PersistedState {
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
       if (Array.isArray(parsed.initiatives) && parsed.initiatives.length > 0) {
         return {
-          initiatives: parsed.initiatives,
+          initiatives: parsed.initiatives.map(migrateInitiative),
           // ideas were added after the first release — older storage lacks them
           ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
         };
@@ -55,7 +66,11 @@ function load(): PersistedState {
   } catch {
     // corrupted storage falls through to seed
   }
-  return { initiatives: seedInitiatives(), ideas: seedIdeas() };
+  return { initiatives: seedInitiatives().map(migrateInitiative), ideas: seedIdeas() };
+}
+
+function activityEvent(text: string, kind: ActivityEvent["kind"]): ActivityEvent {
+  return { id: newId("act"), at: new Date().toISOString(), text, kind };
 }
 
 function withSnapshot(initiative: Initiative): Initiative {
@@ -108,9 +123,61 @@ export function useWorkspace() {
 
   const updateFactor = useCallback(
     (id: string, key: string, patch: Partial<WorkspaceFactor>) => {
-      mutate(id, (i) =>
-        withSnapshot({ ...i, factors: i.factors.map((f) => (f.key === key ? { ...f, ...patch } : f)) }),
-      );
+      mutate(id, (i) => {
+        const label = i.factors.find((f) => f.key === key)?.label ?? key;
+        return withSnapshot({
+          ...i,
+          factors: i.factors.map((f) => (f.key === key ? { ...f, ...patch } : f)),
+          activity: [...i.activity, activityEvent(`ROI number updated — ${label}`, "roi")],
+        });
+      });
+    },
+    [mutate],
+  );
+
+  const addTask = useCallback(
+    (id: string, title: string, ownerName?: string, due?: string) => {
+      const task: Task = {
+        id: newId("task"),
+        title,
+        ...(ownerName ? { ownerName } : {}),
+        ...(due ? { due } : {}),
+        status: "todo",
+        source: "manual",
+        createdAt: new Date().toISOString(),
+      };
+      mutate(id, (i) => ({
+        ...i,
+        tasks: [...i.tasks, task],
+        activity: [...i.activity, activityEvent(`Task added — "${title}"${ownerName ? ` (${ownerName})` : ""}`, "task")],
+      }));
+    },
+    [mutate],
+  );
+
+  const setTaskStatus = useCallback(
+    (id: string, taskId: string, status: TaskStatus) => {
+      mutate(id, (i) => {
+        const task = i.tasks.find((t) => t.id === taskId);
+        if (!task) return i;
+        const label = status === "done" ? "completed" : status === "doing" ? "started" : "reopened";
+        return {
+          ...i,
+          tasks: i.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)),
+          activity: [...i.activity, activityEvent(`${task.ownerName ?? "Someone"} ${label} — "${task.title.slice(0, 60)}"`, "task")],
+        };
+      });
+    },
+    [mutate],
+  );
+
+  const setArchived = useCallback(
+    (id: string, archived: boolean) => {
+      mutate(id, (i) => ({
+        ...i,
+        archived,
+        activity: [...i.activity, activityEvent(archived ? "Workspace archived — history retained" : "Workspace restored from archive", "workspace")],
+      }));
     },
     [mutate],
   );
@@ -145,6 +212,8 @@ export function useWorkspace() {
       type,
       summary: "",
       factors: standardFactorTemplate(),
+      tasks: [],
+      activity: [activityEvent("Workspace created", "workspace")],
       thread: [],
       snapshots: [],
       createdAt: new Date().toISOString(),
@@ -278,7 +347,27 @@ export function useWorkspace() {
         };
       };
       if (scope === "idea") mutateIdea(id, (i) => updatePlan(i));
-      else mutate(id, (i) => updatePlan(i));
+      else
+        mutate(id, (i) => {
+          const updated = updatePlan(i);
+          const pkg = i.plan?.packages.find((p) => p.personId === personId);
+          // Plan and tasks are one thing: a part landing completes its task.
+          const tasks =
+            status === "part_added"
+              ? updated.tasks.map((t) => (t.id === `task-${personId}` ? { ...t, status: "done" as const } : t))
+              : updated.tasks;
+          return {
+            ...updated,
+            tasks,
+            activity: [
+              ...updated.activity,
+              activityEvent(
+                status === "invited" ? `${pkg?.name ?? personId} invited to add their part` : `${pkg?.name ?? personId}'s part landed`,
+                "team",
+              ),
+            ],
+          };
+        });
     },
     [mutate, mutateIdea],
   );
@@ -356,6 +445,8 @@ export function useWorkspace() {
         summary: idea.pitch,
         factors,
         ...(idea.plan ? { plan: idea.plan } : {}),
+        tasks: idea.plan ? tasksFromPlan(idea.plan) : [],
+        activity: [activityEvent("Workspace created — promoted from the sandbox with basis, plan, parts, and tasks", "workspace")],
         thread: [
           ...idea.thread,
           humanMessage(
@@ -398,6 +489,9 @@ export function useWorkspace() {
     inviteCopilotIn,
     addTeamMember,
     copilotFlags,
+    addTask,
+    setTaskStatus,
+    setArchived,
     availablePeople: AGP_PEOPLE,
     resetDemo,
   };

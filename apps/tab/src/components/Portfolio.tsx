@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { computeDecisionMetrics, computePortfolio, computeProjectROI } from "@agp/roi";
 import { card, T } from "../theme.js";
 import { SectionTitle, StatTile, TagChip } from "./bits.js";
@@ -14,7 +15,12 @@ export function Portfolio({
   onOpen: (id: string) => void;
   onStartInSandbox: () => void;
 }) {
-  const portfolio = computePortfolio(initiatives);
+  const [showArchived, setShowArchived] = useState(false);
+  const active = initiatives.filter((i) => !i.archived);
+  const archivedCount = initiatives.length - active.length;
+  const visible = showArchived ? initiatives : active;
+  // Archived work stays out of the live portfolio number.
+  const portfolio = computePortfolio(active);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -36,8 +42,18 @@ export function Portfolio({
         />
       </div>
 
+      {archivedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowArchived(!showArchived)}
+          style={{ alignSelf: "flex-start", fontSize: 11.5, color: T.inkSecondary, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+        >
+          {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+        </button>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12 }}>
-        {initiatives.map((i) => {
+        {visible.map((i) => {
           const roi = computeProjectROI(i.factors);
           const m = computeDecisionMetrics(i.factors);
           return (
@@ -51,7 +67,10 @@ export function Portfolio({
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.ink, lineHeight: 1.3 }}>{i.name}</span>
                 <GradeBadge grade={roi.grade} />
               </div>
-              <TagChip>{TYPE_LABEL[i.type]}</TagChip>
+              <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <TagChip>{TYPE_LABEL[i.type]}</TagChip>
+                {i.archived && <TagChip>Archived</TagChip>}
+              </span>
               <div style={{ fontSize: 20, fontWeight: 800, color: T.ink }}>
                 {fmtUsd(roi.netRecurringAnnual)}
                 <span style={{ fontSize: 12, fontWeight: 500, color: T.inkMuted }}>/yr net</span>

@@ -20,6 +20,28 @@ export interface Snapshot {
   hasUnknowns: boolean;
 }
 
+export type TaskStatus = "todo" | "doing" | "done";
+
+/** Shared task (Collab Hub Must): owner, due date, status. Plan-seeded or manual. */
+export interface Task {
+  id: string;
+  title: string;
+  ownerName?: string;
+  due?: string;
+  status: TaskStatus;
+  phaseKey?: string;
+  source: "plan" | "manual";
+  createdAt: string;
+}
+
+/** One line in the workspace "what's new" feed (Collab Hub Must). */
+export interface ActivityEvent {
+  id: string;
+  at: string;
+  text: string;
+  kind: "task" | "roi" | "team" | "workspace";
+}
+
 export interface Initiative {
   id: string;
   name: string;
@@ -27,6 +49,9 @@ export interface Initiative {
   summary: string;
   factors: WorkspaceFactor[];
   plan?: ProjectPlan;
+  tasks: Task[];
+  activity: ActivityEvent[];
+  archived?: boolean;
   thread: ThreadMessage[];
   snapshots: Snapshot[];
   createdAt: string;

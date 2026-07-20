@@ -4,8 +4,10 @@ import { FactorEditor } from "./FactorEditor.js";
 import { ExecCard, GatherList, ScenarioStrip, Waterfall } from "./RoiPanel.js";
 import { Thread } from "./Thread.js";
 import { BriefCard, PhaseTimeline, TeamParts } from "./PlanCards.js";
+import { TasksCard } from "./TasksCard.js";
+import { WhatsNew } from "./WhatsNew.js";
 import { fmtUsd, timeAgoLabel } from "../workspace/format.js";
-import { TYPE_LABEL, type Initiative } from "../workspace/types.js";
+import { TYPE_LABEL, type Initiative, type TaskStatus } from "../workspace/types.js";
 import type { WorkspaceFactor } from "@agp/roi";
 
 export function InitiativeWorkspace({
@@ -17,6 +19,9 @@ export function InitiativeWorkspace({
   onSummaryChange,
   onInvite,
   onPartAdded,
+  onAddTask,
+  onTaskStatus,
+  onArchive,
 }: {
   initiative: Initiative;
   onBack: () => void;
@@ -26,7 +31,16 @@ export function InitiativeWorkspace({
   onSummaryChange: (summary: string) => void;
   onInvite: (personId: string) => void;
   onPartAdded: (personId: string) => void;
+  onAddTask: (title: string, ownerName?: string, due?: string) => void;
+  onTaskStatus: (taskId: string, status: TaskStatus) => void;
+  onArchive: (archived: boolean) => void;
 }) {
+  const owners = [
+    ...new Set([
+      ...(initiative.plan?.packages.map((p) => p.name) ?? []),
+      ...initiative.tasks.map((t) => t.ownerName).filter((o): o is string => !!o),
+    ]),
+  ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
@@ -40,6 +54,14 @@ export function InitiativeWorkspace({
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 700, color: T.ink }}>{initiative.name}</h1>
           <TagChip>{TYPE_LABEL[initiative.type]}</TagChip>
+          {initiative.archived && <TagChip>Archived — history retained</TagChip>}
+          <button
+            type="button"
+            onClick={() => onArchive(!initiative.archived)}
+            style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.grid}`, background: "transparent", color: T.inkSecondary, cursor: "pointer" }}
+          >
+            {initiative.archived ? "Restore" : "Archive"}
+          </button>
         </div>
         <textarea
           value={initiative.summary}
@@ -63,6 +85,8 @@ export function InitiativeWorkspace({
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr)", gap: 14, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <WhatsNew activity={initiative.activity} thread={initiative.thread} />
+          <TasksCard tasks={initiative.tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
           <div style={card}>
             <FactorEditor factors={initiative.factors} onChange={onFactorChange} />
           </div>

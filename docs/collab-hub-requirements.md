@@ -1,0 +1,112 @@
+# Collaboration Hub — Requirements Baseline & Traceability
+
+Source: the manager's **"Collaboration Hub — Features & Potential Mapping to
+M365"** document (received 2026-07-20; also kept verbatim intent below). This
+is now the tracked requirements baseline for the workspace. Where our existing
+build already exceeds a requirement, we keep our approach and note the delta —
+per the product owner's direction: *get it in, but not exactly, if what we have
+makes it better.*
+
+**Framing note:** the manager's doc describes the workspace as the primary
+execution environment for **client accounts** (internal teams + clients +
+contractors). Our build so far is the internal **product-initiative** workspace
+(sandbox → ROI-graded build). These converge: the same workspace container,
+threads, tasks, plans, and feeds serve both; client/contractor access arrives
+with the identity/backend layer (Supabase RLS + Entra guests, or the M365
+mapping below).
+
+Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs backend
+(Supabase/Entra/M365) · 📋 planned
+
+## Traceability matrix
+
+### Workspace structure & navigation
+
+| Requirement | Pri | Status | Where / how — and deltas that make it better |
+|---|---|---|---|
+| Workspace per client/project, no cross-visibility | Must | 🧭 | Each initiative/idea is an isolated workspace object today; true access isolation needs the auth layer (Supabase RLS keyed to Entra ID — schema already exists in `supabase/migrations/0006_rls.sql`). |
+| Workspace templates | Must | ✅ **better** | Templates aren't static channel/page lists — the Copilot *generates* the workspace from a sentence: 12-factor ROI template + dated phase plan + per-person work packages, per engagement type. A blank mode exists when humans want to shape it themselves. |
+| Home / landing view (find updates, tasks, files in 60s) | Must | 🔨 | "What's new" feed at the top of every workspace + task summary + the decision numbers on the right rail. Global home = portfolio with per-card status. |
+
+### Access control, external users & governance
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| External guest access (clients/contractors) | Must | 🧭 | Backend-gated: Entra guest accounts (BLOCKERS #5) or Teams/SharePoint guests per the M365 mapping. The workspace model already separates per-workspace membership (team/parts). |
+| Granular permissions | Must | 🧭 | RLS policies per table exist; per-workspace member scoping lands with Supabase persistence. |
+| Auditability | Should | ✅ partial | Every ROI change writes an immutable snapshot (audit trail card); access-level audit needs the auth layer. |
+| Offboarding revokes immediately | Must | 🧭 | Auth-layer requirement; noted in the Supabase persistence design. |
+
+### Communication
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| Threaded discussions, searchable, workspace-tied | Must | ✅ + 🔨 | Per-workspace collaboration thread (humans + AI agents) — now covered by global search. |
+| @mentions & notifications | Must | 📋 | Needs the backend + Teams bot (notification surface). Invite/part events already post to the thread. |
+| Lightweight real-time chat | Nice | 🧭 | Maps to Teams chat per the manager's own mapping; not rebuilding chat. |
+
+### Tasks & work management
+
+| Requirement | Pri | Status | Where / how — and deltas |
+|---|---|---|---|
+| Shared task lists (owners, due dates, status) | Must | 🔨 | Tasks per workspace: owner, due date, status (to do / doing / done), quick-add. **Better:** the AI seeds the task list from the project plan — each person's work package becomes their task with phase-derived due dates — so AMs never start from an empty list. |
+| Project plan tied into tasks (avoid double entry) | Should | 🔨 **better** | The plan IS the source: packages → tasks automatically; re-planning keeps statuses. No dual maintenance. |
+| Multiple views (board/list; filter owner/status) | Must | 🔨 | List and board views with owner + status filters. |
+| Recurring check-ins / recurring tasks | Nice | 📋 | Planned with the signals layer (scheduled digests). |
+
+### Files & document collaboration
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| Central file repository / version history / co-authoring | Must/Must/Should | 🧭 | Maps to SharePoint + Teams Files per the manager's mapping — we should not rebuild file storage. The workspace links artifacts (briefs, SOWs) and will deep-link SharePoint folders per workspace when the Teams shell lands. Our versioned, provenance-linked **artifacts** (ROI snapshots, briefs) already exceed version-history needs for generated documents. |
+
+### Status & visibility
+
+| Requirement | Pri | Status | Where / how — and deltas |
+|---|---|---|---|
+| Activity feed / "what's new" | Must | 🔨 | Unified per-workspace feed: discussion, ROI snapshot changes, task and part events — newest first. |
+| Lightweight dashboards | Should | ✅ **better** | The portfolio rollup + per-workspace decision view are live computed dashboards (annual net, payback, grade, parts-in count) — stronger than task-count reporting. |
+| Exportability | Nice | 📋 | CSV export of tasks/factors is trivial once asked; snapshot JSON already exportable. |
+
+### Search & findability
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| Search across the workspace | Must | 🔨 | Global search over workspaces, discussions, tasks, people, and parts with jump-to-result. |
+| Tagging / metadata | Nice | ✅ | Classification chips (service line × vertical × client) are auto-derived metadata; searchable. |
+
+### Integrations & automation
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| Email bridge | Should | 🧭 | HubSpot engagement sync (built, dormant) is the email context bridge for client accounts; Teams/Outlook bridge with M365 layer. |
+| Automation hooks | Nice | ✅ core | The autonomy-tier gate + Copilot flags are the automation substrate (approve-by-exception, undo windows) — richer than reminder rules. |
+
+### Security, compliance & lifecycle
+
+| Requirement | Pri | Status | Where / how |
+|---|---|---|---|
+| Storage clarity | Must | ✅ doc | Today: browser localStorage (demo). Next: Supabase Postgres (schema committed), files in SharePoint per mapping. Documented here + README. |
+| External sharing controls | Must | 🧭 | With auth layer / M365. |
+| Archiving with history | Should | 🔨 | Archive/unarchive per workspace; archived items keep full history, hidden from the default portfolio. |
+
+## M365 mapping (manager's table, with our recommendation)
+
+The manager's mapping (Teams channels, Planner, SharePoint, Power Automate) is
+sound as the **delivery fabric**. Our recommendation, consistent with the
+original Teams-tab architecture: this workspace runs **as the Teams tab** per
+client/project channel — Teams provides container, chat, guests, and files
+(SharePoint); this app provides the intelligence M365 lacks: AI-drafted
+workspaces, ROI engine + grades, plans→tasks without double entry, flags, and
+the collaboration copilot. Planner sync (tasks ↔ Advanced Planner) becomes an
+adapter once Graph access lands (BLOCKERS #5/#6).
+
+## Deltas kept deliberately (where our build improves the ask)
+
+1. **Templates are generative, not static** — a sentence produces the workspace.
+2. **Plan and tasks are one thing** — the doc's "avoid AMs updating multiple
+   places" concern is solved structurally, not by integration.
+3. **Dashboards carry credibility grades** — numbers show their evidence
+   quality, not just counts.
+4. **AI is a workspace member with consent modes** — copilot-from-start or
+   observe-until-invited, always explaining itself.

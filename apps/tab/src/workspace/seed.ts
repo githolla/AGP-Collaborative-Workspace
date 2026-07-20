@@ -78,6 +78,8 @@ function proposalAssistant(): Initiative {
         body: "Confirmed the time-saved line against last quarter's timesheets: 8h/wk × 2 people is real, marked it confirmed at B.",
       },
     ],
+    tasks: [],
+    activity: [],
     snapshots: [snapshotOf(factors, "2026-07-15T09:41:00Z")],
     createdAt: "2026-07-14T15:00:00Z",
   };
@@ -117,6 +119,8 @@ function gdnaReporting(): Initiative {
         body: "Iteration on the existing GivingDNA product — add AI-drafted donor narrative reports. Savings basis looks solid; we still owe a build estimate.",
       },
     ],
+    tasks: [],
+    activity: [],
     snapshots: [snapshotOf(factors, "2026-07-16T14:11:00Z")],
     createdAt: "2026-07-16T14:00:00Z",
   };
@@ -147,6 +151,8 @@ function dedupeService(): Initiative {
         body: "Parking this idea here so we can size it. Fresh template — note it correctly shows $0 until someone brings evidence.",
       },
     ],
+    tasks: [],
+    activity: [],
     snapshots: [snapshotOf(factors, "2026-07-18T10:31:00Z")],
     createdAt: "2026-07-18T10:30:00Z",
   };

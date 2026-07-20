@@ -4,6 +4,7 @@ import { Portfolio } from "./components/Portfolio.js";
 import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
 import { Sandbox } from "./components/Sandbox.js";
 import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
+import { SearchBox } from "./components/SearchBox.js";
 import { useWorkspace } from "./workspace/store.js";
 import { T } from "./theme.js";
 
@@ -75,9 +76,14 @@ export function App() {
       <div style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
         {listView && (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-              {navTab(`Initiatives (${ws.initiatives.length})`, route.view === "initiatives", () => setRoute({ view: "initiatives" }))}
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center" }}>
+              {navTab(`Builds (${ws.initiatives.filter((i) => !i.archived).length})`, route.view === "initiatives", () => setRoute({ view: "initiatives" }))}
               {navTab(`Sandbox (${ws.ideas.length})`, route.view === "sandbox", () => setRoute({ view: "sandbox" }))}
+              <SearchBox
+                initiatives={ws.initiatives}
+                ideas={ws.ideas}
+                onNavigate={(target) => setRoute(target)}
+              />
             </div>
 
             {route.view === "initiatives" ? (
@@ -136,6 +142,9 @@ export function App() {
             onSummaryChange={(summary) => ws.setSummary(selectedInitiative.id, summary)}
             onInvite={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "invited")}
             onPartAdded={(personId) => ws.setPackageStatus("initiative", selectedInitiative.id, personId, "part_added")}
+            onAddTask={(title, ownerName, due) => ws.addTask(selectedInitiative.id, title, ownerName, due)}
+            onTaskStatus={(taskId, status) => ws.setTaskStatus(selectedInitiative.id, taskId, status)}
+            onArchive={(archived) => ws.setArchived(selectedInitiative.id, archived)}
           />
         )}
 

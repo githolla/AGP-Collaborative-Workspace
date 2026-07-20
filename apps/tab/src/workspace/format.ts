@@ -19,3 +19,8 @@ export function fmtMultiple(x: number | null): string {
 export function timeAgoLabel(iso: string): string {
   return iso.slice(0, 10);
 }
+
+/** Today's date (ISO) — a function so tests could stub it later. */
+export function AS_OF_TODAY(): string {
+  return new Date().toISOString().slice(0, 10);
+}

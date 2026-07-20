@@ -159,6 +159,27 @@ function composeBrief(
   ].join("\n");
 }
 
+/**
+ * The plan IS the task list (Collab Hub: "avoid AMs updating multiple
+ * places") — each work package becomes that person's task, due at the end of
+ * its phase. Manual tasks can be added alongside.
+ */
+export function tasksFromPlan(plan: ProjectPlan): import("./types.js").Task[] {
+  return plan.packages.map((p) => {
+    const phase = plan.phases.find((ph) => ph.key === p.phaseKey);
+    return {
+      id: `task-${p.personId}`,
+      title: p.part,
+      ownerName: p.name,
+      ...(phase ? { due: phase.end } : {}),
+      status: p.status === "part_added" ? ("done" as const) : ("todo" as const),
+      phaseKey: p.phaseKey,
+      source: "plan" as const,
+      createdAt: plan.phases[0]?.start ?? "",
+    };
+  });
+}
+
 /** Derive a short title from a one-box description. */
 export function extractTitle(text: string): string {
   const firstSentence = text.split(/[.!?\n]/)[0] ?? text;

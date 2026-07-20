@@ -6,6 +6,8 @@ iterations** — with the factor-based **ROI calculator running in the backgroun
 of every initiative**: live headline, confidence grade, scenario dials, and a
 "numbers still to gather" trail.
 
+- Requirements baseline (manager's Collaboration Hub doc → traceability):
+  [docs/collab-hub-requirements.md](./docs/collab-hub-requirements.md)
 - Product direction: [ADR 0004](./docs/adr/0004-product-pivot-roi-collaboration-workspace.md)
 - ROI engine spec: [docs/roi-calculator-spec.md](./docs/roi-calculator-spec.md)
   (engine copied verbatim from `githolla/AIROI`)
