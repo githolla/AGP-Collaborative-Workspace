@@ -178,9 +178,48 @@ function SetupChecklist({
   if (steps.every((s) => s.done)) return null;
   const doneCount = steps.filter((s) => s.done).length;
 
+  return <SetupChecklistShell doneCount={doneCount} total={steps.length} steps={steps} />;
+}
+
+/** Fresh workspace (nothing done) → expanded guide. Any progress → a slim
+ * one-line bar, so Cara's wireframe stays the page, not the checklist. */
+function SetupChecklistShell({
+  doneCount,
+  total,
+  steps,
+}: {
+  doneCount: number;
+  total: number;
+  steps: { key: string; done: boolean; label: string; action: { label: string; onClick: () => void } | null }[];
+}) {
+  const [open, setOpen] = useState(doneCount === 0);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="table-row-hover"
+        style={{ ...card, borderColor: navy, borderWidth: 1.5, padding: "9px 16px", display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", cursor: "pointer" }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 800, color: navy }}>Get this workspace live</span>
+        <span aria-hidden style={{ flex: 1, height: 6, background: "#f0efec", borderRadius: 3, overflow: "hidden", maxWidth: 220 }}>
+          <span style={{ display: "block", width: `${(doneCount / total) * 100}%`, height: "100%", background: navy }} />
+        </span>
+        <span style={{ fontSize: 11.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{doneCount}/{total} done · show steps ▾</span>
+      </button>
+    );
+  }
+
   return (
     <div style={{ ...card, borderColor: navy, borderWidth: 1.5 }}>
-      <SectionTitle right={<span style={{ fontSize: 11, color: T.inkMuted }}>{doneCount}/{steps.length} done</span>}>
+      <SectionTitle
+        right={
+          <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>
+            {doneCount}/{total} done · hide ▴
+          </button>
+        }
+      >
         Get this workspace live
       </SectionTitle>
       <div style={{ display: "flex", flexDirection: "column" }}>
@@ -240,15 +279,19 @@ function LinkDoctor({
   context,
   clientName,
   suggestions,
+  hasImportedWork,
   onRelink,
 }: {
   context: AccountLiveContext;
   clientName: string;
   suggestions: string[];
+  /** Campaigns already live here — a "nothing matched" banner would lie. */
+  hasImportedWork: boolean;
   onRelink?: ((name: string) => void) | undefined;
 }) {
   const { crm, projects, deals, book } = context;
   if (projects.length > 0 || deals.length > 0) return null; // linked + matched — healthy
+  if (crm && hasImportedWork) return null; // work already imported — nothing to diagnose
   const pulled = `Pulled live: ${book.clients} clients · ${book.projects} projects · ${book.milestones} milestones · ${book.tasks} tasks · ${book.deals} deals.`;
 
   return (
@@ -636,7 +679,10 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                 {milestones.map((c, i) => (
                   <RowButton key={c.id} onClick={() => goTo("dashboard")} title="Open Client Dashboard" style={{ padding: "9px 4px" }}>
                     <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nextMilestone}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>
+                      <span style={{ fontWeight: 700, color: navy }}>{c.nextMilestone}</span>
+                      <span style={{ color: T.inkMuted }}> — {c.name}</span>
+                    </span>
                     <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
                   </RowButton>
                 ))}
@@ -1497,7 +1543,13 @@ export function ClientWorkspace({
       </div>
 
       {liveDataOn && liveContext && (
-        <LinkDoctor context={liveContext} clientName={account.clientName} suggestions={linkSuggestions} onRelink={onRelink} />
+        <LinkDoctor
+          context={liveContext}
+          clientName={account.clientName}
+          suggestions={linkSuggestions}
+          hasImportedWork={account.campaigns.length > 0}
+          onRelink={onRelink}
+        />
       )}
 
       {reviewOpen && onImportCampaigns && onRemoveCampaign && onClearCampaigns && (
@@ -1526,8 +1578,11 @@ export function ClientWorkspace({
             />
           )}
           <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />
-          {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
-          <WhatsNew account={account} />
+          {/* Below the wireframe: our additions side by side, not stacked. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 14, alignItems: "start" }}>
+            {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
+            <WhatsNew account={account} />
+          </div>
         </div>
       )}
       {tab === "plan" && (
