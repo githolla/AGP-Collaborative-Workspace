@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./types.js";
 import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
@@ -57,24 +57,35 @@ function migrateInitiative(i: Initiative): Initiative {
   };
 }
 
+/** Apply per-field migrations to any state document (local or shared). */
+function migrateState(parsed: Partial<PersistedState>): PersistedState {
+  return {
+    initiatives: (Array.isArray(parsed.initiatives) ? parsed.initiatives : []).map(migrateInitiative),
+    ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
+    accounts: Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts(),
+  };
+}
+
 function load(): PersistedState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
       if (Array.isArray(parsed.initiatives) && parsed.initiatives.length > 0) {
-        return {
-          initiatives: parsed.initiatives.map(migrateInitiative),
-          // ideas/accounts were added after the first release — backfill
-          ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
-          accounts: Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts(),
-        };
+        return migrateState(parsed);
       }
     }
   } catch {
     // corrupted storage falls through to seed
   }
   return { initiatives: seedInitiatives().map(migrateInitiative), ideas: seedIdeas(), accounts: seedAccounts() };
+}
+
+/** Shared-persistence status, surfaced in the footer so the truth is visible. */
+export interface SyncStatus {
+  mode: "local" | "shared";
+  savedAt?: string;
+  error?: boolean;
 }
 
 function activityEvent(text: string, kind: ActivityEvent["kind"]): ActivityEvent {
@@ -111,13 +122,101 @@ export function useWorkspace() {
   const [state, setState] = useState<PersistedState>(load);
   const { initiatives, ideas, accounts } = state;
 
+  // ---- shared persistence (Supabase via /api/state) ----------------------
+  // Boot: adopt the shared state if one exists (or seed it from this browser
+  // if we're first). Saves are debounced; a poll picks up teammates' edits.
+  // Unreachable endpoint (local dev, keys unset) = localStorage-only mode.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ mode: "local" });
+  const versionRef = useRef(0);
+  const stateRef = useRef(state);
+  const adoptingRef = useRef(false);
+  const saveTimerRef = useRef(0);
+  stateRef.current = state;
+
+  const adopt = useCallback((envelope: { version: number; savedAt: string; state: unknown }) => {
+    versionRef.current = envelope.version;
+    adoptingRef.current = true;
+    setState(migrateState(envelope.state as Partial<PersistedState>));
+    setSyncStatus({ mode: "shared", savedAt: envelope.savedAt });
+  }, []);
+
+  const pushRemote = useCallback(
+    async (s: PersistedState) => {
+      try {
+        const res = await fetch("/api/state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ baseVersion: versionRef.current, state: s }),
+        });
+        if (res.status === 409) {
+          // Someone saved first — their version wins; ours re-applies on top
+          // of it through normal editing.
+          const j = (await res.json()) as { envelope?: { version: number; savedAt: string; state: unknown } };
+          if (j.envelope) adopt(j.envelope);
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const j = (await res.json()) as { version: number; savedAt: string };
+        versionRef.current = j.version;
+        setSyncStatus({ mode: "shared", savedAt: j.savedAt });
+      } catch {
+        setSyncStatus((prev) => (prev.mode === "shared" ? { ...prev, error: true } : prev));
+      }
+    },
+    [adopt],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const boot = async () => {
+      try {
+        const res = await fetch("/api/state");
+        if (!res.ok) return;
+        const j = (await res.json()) as {
+          configured?: boolean;
+          exists?: boolean;
+          envelope?: { version: number; savedAt: string; state: unknown };
+        };
+        if (cancelled || !j.configured) return;
+        if (j.exists && j.envelope) adopt(j.envelope);
+        else void pushRemote(stateRef.current); // first visitor seeds the shared store
+      } catch {
+        // endpoint absent — stay local
+      }
+    };
+    void boot();
+
+    const poll = window.setInterval(async () => {
+      try {
+        const res = await fetch("/api/state");
+        if (!res.ok) return;
+        const j = (await res.json()) as { exists?: boolean; envelope?: { version: number; savedAt: string; state: unknown } };
+        if (j.exists && j.envelope && j.envelope.version > versionRef.current) adopt(j.envelope);
+      } catch {
+        // transient — next poll retries
+      }
+    }, 25_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+    };
+  }, [adopt, pushRemote]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // storage full/unavailable — the session still works in memory
     }
-  }, [state]);
+    // Adopting a shared version must not immediately re-save it.
+    if (adoptingRef.current) {
+      adoptingRef.current = false;
+      return;
+    }
+    window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => void pushRemote(stateRef.current), 1200);
+    return () => window.clearTimeout(saveTimerRef.current);
+  }, [state, pushRemote]);
 
   const mutate = useCallback((id: string, fn: (i: Initiative) => Initiative) => {
     setState((s) => ({ ...s, initiatives: s.initiatives.map((i) => (i.id === id ? fn(i) : i)) }));
@@ -818,9 +917,15 @@ export function useWorkspace() {
   );
 
   const resetDemo = useCallback(() => {
+    if (
+      syncStatus.mode === "shared" &&
+      !window.confirm("This resets the SHARED workspace for everyone on the team. Continue?")
+    ) {
+      return;
+    }
     window.localStorage.removeItem(STORAGE_KEY);
     setState({ initiatives: seedInitiatives(), ideas: seedIdeas(), accounts: seedAccounts() });
-  }, []);
+  }, [syncStatus.mode]);
 
   return {
     initiatives,
@@ -860,6 +965,7 @@ export function useWorkspace() {
     setArchived,
     availablePeople: AGP_PEOPLE,
     resetDemo,
+    syncStatus,
   };
 }
 

@@ -277,10 +277,23 @@ export function App() {
 
         {listView && (
           <div style={{ marginTop: 18, fontSize: 11, color: T.inkMuted }}>
-            Demo data is stored locally in your browser.{" "}
-            <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
-              Reset demo data
-            </Button>
+            {ws.syncStatus.mode === "shared" ? (
+              <>
+                Shared team workspace — synced to Supabase
+                {ws.syncStatus.savedAt ? ` · last saved ${new Date(ws.syncStatus.savedAt).toLocaleTimeString()}` : ""}
+                {ws.syncStatus.error ? " · retrying…" : ""}{" "}
+                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
+                  Reset shared demo data
+                </Button>
+              </>
+            ) : (
+              <>
+                Demo data is stored locally in your browser.{" "}
+                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
+                  Reset demo data
+                </Button>
+              </>
+            )}
           </div>
         )}
 
