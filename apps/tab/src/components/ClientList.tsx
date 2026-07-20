@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
@@ -245,68 +245,46 @@ export function ClientList({
   const [name, setName] = useState("");
   const today = AS_OF_TODAY();
 
-  // Rows, not cards: at 10+ workspaces a grid of near-empty cards is a wall
-  // of zeros. A row shows only the facts that EXIST; an empty workspace says
-  // what to do next instead of "0 · 0 · 0". Busiest first.
+  // Heroes first: the 10 busiest client workspaces as rich cards — the
+  // accounts Cara actually lives in. Everything past 10 collapses to
+  // compact rows; the searchable, categorized book of business follows.
   const weight = (a: ClientAccount) => a.campaigns.length + a.tasks.length + a.thread.length + a.externals.length;
   const sorted = [...accounts].sort((a, b) => weight(b) - weight(a) || a.clientName.localeCompare(b.clientName));
+  const heroes = sorted.slice(0, 10);
+  const rest = sorted.slice(10);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {sorted.length > 0 && (
+      {heroes.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+          {heroes.map((a) => (
+            <HeroCard key={a.id} account={a} today={today} unlinked={unlinkedNames.includes(a.clientName)} onOpen={() => onOpen(a.id)} />
+          ))}
+        </div>
+      )}
+
+      {rest.length > 0 && (
         <div className="card" style={{ padding: "4px 18px" }}>
-          {sorted.map((a) => {
-            const open = a.tasks.filter((t) => t.status !== "done");
-            const overdue = open.filter((t) => t.due && t.due < today).length;
-            const active = a.campaigns.filter((c) => c.status === "active").length;
-            const bits: ReactNode[] = [];
-            if (active > 0) bits.push(`${active} active campaign${active === 1 ? "" : "s"}`);
-            if (open.length > 0)
-              bits.push(
-                <span key="tasks">
-                  {open.length} open task{open.length === 1 ? "" : "s"}
-                  {overdue > 0 && <span style={{ color: T.status.critical, fontWeight: 700 }}> ({overdue} overdue)</span>}
-                </span>,
-              );
-            if (a.externals.length > 0) bits.push(`${a.externals.length} external`);
-            if (a.thread.length > 0) bits.push(`${a.thread.length} discussion${a.thread.length === 1 ? "" : "s"}`);
-            return (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => onOpen(a.id)}
-                className="table-row-hover"
-                style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "11px 4px", cursor: "pointer", borderRadius: 6 }}
-              >
-                <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 800, color: T.roi.navy, lineHeight: 1.3 }}>{a.clientName}</span>
-                    {unlinkedNames.includes(a.clientName) && (
-                      <span
-                        title="No company with this name exists in the live HubSpot book — open the workspace to link it to a real client, or archive it if it's a demo leftover."
-                        style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
-                      >
-                        ⚠ not in CRM
-                      </span>
-                    )}
-                  </span>
-                  <span style={{ fontSize: 11.5, color: bits.length === 0 ? T.inkMuted : T.inkSecondary, lineHeight: 1.4 }}>
-                    {bits.length === 0
-                      ? "Empty — open it to review & import this client's Kantata and HubSpot work"
-                      : bits.map((b, i) => (
-                          <span key={i}>
-                            {i > 0 && " · "}
-                            {b}
-                          </span>
-                        ))}
-                  </span>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 4px 4px" }}>
+            More workspaces ({rest.length})
+          </div>
+          {rest.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onOpen(a.id)}
+              className="table-row-hover"
+              style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "9px 4px", cursor: "pointer", borderRadius: 6 }}
+            >
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.roi.navy }}>{a.clientName}</span>
+              {unlinkedNames.includes(a.clientName) && (
+                <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>
+                  ⚠ not in CRM
                 </span>
-                <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
-                  Open ›
-                </span>
-              </button>
-            );
-          })}
+              )}
+              <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap" }}>Open ›</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -347,6 +325,85 @@ export function ClientList({
         <ArchivedList accounts={archivedAccounts} onRestore={onRestore} />
       )}
     </div>
+  );
+}
+
+/** "2026-09-14" → "Sep 14". */
+const shortDay = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+/**
+ * Hero card — one busy client workspace at a glance: the counters that
+ * matter, the next real date, and one obvious action. Empty workspaces say
+ * the next step instead of parading zeros.
+ */
+function HeroCard({
+  account: a,
+  today,
+  unlinked,
+  onOpen,
+}: {
+  account: ClientAccount;
+  today: string;
+  unlinked: boolean;
+  onOpen: () => void;
+}) {
+  const open = a.tasks.filter((t) => t.status !== "done");
+  const overdue = open.filter((t) => t.due && t.due < today).length;
+  const active = a.campaigns.filter((c) => c.status === "active").length;
+  const nextMs = a.campaigns
+    .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
+    .sort((x, y) => (x.nextMilestoneDate ?? "").localeCompare(y.nextMilestoneDate ?? ""))[0];
+  const empty = active + open.length + a.thread.length + a.externals.length === 0;
+
+  const stat = (n: number, label: string, alert = false) => (
+    <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <span style={{ fontSize: 21, fontWeight: 800, color: alert ? T.status.critical : T.roi.navy, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{n}</span>
+      <span style={{ fontSize: 10, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
+    </span>
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="card card-hover"
+      style={{ display: "flex", flexDirection: "column", gap: 9, textAlign: "left", padding: 16, minHeight: 128 }}
+    >
+      <span style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: T.roi.navy, lineHeight: 1.25 }}>{a.clientName}</span>
+        {unlinked && (
+          <span
+            title="No company with this name exists in the live HubSpot book — open to link it to a real client, or archive it."
+            style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            ⚠ not in CRM
+          </span>
+        )}
+      </span>
+
+      {empty ? (
+        <span style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
+          Empty — open to review &amp; import this client's Kantata and HubSpot work.
+        </span>
+      ) : (
+        <>
+          <span style={{ display: "flex", gap: 22 }}>
+            {stat(active, "active campaigns")}
+            {stat(open.length, overdue > 0 ? `open tasks · ${overdue} overdue` : "open tasks", overdue > 0)}
+            {stat(a.externals.length, "external")}
+          </span>
+          {nextMs && (
+            <span style={{ fontSize: 11.5, color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              Next: <strong style={{ color: T.ink }}>{nextMs.nextMilestone}</strong> — {nextMs.nextMilestoneDate ? shortDay(nextMs.nextMilestoneDate) : ""}
+            </span>
+          )}
+        </>
+      )}
+      <span aria-hidden style={{ marginTop: "auto", alignSelf: "flex-end", fontSize: 12, color: T.roi.navy, fontWeight: 700 }}>
+        Open ›
+      </span>
+    </button>
   );
 }
 
