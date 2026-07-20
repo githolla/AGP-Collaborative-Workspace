@@ -307,6 +307,8 @@ export function App() {
             </PageIntro>
             <ClientList
               accounts={ws.accounts.filter((a) => !a.archived)}
+              archivedAccounts={ws.accounts.filter((a) => a.archived)}
+              onRestore={(id) => ws.setAccountArchived(id, false)}
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
               unlinkedNames={unlinkedNames}
@@ -422,6 +424,10 @@ export function App() {
             liveDataOn={liveStatus.live}
             linkSuggestions={selectedLinkSuggestions}
             onRelink={(name) => ws.renameAccount(selectedAccount.id, name)}
+            onArchive={() => {
+              ws.setAccountArchived(selectedAccount.id, true);
+              setRoute({ view: "clients" });
+            }}
           />
         )}
 

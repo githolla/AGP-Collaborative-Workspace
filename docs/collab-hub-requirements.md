@@ -42,7 +42,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 | Requirement | Pri | Status | Where / how |
 |---|---|---|---|
 | Threaded discussions, searchable, workspace-tied | Must | ✅ + 🔨 | Per-workspace collaboration thread (humans + AI agents) — now covered by global search. |
-| @mentions & notifications | Must | 📋 | Needs the backend + Teams bot (notification surface). Invite/part events already post to the thread. |
+| @mentions & notifications | Must | 🔨 app / 🧭 Teams | In-app half live 2026-07-20: “@FirstName” in a client-workspace post raises a Team Notification on Home (AGP team + externals). Push/Teams delivery rides the M365 layer. |
 | Lightweight real-time chat | Nice | 🧭 | Maps to Teams chat per the manager's own mapping; not rebuilding chat. |
 
 ### Tasks & work management
@@ -52,7 +52,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 | Shared task lists (owners, due dates, status) | Must | 🔨 | Tasks per workspace: owner, due date, status (to do / doing / done), quick-add. **Better:** the AI seeds the task list from the project plan — each person's work package becomes their task with phase-derived due dates — so AMs never start from an empty list. |
 | Project plan tied into tasks (avoid double entry) | Should | 🔨 **better** | The plan IS the source: packages → tasks automatically; re-planning keeps statuses. No dual maintenance. |
 | Multiple views (board/list; filter owner/status) | Must | 🔨 | List and board views with owner + status filters. |
-| Recurring check-ins / recurring tasks | Nice | 📋 | Planned with the signals layer (scheduled digests). |
+| Recurring check-ins / recurring tasks | Nice | 🔨 partial | The AI-drafted weekly client digest (draft-then-approve, Discussions) covers the status-check-in intent; literal recurring tasks stay planned with the signals layer. |
 
 ### Files & document collaboration
 
@@ -66,7 +66,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 |---|---|---|---|
 | Activity feed / "what's new" | Must | 🔨 | Unified per-workspace feed: discussion, ROI snapshot changes, task and part events — newest first. |
 | Lightweight dashboards | Should | ✅ **better** | The portfolio rollup + per-workspace decision view are live computed dashboards (annual net, payback, grade, parts-in count) — stronger than task-count reporting. |
-| Exportability | Nice | 📋 | CSV export of tasks/factors is trivial once asked; snapshot JSON already exportable. |
+| Exportability | Nice | 🔨 | “⬇ Export CSV” on the client Project Plan (task/owner/due/status/label) — opens in Excel. Snapshot JSON already exportable. |
 
 ### Search & findability
 
@@ -88,7 +88,7 @@ Status legend: ✅ built · 🔨 built this increment · 🧭 designed, needs ba
 |---|---|---|---|
 | Storage clarity | Must | ✅ doc | Today: browser localStorage (demo). Next: Supabase Postgres (schema committed), files in SharePoint per mapping. Documented here + README. |
 | External sharing controls | Must | 🧭 | With auth layer / M365. |
-| Archiving with history | Should | 🔨 | Archive/unarchive per workspace; archived items keep full history, hidden from the default portfolio. |
+| Archiving with history | Should | 🔨 | Archive/unarchive per workspace incl. CLIENT workspaces (2026-07-20): Archive button in the workspace header, “Archived (N)” restore list on the Clients page; full history + auditability retained. |
 
 ## SPEC v2_1 Layer 0 adoption (2026-07-20)
 
@@ -160,7 +160,9 @@ This Week** · Recent Files · Core Documentation · Latest Discussions.
    landing view = what's new, tasks, plan, discussions.
 6. **Small gaps — CLOSED 2026-07-20 (labels + due-date filters shipped).** Original: task filters lacked due-date and labels (her acceptance
    criteria names both); tasks have no labels; @mentions/notifications (Must)
-   still backend-gated; no export.
+   still backend-gated; no export. Update 2026-07-20: in-app @mentions,
+   CSV export, client-workspace archiving, and the What's-new activity feed
+   all shipped — remaining backend-gated: Teams push delivery, email bridge.
 
 ### Verdict
 The collaboration bones (tasks, discussions, feed, search, plan-to-tasks,

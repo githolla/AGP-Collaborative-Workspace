@@ -443,6 +443,24 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
   );
 }
 
+/** Activity feed (Collab Hub Must): the workspace's "what's new" — imports,
+ * tasks, access changes, files — newest first. */
+function WhatsNew({ account }: { account: ClientAccount }) {
+  const recent = [...account.activity].reverse().slice(0, 6);
+  if (recent.length === 0) return null;
+  return (
+    <div style={card}>
+      <SectionTitle>What’s new</SectionTitle>
+      {recent.map((ev) => (
+        <div key={ev.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: T.inkSecondary, padding: "6px 0", borderBottom: `1px solid ${T.grid}`, lineHeight: 1.5 }}>
+          <span>{ev.text}</span>
+          <span style={{ color: T.inkMuted, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{ev.at.slice(0, 10)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
@@ -1243,6 +1261,7 @@ export function ClientWorkspace({
   liveDataOn = false,
   linkSuggestions = [],
   onRelink,
+  onArchive,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
@@ -1262,6 +1281,8 @@ export function ClientWorkspace({
   linkSuggestions?: string[];
   /** One-click relink: rename this workspace to a real CRM client. */
   onRelink?: (name: string) => void;
+  /** Archive: hide from the list, keep all history (auditability). */
+  onArchive?: () => void;
   onImportCampaigns?: (selected: ImportCandidate[]) => void;
   onRemoveCampaign?: (campaignId: string) => void;
   onClearCampaigns?: () => void;
@@ -1295,11 +1316,24 @@ export function ClientWorkspace({
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
           <TagChip>Client account</TagChip>
+          {onArchive && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginLeft: "auto" }}
+              title="Hide this workspace from the Clients list — all history is retained and it can be restored"
+              onClick={() => {
+                if (window.confirm(`Archive “${account.clientName}”? History is kept; restore any time from the Clients page.`)) onArchive();
+              }}
+            >
+              Archive
+            </button>
+          )}
           {onImportCampaigns && (
             <button
               type="button"
               className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
-              style={{ marginLeft: "auto" }}
+              style={onArchive ? {} : { marginLeft: "auto" }}
               title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
               onClick={() => setReviewOpen((o) => !o)}
             >
@@ -1390,15 +1424,41 @@ export function ClientWorkspace({
           )}
           <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />
           {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
+          <WhatsNew account={account} />
         </div>
       )}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
-          <div style={{ fontSize: 11, color: T.inkMuted }}>
-            One list, no double entry: tasks shared from a linked build appear here automatically
-            and status changes flow back to the internal plan. Two-way Advanced Planner sync
-            arrives with the M365 layer on this same shape.
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={tasks.length === 0}
+              title="Download this plan as CSV (opens in Excel)"
+              onClick={() => {
+                const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+                const rows = [
+                  ["Task", "Owner", "Due", "Status", "Label"],
+                  ...tasks.map((t) => [t.title, t.ownerName ?? "", t.due ?? "", t.status, t.label ?? ""]),
+                ];
+                const url = URL.createObjectURL(
+                  new Blob([rows.map((r) => r.map(esc).join(",")).join("\n")], { type: "text/csv" }),
+                );
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `${account.clientName.replace(/[^\w]+/g, "-")}-tasks.csv`;
+                link.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              ⬇ Export CSV
+            </button>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>
+              One list, no double entry: tasks shared from a linked build appear here automatically
+              and status changes flow back to the internal plan. Two-way Advanced Planner sync
+              arrives with the M365 layer on this same shape.
+            </span>
           </div>
         </div>
       )}
@@ -1408,6 +1468,10 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
           <Thread messages={account.thread} onPost={onPost} />
+          <div style={{ fontSize: 11, color: T.inkMuted }}>
+            Tip: “@FirstName” in a message notifies that person in Team Notifications on Home —
+            works for the AGP team and external members alike.
+          </div>
         </div>
       )}
       {tab === "access" && (

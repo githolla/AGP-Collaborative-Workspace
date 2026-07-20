@@ -219,14 +219,19 @@ function BookOfBusiness({
 /** Client-account list: one workspace per client, no cross-visibility. */
 export function ClientList({
   accounts,
+  archivedAccounts = [],
   candidates = [],
   candidatesLive = false,
   unlinkedNames = [],
   onOpen,
   onCreate,
   onCreateFromClient,
+  onRestore,
 }: {
   accounts: ClientAccount[];
+  /** Archived workspaces — history retained, restorable. */
+  archivedAccounts?: ClientAccount[];
+  onRestore?: (id: string) => void;
   /** Clients from the HubSpot/Kantata mirror without a workspace yet. */
   candidates?: ClientCandidate[];
   /** True when the candidate list comes from the live pull, not demo data. */
@@ -313,6 +318,36 @@ export function ClientList({
       {candidates.length > 0 && onCreateFromClient && (
         <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
       )}
+
+      {archivedAccounts.length > 0 && (
+        <ArchivedList accounts={archivedAccounts} onRestore={onRestore} />
+      )}
+    </div>
+  );
+}
+
+/** Archived workspaces — closed but never gone (Collab Hub "Archiving"). */
+function ArchivedList({ accounts, onRestore }: { accounts: ClientAccount[]; onRestore?: ((id: string) => void) | undefined }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ fontSize: 12, color: T.inkMuted }}>
+      <button type="button" className="btn-link" style={{ fontSize: 12 }} onClick={() => setOpen((o) => !o)}>
+        {open ? "▾" : "▸"} Archived ({accounts.length}) — history retained
+      </button>
+      {open &&
+        accounts.map((a) => (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 4px", borderBottom: `1px solid ${T.grid}` }}>
+            <span style={{ flex: 1, fontSize: 12.5, color: T.inkSecondary }}>{a.clientName}</span>
+            <span style={{ fontSize: 11 }}>
+              {a.campaigns.length} campaigns · {a.tasks.length} tasks · {a.thread.length} discussions
+            </span>
+            {onRestore && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => onRestore(a.id)}>
+                Restore
+              </button>
+            )}
+          </div>
+        ))}
     </div>
   );
 }

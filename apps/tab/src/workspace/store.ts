@@ -811,7 +811,47 @@ export function useWorkspace() {
 
   const postAccountMessage = useCallback(
     (id: string, body: string, author = "You") => {
-      mutateAccount(id, (a) => ({ ...a, thread: [...a.thread, humanMessage(body, author)] }));
+      mutateAccount(id, (a) => {
+        // @mentions (Collab Hub Must): "@FirstName" in a post raises a Home
+        // notification for that person. Teams push notifications ride the
+        // M365 layer later; the in-app half works today.
+        const people = [...new Set([...a.members.map((m) => m.name), ...a.externals.map((e) => e.name)])];
+        const mentioned = people.filter((n) => {
+          const first = n.split(" ")[0] ?? n;
+          return new RegExp(`@${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(body);
+        });
+        return {
+          ...a,
+          thread: [...a.thread, humanMessage(body, author)],
+          notifications:
+            mentioned.length > 0
+              ? [
+                  ...a.notifications,
+                  {
+                    id: newId("n"),
+                    text: `${author} mentioned ${mentioned.join(", ")} in Discussions — “${body.length > 90 ? `${body.slice(0, 90)}…` : body}”`,
+                    at: new Date().toISOString(),
+                  },
+                ]
+              : a.notifications,
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Archive/restore a client workspace — history retained, hidden from the
+   * list (Collab Hub "Archiving": close projects, keep auditability). */
+  const setAccountArchived = useCallback(
+    (id: string, archived: boolean) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        archived,
+        activity: [
+          ...a.activity,
+          activityEvent(archived ? "Workspace archived — history retained" : "Workspace restored from archive", "workspace"),
+        ],
+      }));
     },
     [mutateAccount],
   );
@@ -977,6 +1017,7 @@ export function useWorkspace() {
     addAccountTask,
     setAccountTaskStatus,
     postAccountMessage,
+    setAccountArchived,
     addAccountLink,
     addExternal,
     removeExternal,
