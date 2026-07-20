@@ -254,6 +254,17 @@ export function App() {
         </div>
       </div>
 
+      {/* Live-data failures are debugging information — show them, don't
+          bury them in a hover tooltip. */}
+      {!liveStatus.live && liveStatus.detail && !liveStatus.detail.startsWith("checking") && liveStatus.label !== "Refreshing…" && (
+        <div style={{ background: "#faf3dc", borderBottom: "1px solid #e7c66f" }}>
+          <div style={{ maxWidth: 1240, margin: "0 auto", padding: "7px 18px", fontSize: 11.5, color: "#8a6d1a", lineHeight: 1.5 }}>
+            <strong>Live data unavailable — showing demo data.</strong> {liveStatus.detail}. Click
+            the ⟳ pill (top right) to retry.
+          </div>
+        </div>
+      )}
+
       <div className="fade-in" key={hashOf(route)} style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
         {route.view === "clients" && (
           <>

@@ -70,6 +70,17 @@ interface HubSpotPage {
   paging?: { next?: { after?: string } };
 }
 
+/** One request, hard 8s cap, one retry on HubSpot's 429 rate limit. */
+async function timedFetch(url: string, headers: Record<string, string>): Promise<Response> {
+  const attempt = () => fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+  let res = await attempt();
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, 1100));
+    res = await attempt();
+  }
+  return res;
+}
+
 /** Follow HubSpot's cursor pagination up to a cap — 100 rows per page is a
  * HubSpot API limit, NOT the size of AGP's book of business. */
 async function pullHubSpotPaged(
@@ -81,7 +92,7 @@ async function pullHubSpotPaged(
   let after: string | undefined;
   let pages = 0;
   while (rows.length < cap && pages < Math.ceil(cap / 100)) {
-    const res = await fetch(`${baseUrl}${after ? `&after=${encodeURIComponent(after)}` : ""}`, { headers });
+    const res = await timedFetch(`${baseUrl}${after ? `&after=${encodeURIComponent(after)}` : ""}`, headers);
     if (!res.ok) {
       if (pages === 0) throw new Error(`HTTP ${res.status}`);
       break; // partial result beats none
@@ -106,21 +117,27 @@ async function pullHubSpot(token: string): Promise<{
   const dealsUrl =
     `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
 
-  const companiesPull = await pullHubSpotPaged(companiesUrl, headers, 1000);
-  const companies = companiesPull.rows.map((r) => ({ id: r.id, ...r.properties }));
+  // Companies and deals walk their cursors in parallel.
+  const [companiesResult, dealsResult] = await Promise.allSettled([
+    pullHubSpotPaged(companiesUrl, headers, 1000),
+    pullHubSpotPaged(dealsUrl, headers, 300),
+  ]);
+  if (companiesResult.status === "rejected") {
+    throw new Error(`companies ${companiesResult.reason instanceof Error ? companiesResult.reason.message : "failed"}`);
+  }
+  const companies = companiesResult.value.rows.map((r) => ({ id: r.id, ...r.properties }));
 
   let deals: Record<string, unknown>[] = [];
-  let note = `${companies.length} companies (${companiesPull.pages} pages)`;
-  try {
-    const dealsPull = await pullHubSpotPaged(dealsUrl, headers, 300);
-    deals = dealsPull.rows.map((r) => ({
+  let note = `${companies.length} companies (${companiesResult.value.pages} pages)`;
+  if (dealsResult.status === "fulfilled") {
+    deals = dealsResult.value.rows.map((r) => ({
       id: r.id,
       ...r.properties,
       company_id: r.associations?.companies?.results?.[0]?.id ?? null,
     }));
     note += ` + ${deals.length} deals`;
-  } catch (err) {
-    note += `; deals failed: ${err instanceof Error ? err.message : "unknown"} (check crm.objects.deals.read scope)`;
+  } else {
+    note += `; deals failed: ${dealsResult.reason instanceof Error ? dealsResult.reason.message : "unknown"} (check crm.objects.deals.read scope)`;
   }
   return { companies, deals, note };
 }
@@ -139,7 +156,7 @@ async function pullKantata(token: string): Promise<{
   const pullKantataPaged = async <T>(baseUrl: string, collection: string, cap: number): Promise<T[]> => {
     const rows: T[] = [];
     for (let page = 1; rows.length < cap && page <= Math.ceil(cap / 200); page += 1) {
-      const res = await fetch(`${baseUrl}&page=${page}`, { headers });
+      const res = await timedFetch(`${baseUrl}&page=${page}`, headers);
       if (!res.ok) {
         if (page === 1) throw new Error(`${collection} HTTP ${res.status}`);
         break;
@@ -161,12 +178,40 @@ async function pullKantata(token: string): Promise<{
     updated_at?: string;
     archived?: boolean;
   };
-  const workspaces = await pullKantataPaged<KantataWorkspace>(
-    "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc",
-    "workspaces",
-    1000,
-  );
-  const projects = workspaces
+  type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
+  type KantataGroup = { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] };
+  type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
+
+  // All four endpoints walk in parallel — workspaces, milestones, workspace
+  // groups (the client↔project join, SPEC §7), custom-field taxonomy. Each
+  // degrades independently; only a workspaces failure is fatal.
+  const [wsResult, storiesResult, groupsResult, cfvResult] = await Promise.allSettled([
+    pullKantataPaged<KantataWorkspace>(
+      "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc",
+      "workspaces",
+      1000,
+    ),
+    pullKantataPaged<KantataStory>(
+      "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
+      "stories",
+      600,
+    ),
+    pullKantataPaged<KantataGroup>(
+      "https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces",
+      "workspace_groups",
+      400,
+    ),
+    pullKantataPaged<KantataCfv>(
+      "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
+      "custom_field_values",
+      1000,
+    ),
+  ]);
+
+  if (wsResult.status === "rejected") {
+    throw new Error(wsResult.reason instanceof Error ? wsResult.reason.message : "workspaces failed");
+  }
+  const projects = wsResult.value
     .filter((w) => !w.archived)
     .map((w) => ({
       id: String(w.id),
@@ -178,21 +223,11 @@ async function pullKantata(token: string): Promise<{
       // service_line / vertical / commercial_model are AGP custom fields —
       // mapping them needs the tenant grounding doc (BLOCKERS #1).
     }));
-
-  // Milestones, workspace groups (the REAL client↔project join per SPEC
-  // constraint #7), and custom field values ("Service Line Detail" etc.).
-  // Each degrades independently if the token lacks that endpoint.
   const notes: string[] = [`${projects.length} workspaces`];
 
   let milestones: Record<string, unknown>[] = [];
-  try {
-    type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
-    const stories = await pullKantataPaged<KantataStory>(
-      "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
-      "stories",
-      600,
-    );
-    milestones = stories.map((s) => ({
+  if (storiesResult.status === "fulfilled") {
+    milestones = storiesResult.value.map((s) => ({
       id: String(s.id),
       title: s.title ?? "",
       workspace_id: String(s.workspace_id ?? ""),
@@ -200,45 +235,33 @@ async function pullKantata(token: string): Promise<{
       state: s.state ?? "",
     }));
     notes.push(`${milestones.length} milestones`);
-  } catch (err) {
-    notes.push(err instanceof Error ? err.message : "milestones failed");
+  } else {
+    notes.push(storiesResult.reason instanceof Error ? storiesResult.reason.message : "milestones failed");
   }
 
   let groups: Record<string, unknown>[] = [];
-  try {
-    type KantataGroup = { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] };
-    const rawGroups = await pullKantataPaged<KantataGroup>(
-      "https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces",
-      "workspace_groups",
-      400,
-    );
-    groups = rawGroups.map((g) => ({
+  if (groupsResult.status === "fulfilled") {
+    groups = groupsResult.value.map((g) => ({
       id: String(g.id),
       name: g.name ?? "",
       company: g.company ?? "",
       workspace_ids: (g.workspace_ids ?? []).map(String),
     }));
     notes.push(`${groups.length} groups`);
-  } catch (err) {
-    notes.push(err instanceof Error ? err.message : "groups failed");
+  } else {
+    notes.push(groupsResult.reason instanceof Error ? groupsResult.reason.message : "groups failed");
   }
 
   let customFields: Record<string, unknown>[] = [];
-  try {
-    type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
-    const cfvs = await pullKantataPaged<KantataCfv>(
-      "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
-      "custom_field_values",
-      1000,
-    );
-    customFields = cfvs.map((v) => ({
+  if (cfvResult.status === "fulfilled") {
+    customFields = cfvResult.value.map((v) => ({
       subject_id: String(v.subject_id ?? ""),
       name: v.custom_field_name ?? "",
       value: v.display_value ?? (typeof v.value === "string" ? v.value : ""),
     }));
     notes.push(`${customFields.length} custom-field values`);
-  } catch (err) {
-    notes.push(err instanceof Error ? err.message : "custom fields failed");
+  } else {
+    notes.push(cfvResult.reason instanceof Error ? cfvResult.reason.message : "custom fields failed");
   }
 
   return { projects, milestones, groups, customFields, note: notes.join(" · ") };
@@ -285,27 +308,33 @@ export default async function handler(
     kantataCustomFields: [],
   };
 
+  // Both sources pull in parallel — wall time is the slower source, not the sum.
+  const [hubspotResult, kantataResult] = await Promise.allSettled([
+    hubspotToken ? pullHubSpot(hubspotToken) : Promise.reject(new Error("token not set")),
+    kantataToken ? pullKantata(kantataToken) : Promise.reject(new Error("token not set")),
+  ]);
+
   if (hubspotToken) {
-    try {
-      const h = await pullHubSpot(hubspotToken);
+    if (hubspotResult.status === "fulfilled") {
+      const h = hubspotResult.value;
       payload.companies = h.companies;
       payload.deals = h.deals;
       payload.sources.hubspot = { ok: true, note: h.note, companies: h.companies.length, deals: h.deals.length };
-    } catch (err) {
-      payload.sources.hubspot.note = `pull failed: ${err instanceof Error ? err.message : "unknown"}`;
+    } else {
+      payload.sources.hubspot.note = `pull failed: ${hubspotResult.reason instanceof Error ? hubspotResult.reason.message : "unknown"}`;
     }
   }
 
   if (kantataToken) {
-    try {
-      const k = await pullKantata(kantataToken);
+    if (kantataResult.status === "fulfilled") {
+      const k = kantataResult.value;
       payload.kantataProjects = k.projects;
       payload.kantataMilestones = k.milestones;
       payload.kantataGroups = k.groups;
       payload.kantataCustomFields = k.customFields;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
-    } catch (err) {
-      payload.sources.kantata.note = `pull failed: ${err instanceof Error ? err.message : "unknown"}`;
+    } else {
+      payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;
     }
   }
 
