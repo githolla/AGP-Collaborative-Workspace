@@ -62,42 +62,48 @@ function sectionOf(route: Route): "clients" | "sandbox" {
 const TOUR_KEY = "agp-collab-tour-v1";
 
 /**
- * The spotlight walkthrough — written to be read aloud while demoing.
- * Routes use the seeded demo data (ABC Foodbank, the grant-report idea).
+ * The spotlight walkthrough — written to be read aloud while demoing. Each
+ * step pairs the ask (a line from Cara's features doc or the product-owner
+ * brief) with what was built from it. Routes use the seeded demo data
+ * (ABC Foodbank, the grant-report idea).
  */
 const TOUR_STEPS: TourStep[] = [
   {
     key: "welcome",
     route: "",
     title: "Welcome to the workspace",
-    body: "A 60-second spotlight tour: the client workspace built from Cara's wireframe, and the Sandbox where the AI helps ideas become plans. Next (or →) to continue, Esc to bail any time.",
+    body: "A 90-second spotlight tour, ask by ask: what Cara's features doc called for, what was built from it, and what the AI adds on top. → or Enter to continue, Esc to exit any time.",
   },
   {
     key: "nav",
     route: "",
     target: '[data-tour="nav"]',
     title: "Two surfaces, that's it",
-    body: "Clients is everything client-facing. The Sandbox is where anything new starts. Search reaches everything — including builds promoted out of the sandbox.",
+    quote: { text: "…without adding unnecessary complexity or overhead.", from: "Cara's features doc — opening line" },
+    body: "Taken literally. Clients is everything client-facing; the Sandbox is where anything new starts. Search reaches the rest — including builds promoted out of the sandbox.",
   },
   {
     key: "client-tabs",
     route: "c/acct-abc-foodbank",
     target: '[data-tour="client-tabs"]',
     title: "Cara's wireframe, working",
-    body: "Every client account gets this exact workspace from a template: Home, Project Plan, Client Dashboard, Files, Discussions, Contractor Access. All live — click through after the tour. Internal financials never render here; a build-time test enforces it.",
+    quote: { text: "Home · Project Plan · Client Dashboard · Files · Discussions · Contractor Access", from: "the nav in Cara's wireframe" },
+    body: "Her tabs, exactly, and all of them live. Every client account gets this same workspace from the standard template — one workspace per account, no cross-visibility.",
   },
   {
     key: "client-access",
     route: "c/acct-abc-foodbank",
     target: '[data-tour="client-access"]',
     title: "Access that revokes for real",
-    body: "Contractor Access lists who can see this workspace, who invited them, and when they were last active. Remove revokes instantly, and “Offboard everywhere” clears a person from every client workspace at once.",
+    quote: { text: "Offboarding revokes access immediately.", from: "Cara's features doc — a Must" },
+    body: "The register shows who invited whom and when they were last active. Remove revokes on the spot — and “Offboard everywhere” clears a person from every client workspace at once, audit-logged.",
   },
   {
     key: "intake",
     route: "sandbox",
     target: '[data-tour="intake-box"]',
     title: "Start anything in a sentence",
+    quote: { text: "A collaboration workspace where the AI is used to help collaborate on projects — new ones and iterations of current ones.", from: "the product-owner brief" },
     body: "Type what should exist. “Build it for me” has the Copilot name it, size it, plan it, and pick the team. “Start blank” keeps it human-only — the AI observes silently until invited.",
   },
   {
@@ -105,26 +111,28 @@ const TOUR_STEPS: TourStep[] = [
     route: "sandbox",
     target: '[data-tour="intake-chips"]',
     title: "Tap what you already know",
-    body: "Department, service line, vertical, client — one tap each, no forms. Your picks steer the AI's draft, and the picked department's person leads the plan.",
+    body: "Department, service line, vertical, client — one tap each, no forms, no drop-down maze. Your picks steer the AI's draft, and the picked department's person leads the plan.",
   },
   {
     key: "review",
     route: "s/idea-grant-report",
     target: '[data-tour="draft-review"]',
     title: "Review what the AI built",
-    body: "The Copilot drafted the value case, the team, and a dated plan — every line with its “because”. Remove what's wrong with ×, or just tell it in the chat. Accepting records that a human reviewed the machine's work.",
+    quote: { text: "AI that builds — and then the people are added to the project to add their part.", from: "the product-owner brief" },
+    body: "The Copilot drafted the value case, the team, and a dated plan — every line with its “because”. Remove what's wrong with ×, or tell it in the chat. Accepting records that a human reviewed the machine's work.",
   },
   {
     key: "roi",
     route: "s/idea-grant-report",
     target: '[data-tour="decision-view"]',
     title: "The ROI engine, always on",
-    body: "Every idea carries a live decision view — annual net, payback, grade. Grades stay capped at C until required numbers land: honest by design. None of this ever reaches a client surface.",
+    quote: { text: "Internal financials never render on a client surface.", from: "the hard rule — enforced by a build-time test" },
+    body: "Every idea carries a live decision view — annual net, payback, grade — with grades honestly capped at C until required numbers land. Clients never see any of it.",
   },
   {
     key: "done",
     title: "That's the loop",
-    body: "Idea → AI draft → human review → team parts → promoted build, while client work runs in its own workspace. Click your avatar to set your display name. Restart this walkthrough any time with the Tour button in the nav.",
+    body: "Idea → AI draft → human review → team parts → promoted build, while client work runs in its own workspace. Every Must in Cara's doc is built or backend-gated, tracked line-by-line in the requirements baseline. Restart any time with “Take the tour”.",
   },
 ];
 
@@ -196,7 +204,7 @@ export function App() {
             {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
-            ✦ Tour
+            ✦ Take the tour
           </button>
           <SearchBox initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />
         </div>
