@@ -373,6 +373,7 @@ export function hubspotSeed(): HubSpotFixtureData {
           name: "Harvest Hope Food Bank",
           domain: "harvesthope.example.org",
           agp_industry: "food_banks",
+          client_abbreviation__c: "HHFB",
           lifecyclestage: "customer",
           client_health_index__c: "Green",
           renewal: "2026-11-01",

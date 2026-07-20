@@ -554,6 +554,20 @@ export function useWorkspace() {
     (clientName: string): string => {
       const id = createAccount(clientName);
       const imported = campaignsFromMirror(loadMirror(), clientName, AS_OF_TODAY());
+      if (imported.length === 0) {
+        // Say WHY it's blank instead of leaving an empty workspace unexplained.
+        mutateAccount(id, (a) => ({
+          ...a,
+          notifications: [
+            ...a.notifications,
+            {
+              id: newId("n"),
+              text: `No Kantata projects or HubSpot deals matched “${clientName}” yet — this often means Kantata titles use a different name/abbreviation, or the client has no active work. Add campaigns below, or hit ⟳ Sync after fixing the names.`,
+              at: new Date().toISOString(),
+            },
+          ],
+        }));
+      }
       if (imported.length > 0) {
         const campaigns = imported.map((c) => ({ ...c, id: newId("cmp") }));
         mutateAccount(id, (a) => ({

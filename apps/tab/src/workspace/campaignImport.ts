@@ -24,11 +24,47 @@ export interface ImportedCampaign {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** Generic corporate filler that must never drive a match on its own. */
+const STOPWORDS = new Set([
+  "the", "of", "and", "for", "inc", "llc", "corp", "org", "assn", "co",
+  "foundation", "association", "society", "group", "fund", "trust",
+]);
+
+const significantWords = (name: string): string[] =>
+  name
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+
+/** ALL-CAPS tokens like "KPBX" or "AGP" are near-unique identifiers. */
+const distinctiveTokens = (name: string): string[] =>
+  name.split(/[^A-Za-z0-9]+/).filter((w) => w.length >= 3 && w === w.toUpperCase() && /[A-Z]/.test(w)).map((w) => w.toLowerCase());
+
+/**
+ * Does a Kantata project title belong to this client? Matching, strongest
+ * first: the client's HubSpot abbreviation (client_abbreviation__c — how
+ * agencies actually name projects), the full client name, an ALL-CAPS
+ * identifier token, or at least two significant name words (one suffices
+ * only when the name HAS only one) — so "University of the Southwest" never
+ * claims "University of Illinois" work. The real join (Kantata workspace
+ * groups ↔ HubSpot company) replaces this heuristic when the tenant
+ * grounding doc lands (BLOCKERS #1).
+ */
+function projectBelongsToClient(title: string, clientName: string, abbreviation?: string): boolean {
+  const t = title.toLowerCase();
+  if (abbreviation && abbreviation.trim().length >= 2 && t.includes(abbreviation.trim().toLowerCase())) return true;
+  if (t.includes(clientName.toLowerCase())) return true;
+  if (distinctiveTokens(clientName).some((tok) => t.includes(tok))) return true;
+  const words = significantWords(clientName);
+  const hits = words.filter((w) => t.includes(w)).length;
+  return words.length === 1 ? hits === 1 : hits >= 2;
+}
+
 export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
-  const firstWord = clientName.toLowerCase().split(/\s+/)[0] ?? "~";
+  const abbreviation = mirror.clients.find((c) => c.name === clientName)?.abbreviation;
 
   const fromProjects: ImportedCampaign[] = mirror.projects
-    .filter((p) => p.title.toLowerCase().includes(firstWord))
+    .filter((p) => projectBelongsToClient(p.title, clientName, abbreviation))
     .map((p) => {
       const upcoming = mirror.milestones
         .filter((m) => m.projectId === p.id && m.state !== "completed" && m.dueDate >= today)

@@ -21,6 +21,7 @@ export const HUBSPOT_COMPANY_PROPERTIES = [
   "lifecyclestage", // "customer" = Client in AGP's pipeline labeling
   "type",
   "ownername",
+  "client_abbreviation__c", // touchpoint group — the key that matches Kantata project titles
   // Account health & lifecycle (internal-only surfaces)
   "client_health_index__c", // touchpoint group — Client Health Index
   "health_score_current_month",

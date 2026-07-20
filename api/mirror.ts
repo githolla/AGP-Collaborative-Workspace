@@ -21,6 +21,7 @@ const COMPANY_PROPERTIES = [
   "lifecyclestage",
   "type",
   "ownername",
+  "client_abbreviation__c",
   "client_health_index__c",
   "health_score_current_month",
   "renewal",
@@ -67,7 +68,7 @@ async function pullHubSpot(token: string): Promise<{
   const companiesUrl =
     `https://api.hubapi.com/crm/v3/objects/companies?limit=100&properties=${COMPANY_PROPERTIES.join(",")}`;
   const dealsUrl =
-    `https://api.hubapi.com/crm/v3/objects/deals?limit=50&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
+    `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
 
   const [companiesRes, dealsRes] = await Promise.all([fetch(companiesUrl, { headers }), fetch(dealsUrl, { headers })]);
   if (!companiesRes.ok) throw new Error(`companies HTTP ${companiesRes.status}`);
@@ -102,7 +103,7 @@ async function pullKantata(token: string): Promise<{
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
-  const res = await fetch("https://api.mavenlink.com/api/v1/workspaces?per_page=50&order=updated_at:desc", { headers });
+  const res = await fetch("https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc", { headers });
   if (!res.ok) throw new Error(`workspaces HTTP ${res.status}`);
   const json = (await res.json()) as {
     workspaces?: Record<

@@ -74,4 +74,42 @@ describe("campaignsFromMirror", () => {
     const out = campaignsFromMirror(m, "St. Anselm Health", TODAY);
     expect(out[0]?.name).toBe("Grateful Patient Build");
   });
+
+  it("matches via the HubSpot client abbreviation when titles don't use the full name", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "Harvest Hope Food Bank", vertical: "", abbreviation: "HHFB" }],
+      projects: [{ id: "ws-5", title: "HHFB FY27 Acquisition Program", serviceLine: "", vertical: "", model: "" }],
+    });
+    const out = campaignsFromMirror(m, "Harvest Hope Food Bank", TODAY);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.name).toBe("HHFB FY27 Acquisition Program");
+  });
+
+  it("matches ALL-CAPS identifier tokens like KPBX on their own", () => {
+    const m = mirror({
+      projects: [{ id: "ws-6", title: "KPBX Digital Retainer", serviceLine: "", vertical: "", model: "" }],
+    });
+    const out = campaignsFromMirror(m, "KPBX Public Media", TODAY);
+    expect(out).toHaveLength(1);
+  });
+
+  it("does NOT cross-match generic words: University of the Southwest ≠ University of Illinois work", () => {
+    const m = mirror({
+      projects: [
+        { id: "ws-7", title: "University of Illinois — Annual Fund Appeal", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+    const out = campaignsFromMirror(m, "University of the Southwest Foundation", TODAY);
+    expect(out).toHaveLength(0);
+  });
+
+  it("requires two significant words for multi-word names and accepts them", () => {
+    const m = mirror({
+      projects: [
+        { id: "ws-8", title: "University of Illinois Annual Fund", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+    const out = campaignsFromMirror(m, "University of Illinois Foundation", TODAY);
+    expect(out).toHaveLength(1);
+  });
 });

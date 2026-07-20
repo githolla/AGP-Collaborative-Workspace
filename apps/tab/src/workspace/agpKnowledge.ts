@@ -244,6 +244,7 @@ export interface MirrorClient {
   name: string;
   vertical: string;
   /** Live-only enrichment (HubSpot pull) — internal surfaces only. */
+  abbreviation?: string;
   lifecycleStage?: string;
   healthIndex?: string;
   renewal?: string;
@@ -280,6 +281,7 @@ export function loadMirror(): AgpMirror {
     id: String(c.id),
     name: String(c.name),
     vertical: String(c.agp_industry ?? ""),
+    ...(c.client_abbreviation__c ? { abbreviation: String(c.client_abbreviation__c) } : {}),
     ...(c.lifecyclestage ? { lifecycleStage: String(c.lifecyclestage) } : {}),
     ...(c.client_health_index__c ? { healthIndex: String(c.client_health_index__c) } : {}),
     ...(c.renewal ? { renewal: String(c.renewal) } : {}),

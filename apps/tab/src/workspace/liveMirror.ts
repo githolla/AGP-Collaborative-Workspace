@@ -49,6 +49,7 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
       // Portal reality (docs/hubspot-property-map.md): AGP's vertical lives
       // in the custom agp_industry select; standard industry is the fallback.
       vertical: str(c.agp_industry) || str(c.industry),
+      ...(str(c.client_abbreviation__c) ? { abbreviation: str(c.client_abbreviation__c) } : {}),
       lifecycleStage: str(c.lifecyclestage),
       healthIndex: str(c.client_health_index__c) || str(c.health_score_current_month),
       renewal: str(c.renewal),
