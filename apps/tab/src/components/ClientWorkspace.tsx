@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { card, T } from "../theme.js";
 import { SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
@@ -60,6 +60,34 @@ function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+/** Every row on the Home page is a door: click it, land on the full view. */
+function RowButton({ onClick, title, children, style }: { onClick: () => void; title: string; children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="table-row-hover"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        textAlign: "left",
+        background: "none",
+        border: "none",
+        borderBottom: `1px solid ${T.grid}`,
+        padding: "8px 4px",
+        cursor: "pointer",
+        ...style,
+      }}
+    >
+      {children}
+      <span aria-hidden style={{ color: T.inkMuted, fontSize: 13, flexShrink: 0 }}>›</span>
+    </button>
+  );
+}
+
 const fileGlyph: Record<string, string> = { pptx: "🟥", xlsx: "🟩", docx: "🟦", default: "📄" };
 function glyphFor(name: string): string {
   const ext = name.split(".").pop() ?? "";
@@ -97,13 +125,14 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: navy }}>Hi {userName.split(" ")[0]}!</div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: navy, margin: "8px 0 4px" }}>Team Notifications</div>
-          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {account.notifications.map((n) => (
-              <li key={n.id} style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>
-                {n.text}
-              </li>
+              <RowButton key={n.id} onClick={() => goTo("discussions")} title="Open Discussions" style={{ padding: "5px 4px" }}>
+                <span aria-hidden style={{ width: 5, height: 5, borderRadius: "50%", background: navy, flexShrink: 0 }} />
+                <span style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>{n.text}</span>
+              </RowButton>
             ))}
-          </ul>
+          </div>
         </div>
       </div>
 
@@ -111,15 +140,17 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         {/* Account overview */}
         <div style={card}>
           <SectionTitle>Account Overview</SectionTitle>
-          {[
-            { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length },
-            { label: "Upcoming Tasks", value: open.length },
-            { label: "Client Contacts", value: account.clientContacts },
-          ].map((row) => (
-            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
-              <span style={{ fontSize: 12.5, color: T.inkSecondary }}>{row.label}:</span>
+          {(
+            [
+              { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length, tab: "dashboard" as ClientTab, hint: "Open Client Dashboard" },
+              { label: "Upcoming Tasks", value: open.length, tab: "plan" as ClientTab, hint: "Open Project Plan" },
+              { label: "Client Contacts", value: account.clientContacts, tab: "access" as ClientTab, hint: "Open Contractor Access" },
+            ]
+          ).map((row) => (
+            <RowButton key={row.label} onClick={() => goTo(row.tab)} title={row.hint} style={{ padding: "8px 4px" }}>
+              <span style={{ flex: 1, fontSize: 12.5, color: T.inkSecondary }}>{row.label}:</span>
               <span style={{ fontSize: 20, fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums" }}>{row.value}</span>
-            </div>
+            </RowButton>
           ))}
           {milestones.length > 0 && (
             <>
@@ -127,10 +158,12 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                 Upcoming milestones
               </div>
               {milestones.map((c) => (
-                <div key={c.id} style={{ fontSize: 11.5, padding: "4px 0", color: T.inkSecondary }}>
-                  <span style={{ color: navy, fontWeight: 700 }}>{c.nextMilestone}</span> — {c.name}
-                  <span style={{ color: T.inkMuted }}> · {c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
-                </div>
+                <RowButton key={c.id} onClick={() => goTo("dashboard")} title="Open Client Dashboard" style={{ padding: "5px 4px", borderBottom: "none" }}>
+                  <span style={{ fontSize: 11.5, color: T.inkSecondary, lineHeight: 1.45 }}>
+                    <span style={{ color: navy, fontWeight: 700 }}>{c.nextMilestone}</span> — {c.name}
+                    <span style={{ color: T.inkMuted }}> · {c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
+                  </span>
+                </RowButton>
               ))}
             </>
           )}
@@ -145,14 +178,21 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: navy, borderRadius: "6px 6px 0 0", padding: "5px 8px" }}>{col.label}</div>
                 <div style={{ border: `1px solid ${T.grid}`, borderTop: "none", borderRadius: "0 0 6px 6px", padding: 6, display: "flex", flexDirection: "column", gap: 6, minHeight: 90 }}>
                   {byStatus(col.key).slice(0, 2).map((t) => (
-                    <div key={t.id} style={{ fontSize: 11.5 }}>
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => goTo("plan")}
+                      title="Open in Project Plan"
+                      className="table-row-hover"
+                      style={{ fontSize: 11.5, textAlign: "left", background: "none", border: "none", padding: "2px 3px", borderRadius: 4, cursor: "pointer" }}
+                    >
                       <div style={{ fontWeight: 600, color: col.key === "done" ? T.inkMuted : navy, lineHeight: 1.3 }}>{t.title}</div>
                       {col.key !== "done" && (
                         <div style={{ color: T.inkMuted, fontSize: 10.5 }}>
                           {t.ownerName} {t.due ? `· Due ${fmtDay(t.due).split(", ")[1]}` : ""}
                         </div>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -166,11 +206,11 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
           <SectionTitle>Due This Week</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {dueThisWeek.map((t, i) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <RowButton key={t.id} onClick={() => goTo("plan")} title="Open in Project Plan" style={{ padding: "9px 4px" }}>
                 <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{t.due ? fmtDay(t.due) : ""}</span>
-              </div>
+              </RowButton>
             ))}
             {dueThisWeek.length === 0 && (
               <div style={{ fontSize: 12, color: T.inkMuted, paddingTop: 6 }}>
@@ -186,10 +226,14 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Recent Files</SectionTitle>
           {account.files.slice(0, 4).map((f) => (
-            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+            <RowButton
+              key={f.id}
+              onClick={() => (f.url ? window.open(f.url, "_blank", "noreferrer") : goTo("files"))}
+              title={f.url ? "Open the file" : "Open Files"}
+            >
               <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-            </div>
+              <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+            </RowButton>
           ))}
           <ViewAll label="View All Files" onClick={() => goTo("files")} />
         </div>
@@ -198,10 +242,15 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Core Documentation</SectionTitle>
           {account.docs.map((d) => (
-            <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
-              <span aria-hidden style={{ width: 14, height: 14, background: navy, borderRadius: 3, opacity: 0.75 }} />
-              <span style={{ fontSize: 12.5, color: T.ink }}>{d.name}</span>
-            </div>
+            <RowButton
+              key={d.id}
+              onClick={() => (d.url ? window.open(d.url, "_blank", "noreferrer") : goTo("files"))}
+              title={d.url ? "Open the document" : "Open Files"}
+              style={{ padding: "9px 4px" }}
+            >
+              <span aria-hidden style={{ width: 14, height: 14, background: navy, borderRadius: 3, opacity: 0.75, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12.5, color: T.ink }}>{d.name}</span>
+            </RowButton>
           ))}
           <ViewAll label="View All Docs" onClick={() => goTo("files")} />
         </div>
@@ -212,17 +261,18 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
           {[...account.thread].reverse().slice(0, 3).map((m) => {
             const [title, ...rest] = m.body.split(" — ");
             return (
-              <div key={m.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <RowButton key={m.id} onClick={() => goTo("discussions")} title="Open Discussions" style={{ alignItems: "flex-start", padding: "8px 4px" }}>
                 <Avatar name={m.author} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-                  <div style={{ fontSize: 11, color: T.inkSecondary }}>{m.author}</div>
-                  {rest.length > 0 && <div style={{ fontSize: 11, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rest.join(" — ")}</div>}
-                </div>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+                  <span style={{ display: "block", fontSize: 11, color: T.inkSecondary }}>{m.author}</span>
+                  {rest.length > 0 && <span style={{ display: "block", fontSize: 11, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rest.join(" — ")}</span>}
+                </span>
                 <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{timeAgo(m.at)}</span>
-              </div>
+              </RowButton>
             );
           })}
+          <ViewAll label="View All Discussions" onClick={() => goTo("discussions")} />
         </div>
       </div>
     </div>
@@ -236,6 +286,15 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
 function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Task[] }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
+  // Click a campaign to unfold everything the workspace knows about it.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const relatedTo = (campaignName: string) => {
+    const words = campaignName.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    return {
+      tasks: tasks.filter((t) => words.some((w) => t.title.toLowerCase().includes(w))),
+      messages: account.thread.filter((m) => words.some((w) => m.body.toLowerCase().includes(w))),
+    };
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...card, background: "#eef3f9", borderColor: navy }}>
@@ -256,14 +315,71 @@ function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Ta
               </tr>
             </thead>
             <tbody>
-              {account.campaigns.map((c) => (
-                <tr key={c.id}>
-                  <td style={{ fontSize: 12.5, color: T.ink, fontWeight: 600, padding: "8px" }}>{c.name}</td>
-                  <td style={{ padding: "8px" }}><TagChip>{c.status}</TagChip></td>
-                  <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px" }}>{c.nextMilestone ?? "—"}</td>
-                  <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px", fontVariantNumeric: "tabular-nums" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : "—"}</td>
-                </tr>
-              ))}
+              {account.campaigns.map((c) => {
+                const isOpen = expandedId === c.id;
+                const rel = isOpen ? relatedTo(c.name) : null;
+                return (
+                  <React.Fragment key={c.id}>
+                    <tr
+                      className="table-row-hover"
+                      onClick={() => setExpandedId(isOpen ? null : c.id)}
+                      title={isOpen ? "Collapse" : "Show campaign detail"}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <td style={{ fontSize: 12.5, color: T.ink, fontWeight: 600, padding: "8px" }}>
+                        <span aria-hidden style={{ display: "inline-block", width: 14, color: T.inkMuted, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s ease" }}>›</span>
+                        {c.name}
+                      </td>
+                      <td style={{ padding: "8px" }}><TagChip>{c.status}</TagChip></td>
+                      <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px" }}>{c.nextMilestone ?? "—"}</td>
+                      <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px", fontVariantNumeric: "tabular-nums" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : "—"}</td>
+                    </tr>
+                    {isOpen && rel && (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "0 8px 12px 22px" }}>
+                          <div style={{ background: "#f7f9fc", border: `1px solid ${T.grid}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                              Campaign detail
+                            </div>
+                            <div style={{ fontSize: 12, color: T.inkSecondary }}>
+                              {c.nextMilestone
+                                ? <>Next milestone: <strong style={{ color: T.ink }}>{c.nextMilestone}</strong>{c.nextMilestoneDate ? ` — ${fmtDay(c.nextMilestoneDate)}` : ""}.</>
+                                : "No milestone scheduled."}{" "}
+                              Status: {c.status}.
+                            </div>
+                            {rel.tasks.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, marginBottom: 3 }}>Related tasks</div>
+                                {rel.tasks.map((t) => (
+                                  <div key={t.id} style={{ fontSize: 12, color: T.inkSecondary, padding: "2px 0" }}>
+                                    {t.status === "done" ? "✓ " : "○ "}
+                                    {t.title}
+                                    {t.ownerName ? ` — ${t.ownerName}` : ""}
+                                    {t.due ? ` · due ${fmtDay(t.due)}` : ""}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {rel.messages.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, marginBottom: 3 }}>Mentioned in discussions</div>
+                                {rel.messages.slice(-2).map((m) => (
+                                  <div key={m.id} style={{ fontSize: 12, color: T.inkSecondary, padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    <strong style={{ color: T.ink }}>{m.author}:</strong> {m.body}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {rel.tasks.length === 0 && rel.messages.length === 0 && (
+                              <div style={{ fontSize: 12, color: T.inkMuted }}>No tasks or discussions reference this campaign yet.</div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
