@@ -6,7 +6,7 @@ import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
-import { AGP_PEOPLE, FUNCTION_NOTES, personById, type AgpFunction } from "./agpKnowledge.js";
+import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
 import { tasksFromPlan } from "./planner.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
 
@@ -543,6 +543,57 @@ export function useWorkspace() {
     return id;
   }, []);
 
+  /**
+   * Create a client workspace straight from the live book of business:
+   * the standard template, plus campaigns imported from this client's
+   * HubSpot deals and Kantata projects — no retyping what the CRM knows.
+   */
+  const createAccountFromMirror = useCallback(
+    (clientName: string): string => {
+      const id = createAccount(clientName);
+      const mirror = loadMirror();
+      const firstWord = clientName.toLowerCase().split(/\s+/)[0] ?? "~";
+
+      const fromProjects = mirror.projects
+        .filter((p) => p.title.toLowerCase().includes(firstWord))
+        .map((p) => ({
+          id: newId("cmp"),
+          // Kantata titles often lead with the client name — trim it.
+          name: p.title.replace(new RegExp(`^${clientName}\\s*[—-]\\s*`, "i"), ""),
+          status: "active" as const,
+        }));
+      const fromDeals = mirror.campaigns
+        .filter((c) => c.clientName === clientName && c.stage !== "closedlost")
+        .map((c) => ({
+          id: newId("cmp"),
+          name: c.title,
+          status: c.stage === "closedwon" ? ("active" as const) : ("planned" as const),
+        }));
+      // Dedupe: a won deal usually became the Kantata project of the same work.
+      const campaigns = [...fromProjects, ...fromDeals].filter(
+        (c, i, all) => all.findIndex((x) => x.name.toLowerCase() === c.name.toLowerCase()) === i,
+      );
+
+      if (campaigns.length > 0) {
+        mutateAccount(id, (a) => ({
+          ...a,
+          campaigns,
+          notifications: [
+            ...a.notifications,
+            {
+              id: newId("n"),
+              text: `${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} imported from Kantata & HubSpot for ${clientName}.`,
+              at: new Date().toISOString(),
+            },
+          ],
+          activity: [...a.activity, activityEvent(`Campaigns imported from Kantata & HubSpot (${campaigns.length})`, "workspace")],
+        }));
+      }
+      return id;
+    },
+    [createAccount, mutateAccount],
+  );
+
   const addAccountTask = useCallback(
     (id: string, title: string, ownerName?: string, due?: string, label?: string) => {
       mutateAccount(id, (a) => ({
@@ -734,6 +785,7 @@ export function useWorkspace() {
     ideas,
     accounts,
     createAccount,
+    createAccountFromMirror,
     addAccountTask,
     setAccountTaskStatus,
     postAccountMessage,

@@ -11,6 +11,7 @@ import { Tour, type TourStep } from "./components/Tour.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { initLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
+import { loadMirror } from "./workspace/agpKnowledge.js";
 import { T } from "./theme.js";
 
 /**
@@ -237,8 +238,14 @@ export function App() {
             </PageIntro>
             <ClientList
               accounts={ws.accounts.filter((a) => !a.archived)}
+              candidates={loadMirror()
+                .clients.filter((c) => !ws.accounts.some((a) => a.clientName.toLowerCase() === c.name.toLowerCase()))
+                .sort((a, b) => Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer"))
+                .map((c) => ({ name: c.name, vertical: c.vertical }))}
+              candidatesLive={liveStatus.live}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
+              onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
             />
           </>
         )}
