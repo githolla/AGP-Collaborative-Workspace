@@ -108,7 +108,7 @@ const TOUR_STEPS: TourStep[] = [
     target: '[data-tour="review-import"]',
     title: "Nothing lands until you say so",
     quote: { text: "…you choose what imports.", from: "the import contract" },
-    body: "Kantata projects, milestones, open tasks, and HubSpot deals matched to this client wait HERE for your approval — check what belongs, import, remove anything wrong later. Below the band: live health, renewal, hours logged, and gone-quiet flags from both systems.",
+    body: "Kantata projects, milestones, and open tasks matched to this client wait HERE for your approval — check what belongs, import, remove anything wrong later. Below the band: the live delivery pulse — projects in flight, hours logged, who's on it.",
   },
   {
     key: "client-access",

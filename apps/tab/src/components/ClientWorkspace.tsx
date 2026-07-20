@@ -6,7 +6,7 @@ import { Thread } from "./Thread.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
-import { crmGoneQuiet, deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
+import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
@@ -338,19 +338,15 @@ function LinkDoctor({
   );
 }
 
-function FactRow({ label, value }: { label: string; value?: string | undefined }) {
-  return (
-    <div style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: `1px solid ${T.grid}` }}>
-      <span style={{ width: 120, flexShrink: 0, fontSize: 11.5, color: T.inkMuted }}>{label}</span>
-      <span style={{ fontSize: 12.5, color: value ? T.ink : T.inkMuted, fontWeight: value ? 600 : 400 }}>{value ?? "—"}</span>
-    </div>
-  );
-}
-
+/**
+ * Kantata-first (2026-07-20 internal review, ADR 0008): HubSpot is
+ * pre-acquisition CRM — its account intelligence came OFF this delivery
+ * surface. This card shows what Kantata knows about the client's delivery;
+ * HubSpot remains only the client directory behind workspace creation.
+ */
 function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveContext; live: boolean; clientName: string }) {
   const today = AS_OF_TODAY();
-  const crm = context.crm;
-  const hasAny = !!crm || context.projects.length > 0 || context.deals.length > 0;
+  const hasAny = context.projects.length > 0;
   // Demo data with nothing to show: stay quiet rather than render an empty shell.
   if (!hasAny && !live) return null;
 
@@ -366,68 +362,18 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
           </span>
         }
       >
-        What our systems know — HubSpot &amp; Kantata
+        Delivery — live from Kantata
       </SectionTitle>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
-        {/* HubSpot company record — internal intelligence, marked as such. */}
-        <div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Account record · HubSpot</span>
-            <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase", letterSpacing: 0.4 }}>internal only</span>
-          </div>
-          {crm ? (
-            <>
-              <FactRow label="Account owner" value={crm.owner} />
-              <FactRow label="Vertical" value={crm.vertical ? prettyValue(crm.vertical) : undefined} />
-              <FactRow label="Lifecycle" value={crm.lifecycleStage ? prettyValue(crm.lifecycleStage) : undefined} />
-              <FactRow label="Health index" value={crm.healthIndex} />
-              <FactRow label="Renewal" value={crm.renewal ? fmtDay(crm.renewal) : undefined} />
-              <FactRow label="GDNA level" value={crm.gdnaLevel} />
-              <FactRow
-                label="Intent (30 days)"
-                value={
-                  crm.intentSummary || crm.intentCount30d != null
-                    ? [crm.intentSummary, crm.intentCount30d != null ? `${crm.intentCount30d} signals` : ""].filter(Boolean).join(" · ")
-                    : undefined
-                }
-              />
-              <FactRow label="Last touch" value={crm.lastTouch ? fmtDay(crm.lastTouch) : undefined} />
-              <FactRow label="Next activity" value={crm.nextActivity ? fmtDay(crm.nextActivity) : undefined} />
-              <FactRow
-                label="ICP fit"
-                value={
-                  crm.icpTier || crm.targetAccount
-                    ? [crm.icpTier ? prettyValue(crm.icpTier) : "", crm.targetAccount ? "Target account" : ""].filter(Boolean).join(" · ")
-                    : undefined
-                }
-              />
-              <FactRow label="Abbreviation" value={crm.abbreviation} />
-              {crmGoneQuiet(crm, today) && (
-                <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 8, lineHeight: 1.5 }}>
-                  <strong>Gone quiet.</strong> No next activity is booked and the last logged touch is
-                  30+ days old{crm.owner ? ` — worth a nudge to ${crm.owner}` : ""}.
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
-              No HubSpot company is named “{clientName}”. Rename the workspace to match the CRM
-              company name exactly (or fix the company name in HubSpot), then refresh with the
-              ⟳ pill top right — the record will fill in here.
-            </div>
-          )}
-        </div>
-
-        {/* Kantata delivery + HubSpot pipeline — operational, date-driven. */}
+      <div>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-            Delivery · Kantata ({context.projects.length} project{context.projects.length === 1 ? "" : "s"})
+            {context.projects.length} project{context.projects.length === 1 ? "" : "s"} in flight
           </div>
           {context.projects.length === 0 ? (
             <div style={{ fontSize: 12, color: T.inkMuted, padding: "4px 0 10px" }}>
-              No Kantata project matched this client — matching uses the workspace group, the
-              HubSpot abbreviation{crm?.abbreviation ? ` (“${crm.abbreviation}”)` : ""}, or the client name in the project title.
+              No Kantata project matched “{clientName}” — matching uses the workspace group, the
+              client abbreviation as a title prefix, or the client name in the project title.
             </div>
           ) : (
             context.projects.slice(0, 5).map((p) => {
@@ -480,21 +426,6 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
           )}
           {context.projects.length > 5 && (
             <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "4px 0" }}>+{context.projects.length - 5} more projects matched</div>
-          )}
-
-          {context.deals.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "12px 0 4px" }}>
-                Pipeline · HubSpot deals
-              </div>
-              {context.deals.slice(0, 4).map((d) => (
-                <div key={d.title} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0", borderBottom: `1px solid ${T.grid}` }}>
-                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.ink }}>{d.title}</span>
-                  <TagChip>{d.won ? "won" : prettyValue(d.stage)}</TagChip>
-                  {d.closeDate && <span style={{ fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}>close {fmtDay(d.closeDate)}</span>}
-                </div>
-              ))}
-            </>
           )}
         </div>
       </div>
@@ -1483,30 +1414,21 @@ export function ClientWorkspace({
         {/* Our additions live BELOW the wireframe band: internal facts left,
             workspace actions right. */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-          {liveContext && (liveContext.crm || liveContext.projects.length > 0 || liveContext.deals.length > 0) && (
+          {/* Kantata-first (ADR 0008): delivery facts only — HubSpot CRM
+              intelligence came off this surface per the internal review. */}
+          {liveContext && liveContext.projects.length > 0 && (
             <>
-            <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase", letterSpacing: 0.4 }}>
-              internal
-            </span>
-            {liveContext.crm?.owner && <TagChip>Owner: {liveContext.crm.owner}</TagChip>}
-            {liveContext.crm?.healthIndex && <TagChip>Health: {liveContext.crm.healthIndex}</TagChip>}
-            {liveContext.crm?.renewal && <TagChip>Renewal: {fmtDay(liveContext.crm.renewal)}</TagChip>}
-            {liveContext.crm?.gdnaLevel && <TagChip>GDNA: {liveContext.crm.gdnaLevel}</TagChip>}
             <TagChip>
               Kantata: {liveContext.projects.length} project{liveContext.projects.length === 1 ? "" : "s"}
             </TagChip>
-            {liveContext.deals.filter((d) => !d.won).length > 0 && (
-              <TagChip>{liveContext.deals.filter((d) => !d.won).length} open deal{liveContext.deals.filter((d) => !d.won).length === 1 ? "" : "s"}</TagChip>
-            )}
             {(() => {
               const mins = liveContext.projects.reduce((s, p) => s + (p.minutes30d ?? 0), 0);
               return mins > 0 ? <TagChip>⏱ {Math.round(mins / 60)} hrs · 30d</TagChip> : null;
             })()}
-            {crmGoneQuiet(liveContext.crm, AS_OF_TODAY()) && (
-              <span style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                ⚠ gone quiet
-              </span>
-            )}
+            {(() => {
+              const team = [...new Set(liveContext.projects.flatMap((p) => p.team ?? []))];
+              return team.length > 0 ? <TagChip>👥 {team.length} on delivery</TagChip> : null;
+            })()}
             {deliveryQuiet(liveContext.projects) && (
               <span style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}>
                 ⚠ delivery quiet

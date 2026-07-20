@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>One project, three surfaces — how it works</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", -apple-system, Helvetica, Arial, sans-serif; color: #1c2733; background: #f7f6f3; padding: 28px; line-height: 1.5; }
+  .page { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; color: #14284b; }
+  .sub { font-size: 13px; color: #5b6673; margin: 6px 0 20px; max-width: 860px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .col { background: #fff; border: 1px solid #e3e0da; border-radius: 12px; padding: 16px 18px; }
+  .col h2 { font-size: 14px; color: #14284b; margin-bottom: 2px; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; border-radius: 999px; padding: 2px 10px; margin-bottom: 8px; }
+  .t-navy { background: #14284b; color: #fff; }
+  .t-green { background: #e3f4ec; color: #116a43; }
+  .t-amber { background: #faf3dc; color: #8a6d1a; }
+  .why { font-size: 12.5px; color: #33404e; margin-bottom: 8px; }
+  .col ul { font-size: 12px; color: #5b6673; padding-left: 16px; }
+  .col li { margin-bottom: 4px; }
+  h3 { font-size: 13px; color: #14284b; text-transform: uppercase; letter-spacing: 0.6px; margin: 22px 0 10px; }
+  .flow { background: #fff; border: 1px solid #e3e0da; border-radius: 12px; padding: 6px 18px; }
+  .step { display: flex; gap: 14px; padding: 10px 0; border-bottom: 1px solid #eeece7; font-size: 12.5px; align-items: baseline; }
+  .step:last-child { border-bottom: none; }
+  .n { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: #14284b; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; transform: translateY(3px); }
+  .where { flex-shrink: 0; width: 118px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #5b6673; padding-top: 3px; }
+  .foot { font-size: 11.5px; color: #5b6673; margin-top: 18px; background: #fff; border: 1px solid #e3e0da; border-radius: 12px; padding: 12px 18px; }
+  strong { color: #1c2733; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>One project, three surfaces</h1>
+  <div class="sub">
+    Kantata stays the system of record — nothing that works there gets rebuilt. The two new surfaces exist for the
+    two things Kantata can't do today: <strong>managing project changes automatically</strong> (Kelly does this manually)
+    and <strong>collaborating per client in one place</strong> (instead of scattered Teams chats). Nobody has a new daily
+    login: you go in when a Teams or email notification pulls you in, fix the thing, and it flows back to Kantata.
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <span class="tag t-green">System of record</span>
+      <h2>Kantata</h2>
+      <p class="why">Where projects, tasks, hours, and budgets live. Unchanged.</p>
+      <ul>
+        <li>Projects created here (or promoted from the sandbox)</li>
+        <li>Time entries, milestones, assignments</li>
+        <li>Both new surfaces read from it — and write approved changes back</li>
+      </ul>
+    </div>
+    <div class="col">
+      <span class="tag t-navy">The hero — Kara's ask</span>
+      <h2>Collaboration Workspace</h2>
+      <p class="why">One standing room per client: the team, the client, and contractors around one plan — instead of 100 group chats.</p>
+      <ul>
+        <li>Kara's wireframe: Home · Plan · Client Dashboard · Files · Discussions · Access</li>
+        <li>Live Kantata delivery: milestones, tasks, team, hours pulse</li>
+        <li>@mentions notify; AI drafts the weekly client update for approval</li>
+        <li>Client-safe by rule — internal numbers never render for guests</li>
+      </ul>
+    </div>
+    <div class="col">
+      <span class="tag t-amber">The fixer — Kelly's ask</span>
+      <h2>Resource &amp; Task Allocation</h2>
+      <p class="why">Manages project <em>changes</em>: when something drifts, AI proposes the fix — hours, people, budget impact — in one place instead of six manual steps.</p>
+      <ul>
+        <li>Watches every project against its parameters</li>
+        <li>Alert → suggested fix → people ranked by fit &amp; availability</li>
+        <li>Budget impact shown as hours move</li>
+        <li>Approve once → writes back to Kantata</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>A day in the life — the test project</h3>
+  <div class="flow">
+    <div class="step"><span class="n">1</span><span class="where">Kantata</span><span>Kelly's <strong>test project</strong> exists in Kantata with its plan, budget, and team. Both surfaces already see it live.</span></div>
+    <div class="step"><span class="n">2</span><span class="where">Real world</span><span>Something moves — the client holds for two weeks, print production slips, a task runs long.</span></div>
+    <div class="step"><span class="n">3</span><span class="where">Teams / email</span><span>Resource &amp; Task detects the drift and <strong>pings only the people who need to act</strong> (each person picks Teams or email). No daily check-ins, no 5&nbsp;pm surprises.</span></div>
+    <div class="step"><span class="n">4</span><span class="where">Resource &amp; Task</span><span>Kelly clicks in. "What needs you" shows the issue, the AI's suggested fix, hours re-spread across the timeline, and the <strong>budget impact</strong> of the move.</span></div>
+    <div class="step"><span class="n">5</span><span class="where">Resource &amp; Task</span><span>One of six roles needs a person — the AI ranks the <strong>top two by fit</strong>, shows who's free, one click assigns.</span></div>
+    <div class="step"><span class="n">6</span><span class="where">Collaboration</span><span>A judgment call comes up — "can you take this? you're free but marked OOO" — that conversation happens in the <strong>client's workspace</strong>, on the record, @mention notifies. The milestone shift is already visible on the client dashboard.</span></div>
+    <div class="step"><span class="n">7</span><span class="where">Kantata</span><span>Kelly approves → the change <strong>writes back to Kantata</strong>: tasks, hours, assignments stay accurate. (Write-back is staged behind approval; lands with the Azure deploy.)</span></div>
+    <div class="step"><span class="n">8</span><span class="where">Collaboration</span><span>Friday: the AI drafts the <strong>weekly client update</strong> from real campaign, milestone, and task state — the account lead edits and posts. The client never sees internal numbers.</span></div>
+  </div>
+
+  <div class="foot">
+    <strong>Who logs in, when:</strong> nobody by default. Notifications pull people in; Kantata remains home base for delivery data.
+    &nbsp;·&nbsp; <strong>Validating with Kara/Kelly:</strong> we assume no HubSpot data is needed on these delivery surfaces (HubSpot = pre-acquisition CRM) — HubSpot serves only as the client directory for creating workspaces. And: which Kantata features work well today that we should not recreate.
+  </div>
+</div>
+</body>
+</html>
