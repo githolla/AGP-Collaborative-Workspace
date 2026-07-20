@@ -229,6 +229,14 @@ export interface MirrorClient {
   id: string;
   name: string;
   vertical: string;
+  /** Live-only enrichment (HubSpot pull) — internal surfaces only. */
+  lifecycleStage?: string;
+  healthIndex?: string;
+  renewal?: string;
+  gdnaLevel?: string;
+  intentSummary?: string;
+  intentCount30d?: number;
+  owner?: string;
 }
 
 export interface AgpMirror {
@@ -237,13 +245,30 @@ export interface AgpMirror {
   campaigns: MirrorCampaign[];
 }
 
+/**
+ * Live-data override: when /api/mirror answers with real Kantata + HubSpot
+ * data, it replaces the bundled fixture mirror app-wide — the Copilot's
+ * grounding, intake client picks, and related-context all go live at once.
+ */
+let mirrorOverride: AgpMirror | null = null;
+export function setMirrorOverride(mirror: AgpMirror | null): void {
+  mirrorOverride = mirror;
+}
+
 export function loadMirror(): AgpMirror {
+  if (mirrorOverride) return mirrorOverride;
   const k = kantataSeed().entities;
   const h = hubspotSeed().entities;
+  // Fixture companies are shaped like the real portal: agp_industry is the
+  // vertical, plus the confirmed health/renewal/GDNA account fields.
   const clients: MirrorClient[] = (h.company ?? []).map((c) => ({
     id: String(c.id),
     name: String(c.name),
-    vertical: String(c.vertical),
+    vertical: String(c.agp_industry ?? ""),
+    ...(c.lifecyclestage ? { lifecycleStage: String(c.lifecyclestage) } : {}),
+    ...(c.client_health_index__c ? { healthIndex: String(c.client_health_index__c) } : {}),
+    ...(c.renewal ? { renewal: String(c.renewal) } : {}),
+    ...(c.gdna_subscription_level ? { gdnaLevel: String(c.gdna_subscription_level) } : {}),
   }));
   const nameOf = (id: unknown) => clients.find((c) => c.id === String(id))?.name ?? "";
   return {

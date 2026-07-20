@@ -163,11 +163,17 @@ export interface IntakeChoices {
  * client — and the Copilot crafts the draft around those picks.
  */
 export function intakeChoices(): IntakeChoices {
+  // With the live mirror this can be a whole book of business — actual
+  // clients (lifecycle "customer") first, capped so the row stays tappable.
+  const clients = [...loadMirror().clients]
+    .sort((a, b) => Number(b.lifecycleStage === "customer") - Number(a.lifecycleStage === "customer"))
+    .slice(0, 12)
+    .map((c) => c.name);
   return {
     departments: DEPARTMENTS,
     serviceLines: SERVICE_LINES.map((s) => s.label),
     verticals: VERTICALS.map((v) => v.label),
-    clients: loadMirror().clients.map((c) => c.name),
+    clients,
   };
 }
 
@@ -270,6 +276,22 @@ function composeBriefing(args: {
       ? `Here's what I understood — ${clsBits.join(" · ")}.`
       : "I couldn't classify this against AGP's service lines yet — tell me more about what it touches (mail? email? reporting? donor data?).",
   );
+
+  // Live HubSpot account intelligence for matched clients — internal only.
+  for (const clientName of classification.clientNames) {
+    const client = loadMirror().clients.find((c) => c.name === clientName);
+    if (!client) continue;
+    const ctx = [
+      client.healthIndex && `health ${client.healthIndex}`,
+      client.renewal && `renewal ${client.renewal.slice(0, 10)}`,
+      client.gdnaLevel && `GivingDNA ${client.gdnaLevel}`,
+      (client.intentCount30d ?? 0) > 0 && `${client.intentCount30d} buying-intent signals in 30d`,
+      client.owner && `account owner ${client.owner}`,
+    ].filter(Boolean);
+    if (ctx.length > 0) {
+      lines.push(`${clientName} account context (HubSpot, live): ${ctx.join(" · ")}.`);
+    }
+  }
 
   if (basis.manual.length > 0 || basis.comparables.length > 0) {
     const roi = computeProjectROI(factorsFromBasis(basis));

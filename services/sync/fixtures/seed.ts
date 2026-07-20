@@ -364,26 +364,37 @@ export function kantataSeed(): KantataFixtureData {
 export function hubspotSeed(): HubSpotFixtureData {
   return {
     entities: {
+      // Field names match the real AGP portal (docs/hubspot-property-map.md):
+      // agp_industry is the custom vertical; health/renewal/GDNA fields are
+      // the confirmed touchpoint/company_activity properties.
       company: [
         {
           id: "hs-co-77",
           name: "Harvest Hope Food Bank",
           domain: "harvesthope.example.org",
-          vertical: "food_banks",
+          agp_industry: "food_banks",
+          lifecyclestage: "customer",
+          client_health_index__c: "Green",
+          renewal: "2026-11-01",
+          gdna_subscription_level: "Pro",
           hs_lastmodifieddate: "2026-07-01T10:00:00Z",
         },
         {
           id: "hs-co-78",
           name: "KPBX Public Media",
           domain: "kpbx.example.org",
-          vertical: "public_media",
+          agp_industry: "public_media",
+          lifecyclestage: "customer",
+          client_health_index__c: "Yellow",
+          renewal: "2026-09-15",
           hs_lastmodifieddate: "2026-07-03T10:00:00Z",
         },
         {
           id: "hs-co-79",
           name: "St. Anselm Health Foundation",
           domain: "stanselm.example.org",
-          vertical: "hospitals",
+          agp_industry: "hospitals",
+          lifecyclestage: "opportunity",
           hs_lastmodifieddate: "2026-07-05T10:00:00Z",
         },
       ],

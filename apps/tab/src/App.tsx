@@ -10,6 +10,7 @@ import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
+import { initLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { T } from "./theme.js";
 
 /**
@@ -178,6 +179,16 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Live Kantata + HubSpot mirror — the header tells the truth about it.
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>({
+    live: false,
+    label: "Demo data",
+    detail: "checking /api/mirror…",
+  });
+  useEffect(() => {
+    void initLiveMirror(setLiveStatus);
+  }, []);
+
   const selectedInitiative =
     route.view === "initiative" ? ws.initiatives.find((i) => i.id === route.id) ?? null : null;
   const selectedIdea = route.view === "idea" ? ws.ideas.find((i) => i.id === route.id) ?? null : null;
@@ -194,7 +205,13 @@ export function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: T.page }}>
-      <AppHeader userName={userName} onChangeName={setName} />
+      <AppHeader
+        userName={userName}
+        onChangeName={setName}
+        live={liveStatus.live}
+        liveLabel={liveStatus.label}
+        liveDetail={liveStatus.detail}
+      />
 
       {/* Persistent navigation — visible on every page, including workspaces. */}
       <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>

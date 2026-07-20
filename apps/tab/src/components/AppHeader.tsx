@@ -94,7 +94,10 @@ export interface AppHeaderProps {
   /** Display name; from the local profile today, Teams SSO once M3 lands. */
   userName: string;
   onChangeName: (name: string) => void;
+  /** Truthful data status: green when /api/mirror served live Kantata/HubSpot data. */
   live?: boolean;
+  liveLabel?: string;
+  liveDetail?: string;
   onSettings?: () => void;
   onSignOut?: () => void;
 }
@@ -157,7 +160,7 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
   );
 }
 
-export function AppHeader({ userName, onChangeName, live = true, onSettings, onSignOut }: AppHeaderProps) {
+export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onSettings, onSignOut }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
@@ -172,12 +175,10 @@ export function AppHeader({ userName, onChangeName, live = true, onSettings, onS
         </div>
       </div>
       <div style={styles.right}>
-        {live && (
-          <span style={styles.live}>
-            <span style={styles.liveDot} />
-            Live
-          </span>
-        )}
+        <span style={{ ...styles.live, ...(live ? {} : { color: "rgba(255,255,255,0.55)" }) }} title={liveDetail}>
+          <span style={{ ...styles.liveDot, ...(live ? {} : { background: "rgba(255,255,255,0.35)" }) }} />
+          {liveLabel ?? (live ? "Live" : "Demo data")}
+        </span>
         <button type="button" style={styles.iconButton} aria-label="Settings" onClick={onSettings}>
           <GearIcon />
         </button>
