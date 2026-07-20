@@ -399,6 +399,129 @@ function ClientDashboard({ account, tasks }: { account: ClientAccount; tasks: Ta
 }
 
 // ---------------------------------------------------------------------------
+// Review import — the user populates the workspace when THEY choose.
+// Candidates arrive as plain data (guest graph stays clean); nothing lands
+// until "Import selected" is clicked. Existing campaigns are removable here
+// too — the undo for a bad import.
+// ---------------------------------------------------------------------------
+
+export interface ImportCandidate {
+  name: string;
+  status: "active" | "planned" | "complete";
+  nextMilestone?: string;
+  nextMilestoneDate?: string;
+}
+
+function ImportReview({
+  candidates,
+  campaigns,
+  onImport,
+  onRemoveCampaign,
+  onClearCampaigns,
+  onClose,
+}: {
+  candidates: ImportCandidate[];
+  campaigns: ClientAccount["campaigns"];
+  onImport: (selected: ImportCandidate[]) => void;
+  onRemoveCampaign: (campaignId: string) => void;
+  onClearCampaigns: () => void;
+  onClose: () => void;
+}) {
+  const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  const selected = candidates.filter((c) => !deselected.has(c.name));
+  const toggle = (name: string) =>
+    setDeselected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  return (
+    <div style={{ ...card, borderColor: navy, borderWidth: 1.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <SectionTitle>Review import — nothing lands until you say so</SectionTitle>
+        <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {candidates.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "6px 0" }}>
+          Nothing new matched this client in Kantata or HubSpot. If work exists under a different
+          name or abbreviation, fix the HubSpot “Client Abbreviation” field and refresh (⟳ pill,
+          top right).
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>
+            Matched in Kantata &amp; HubSpot — uncheck anything that isn't this client's
+          </div>
+          {candidates.map((c) => (
+            <label
+              key={c.name}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
+            >
+              <input type="checkbox" checked={!deselected.has(c.name)} onChange={() => toggle(c.name)} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink }}>{c.name}</span>
+                <span style={{ fontSize: 11, color: T.inkSecondary }}>
+                  {c.status}
+                  {c.nextMilestone && c.nextMilestoneDate ? ` · next: ${c.nextMilestone} (${fmtDay(c.nextMilestoneDate)})` : ""}
+                </span>
+              </span>
+            </label>
+          ))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={selected.length === 0}
+              onClick={() => {
+                onImport(selected);
+                onClose();
+              }}
+            >
+              Import selected ({selected.length}) →
+            </button>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>
+              Milestones ride along and land on Home &amp; the dashboard.
+            </span>
+          </div>
+        </>
+      )}
+
+      {campaigns.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "16px 0 6px" }}>
+            Already in this workspace
+          </div>
+          {campaigns.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 4px", borderBottom: `1px solid ${T.grid}` }}>
+              <span style={{ flex: 1, fontSize: 12.5, color: T.ink }}>{c.name}</span>
+              <span style={{ fontSize: 11, color: T.inkMuted }}>{c.status}</span>
+              <button type="button" title="Remove this campaign" className="btn btn-danger btn-sm" onClick={() => onRemoveCampaign(c.id)}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ marginTop: 8 }}
+            onClick={() => {
+              if (window.confirm(`Remove all ${campaigns.length} campaigns from this workspace?`)) onClearCampaigns();
+            }}
+          >
+            Remove all ({campaigns.length})
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Weekly digest composer — AI drafts, the account manager approves.
 // Research-backed (docs/research-best-practices.md): AI status drafting is
 // the highest-ROI AI feature in the category, and draft-then-approve is the
@@ -653,15 +776,21 @@ export function ClientWorkspace({
   onAddExternal,
   onRemoveExternal,
   onOffboardEverywhere,
-  onSyncFromMirror,
+  importCandidates = [],
+  onImportCampaigns,
+  onRemoveCampaign,
+  onClearCampaigns,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
   onBack: () => void;
-  /** Refresh campaigns/milestones from the live Kantata+HubSpot mirror. */
-  onSyncFromMirror?: () => void;
+  /** New Kantata/HubSpot matches not yet in this workspace — user-gated. */
+  importCandidates?: ImportCandidate[];
+  onImportCampaigns?: (selected: ImportCandidate[]) => void;
+  onRemoveCampaign?: (campaignId: string) => void;
+  onClearCampaigns?: () => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string) => void;
@@ -671,6 +800,7 @@ export function ClientWorkspace({
   onOffboardEverywhere: (personName: string) => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
+  const [reviewOpen, setReviewOpen] = useState(false);
   // Mirrored internal tasks get a display label so their origin is visible.
   const tasks: Task[] = sharedTasks.map(({ task, fromInternal }) =>
     fromInternal && !task.label ? { ...task, label: "shared from internal plan" } : task,
@@ -684,15 +814,15 @@ export function ClientWorkspace({
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: navy }}>{account.clientName}</h1>
           <TagChip>Client account</TagChip>
-          {onSyncFromMirror && (
+          {onImportCampaigns && (
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={`btn btn-sm ${importCandidates.length > 0 ? "btn-primary" : "btn-secondary"}`}
               style={{ marginLeft: "auto" }}
-              title="Refresh campaign statuses and milestones from Kantata & HubSpot. New campaigns are added; anything created by hand is left alone."
-              onClick={onSyncFromMirror}
+              title="See what matched this client in Kantata & HubSpot and choose what to bring in. Nothing imports until you approve it."
+              onClick={() => setReviewOpen((o) => !o)}
             >
-              ⟳ Sync Kantata &amp; HubSpot
+              Review import{importCandidates.length > 0 ? ` (${importCandidates.length} matched)` : ""}
             </button>
           )}
         </div>
@@ -715,6 +845,17 @@ export function ClientWorkspace({
           })}
         </div>
       </div>
+
+      {reviewOpen && onImportCampaigns && onRemoveCampaign && onClearCampaigns && (
+        <ImportReview
+          candidates={importCandidates}
+          campaigns={account.campaigns}
+          onImport={onImportCampaigns}
+          onRemoveCampaign={onRemoveCampaign}
+          onClearCampaigns={onClearCampaigns}
+          onClose={() => setReviewOpen(false)}
+        />
+      )}
 
       {tab === "home" && <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />}
       {tab === "plan" && (

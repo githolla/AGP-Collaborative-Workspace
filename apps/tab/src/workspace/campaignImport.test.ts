@@ -105,16 +105,71 @@ describe("campaignsFromMirror", () => {
 
   it("uses the workspace-group join as the exact match, overriding title heuristics", () => {
     const m = mirror({
+      clients: [
+        { id: "c1", name: "Harvest Hope Food Bank", vertical: "" },
+        { id: "c2", name: "Other Client Inc", vertical: "" },
+      ],
       projects: [
         // Title mentions a different client entirely — the group join wins.
         { id: "ws-9", title: "Q4 Omnichannel Program", serviceLine: "", vertical: "", model: "", clientGroup: "Harvest Hope Food Bank" },
-        // Grouped under someone else: excluded even though the title matches.
+        // Grouped under a DIFFERENT known client: excluded despite the title.
         { id: "ws-10", title: "Harvest Hope Lookalike Audit", serviceLine: "", vertical: "", model: "", clientGroup: "Other Client Inc" },
       ],
     });
     const out = campaignsFromMirror(m, "Harvest Hope Food Bank", TODAY);
     expect(out).toHaveLength(1);
     expect(out[0]?.name).toBe("Q4 Omnichannel Program");
+  });
+
+  it("CATEGORY groups (owned by no client) fall through to title evidence", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "Harvest Hope Food Bank", vertical: "", abbreviation: "HHFB" }],
+      projects: [
+        { id: "ws-20", title: "HHFB Fall Acquisition", serviceLine: "", vertical: "", model: "", clientGroup: "Direct Mail" },
+        { id: "ws-21", title: "Some Other Org Appeal", serviceLine: "", vertical: "", model: "", clientGroup: "Direct Mail" },
+      ],
+    });
+    const out = campaignsFromMirror(m, "Harvest Hope Food Bank", TODAY);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.name).toBe("HHFB Fall Acquisition");
+  });
+
+  it("REGRESSION: 'CDW Direct' must not claim the Direct Mail category", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "CDW Direct", vertical: "" }],
+      projects: [
+        { id: "ws-30", title: "Fall Direct Mail Program", serviceLine: "", vertical: "", model: "", clientGroup: "Direct Mail" },
+        { id: "ws-31", title: "Year-End Direct Response", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+    expect(campaignsFromMirror(m, "CDW Direct", TODAY)).toHaveLength(0);
+  });
+
+  it("REGRESSION: abbreviation-prefixed titles match ('ARMS: Support 25-26')", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "Arms Foundation of America", vertical: "", abbreviation: "ARMS" }],
+      projects: [{ id: "ws-40", title: "ARMS: Support 25-26 (Aug25-Jul26)", serviceLine: "", vertical: "", model: "" }],
+    });
+    expect(campaignsFromMirror(m, "Arms Foundation of America", TODAY)).toHaveLength(1);
+  });
+
+  it("REGRESSION: short tokens respect boundaries — UPS ≠ sign-ups", () => {
+    const m = mirror({
+      clients: [{ id: "c1", name: "UPS - Agency", vertical: "" }],
+      projects: [{ id: "ws-50", title: "Community Sign-ups Campaign", serviceLine: "", vertical: "", model: "" }],
+    });
+    expect(campaignsFromMirror(m, "UPS - Agency", TODAY)).toHaveLength(0);
+  });
+
+  it("generic sector words never drive a match (university/athletics)", () => {
+    const m = mirror({
+      projects: [{ id: "ws-60", title: "University Athletics Annual Fund", serviceLine: "", vertical: "", model: "" }],
+    });
+    expect(campaignsFromMirror(m, "Syracuse University Athletics", TODAY)).toHaveLength(0);
+    const m2 = mirror({
+      projects: [{ id: "ws-61", title: "Syracuse Fall Appeal", serviceLine: "", vertical: "", model: "" }],
+    });
+    expect(campaignsFromMirror(m2, "Syracuse University Athletics", TODAY)).toHaveLength(1);
   });
 
   it("requires two significant words for multi-word names and accepts them", () => {

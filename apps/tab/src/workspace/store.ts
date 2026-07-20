@@ -645,85 +645,45 @@ export function useWorkspace() {
   }, []);
 
   /**
-   * Create a client workspace straight from the live book of business:
-   * the standard template, plus campaigns imported from this client's
-   * HubSpot deals and Kantata projects — no retyping what the CRM knows.
+   * Create a client workspace from the book of business — the standard
+   * template ONLY. Nothing imports automatically: the user populates the
+   * workspace when THEY choose, through the Review-import panel.
    */
   const createAccountFromMirror = useCallback(
     (clientName: string): string => {
       const id = createAccount(clientName);
-      const imported = campaignsFromMirror(loadMirror(), clientName, AS_OF_TODAY());
-      if (imported.length === 0) {
-        // Say WHY it's blank instead of leaving an empty workspace unexplained.
-        mutateAccount(id, (a) => ({
-          ...a,
-          notifications: [
-            ...a.notifications,
-            {
-              id: newId("n"),
-              text: `No Kantata projects or HubSpot deals matched “${clientName}” yet — this often means Kantata titles use a different name/abbreviation, or the client has no active work. Add campaigns below, or hit ⟳ Sync after fixing the names.`,
-              at: new Date().toISOString(),
-            },
-          ],
-        }));
-      }
-      if (imported.length > 0) {
-        const campaigns = imported.map((c) => ({ ...c, id: newId("cmp") }));
-        mutateAccount(id, (a) => ({
-          ...a,
-          campaigns,
-          notifications: [
-            ...a.notifications,
-            {
-              id: newId("n"),
-              text: `${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"} imported from Kantata & HubSpot for ${clientName} — milestones included.`,
-              at: new Date().toISOString(),
-            },
-          ],
-          activity: [...a.activity, activityEvent(`Campaigns imported from Kantata & HubSpot (${campaigns.length})`, "workspace")],
-        }));
-      }
+      const matched = campaignsFromMirror(loadMirror(), clientName, AS_OF_TODAY()).length;
+      mutateAccount(id, (a) => ({
+        ...a,
+        notifications: [
+          ...a.notifications,
+          {
+            id: newId("n"),
+            text:
+              matched > 0
+                ? `${matched} campaign${matched === 1 ? "" : "s"} matched in Kantata & HubSpot — open “Review import” (top right) to bring in the ones you want.`
+                : `No Kantata projects or HubSpot deals matched “${clientName}” yet — Kantata may use a different name/abbreviation, or the client has no active work.`,
+            at: new Date().toISOString(),
+          },
+        ],
+      }));
       return id;
     },
     [createAccount, mutateAccount],
   );
 
-  /**
-   * Re-sync an existing client workspace against the live mirror: campaign
-   * statuses and milestones refresh from Kantata/HubSpot, new campaigns are
-   * added, manually created ones are left alone. Safe to click any time.
-   */
-  const syncAccountFromMirror = useCallback(
-    (id: string) => {
+  /** Import exactly the campaigns the user selected in the review panel. */
+  const importCampaigns = useCallback(
+    (id: string, selected: { name: string; status: "active" | "planned" | "complete"; nextMilestone?: string; nextMilestoneDate?: string }[]) => {
+      if (selected.length === 0) return;
       mutateAccount(id, (a) => {
-        const imported = campaignsFromMirror(loadMirror(), a.clientName, AS_OF_TODAY());
-        let added = 0;
-        let updated = 0;
         const campaigns = [...a.campaigns];
-        for (const imp of imported) {
+        for (const imp of selected) {
           const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
-          if (idx === -1) {
-            campaigns.push({ ...imp, id: newId("cmp") });
-            added += 1;
-          } else {
-            const existing = campaigns[idx]!;
-            const next = {
-              ...existing,
-              status: imp.status,
-              ...(imp.nextMilestone
-                ? { nextMilestone: imp.nextMilestone, nextMilestoneDate: imp.nextMilestoneDate }
-                : {}),
-            };
-            if (JSON.stringify(next) !== JSON.stringify(existing)) {
-              campaigns[idx] = next;
-              updated += 1;
-            }
-          }
+          if (idx === -1) campaigns.push({ ...imp, id: newId("cmp") });
+          else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id };
         }
-        const summary =
-          added + updated > 0
-            ? `Synced with Kantata & HubSpot — ${added} campaign${added === 1 ? "" : "s"} added, ${updated} updated.`
-            : "Synced with Kantata & HubSpot — already up to date.";
+        const summary = `${selected.length} campaign${selected.length === 1 ? "" : "s"} imported from Kantata & HubSpot — your selection.`;
         return {
           ...a,
           campaigns,
@@ -731,6 +691,33 @@ export function useWorkspace() {
           activity: [...a.activity, activityEvent(summary, "workspace")],
         };
       });
+    },
+    [mutateAccount],
+  );
+
+  /** Remove one campaign (e.g. a wrong import). */
+  const removeCampaign = useCallback(
+    (id: string, campaignId: string) => {
+      mutateAccount(id, (a) => {
+        const gone = a.campaigns.find((c) => c.id === campaignId);
+        return {
+          ...a,
+          campaigns: a.campaigns.filter((c) => c.id !== campaignId),
+          activity: [...a.activity, activityEvent(`Campaign removed — ${gone?.name ?? campaignId}`, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Clear every campaign — the undo for a bad bulk import. */
+  const clearCampaigns = useCallback(
+    (id: string) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        campaigns: [],
+        activity: [...a.activity, activityEvent(`All campaigns removed (${a.campaigns.length}) — re-import from Review import`, "workspace")],
+      }));
     },
     [mutateAccount],
   );
@@ -933,7 +920,9 @@ export function useWorkspace() {
     accounts,
     createAccount,
     createAccountFromMirror,
-    syncAccountFromMirror,
+    importCampaigns,
+    removeCampaign,
+    clearCampaigns,
     addAccountTask,
     setAccountTaskStatus,
     postAccountMessage,

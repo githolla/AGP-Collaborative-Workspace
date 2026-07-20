@@ -377,7 +377,12 @@ export function App() {
             onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
-            onSyncFromMirror={() => ws.syncAccountFromMirror(selectedAccount.id)}
+            importCandidates={campaignsFromMirror(loadMirror(), selectedAccount.clientName, AS_OF_TODAY()).filter(
+              (c) => !selectedAccount.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase()),
+            )}
+            onImportCampaigns={(selected) => ws.importCampaigns(selectedAccount.id, selected)}
+            onRemoveCampaign={(campaignId) => ws.removeCampaign(selectedAccount.id, campaignId)}
+            onClearCampaigns={() => ws.clearCampaigns(selectedAccount.id)}
           />
         )}
 

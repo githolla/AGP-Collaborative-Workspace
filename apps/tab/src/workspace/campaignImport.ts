@@ -24,61 +24,113 @@ export interface ImportedCampaign {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Generic corporate filler that must never drive a match on its own. */
-const STOPWORDS = new Set([
+/** Corporate filler + sector-generic words that must never drive a match:
+ * at an agency serving many food banks and universities, "food", "bank",
+ * "university", "direct", "mail" appear in EVERYONE's titles. Live data
+ * proved this ("CDW Direct" claiming the whole Direct Mail category). */
+const NON_MATCH_WORDS = new Set([
   "the", "of", "and", "for", "inc", "llc", "corp", "org", "assn", "co",
-  "foundation", "association", "society", "group", "fund", "trust",
+  "foundation", "association", "society", "group", "groups", "fund", "trust",
+  "university", "college", "athletics", "direct", "mail", "mailing",
+  "marketing", "agency", "media", "digital", "partners", "service", "services",
+  "resources", "international", "national", "company", "institute",
+  "ministries", "ministry", "health", "hospital", "medical", "community",
+  "center", "centre", "church", "charity", "charities", "food", "bank",
+  "banks", "more",
 ]);
 
 const significantWords = (name: string): string[] =>
   name
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+    .filter((w) => w.length >= 4 && !NON_MATCH_WORDS.has(w));
 
-/** ALL-CAPS tokens like "KPBX" or "AGP" are near-unique identifiers. */
+/** ALL-CAPS tokens like "KPBX", "ARMS", "UPS" — near-unique identifiers. */
 const distinctiveTokens = (name: string): string[] =>
   name.split(/[^A-Za-z0-9]+/).filter((w) => w.length >= 3 && w === w.toUpperCase() && /[A-Z]/.test(w)).map((w) => w.toLowerCase());
 
 /**
- * Does a Kantata project title belong to this client? Matching, strongest
- * first: the client's HubSpot abbreviation (client_abbreviation__c — how
- * agencies actually name projects), the full client name, an ALL-CAPS
- * identifier token, or at least two significant name words (one suffices
- * only when the name HAS only one) — so "University of the Southwest" never
- * claims "University of Illinois" work. The real join (Kantata workspace
- * groups ↔ HubSpot company) replaces this heuristic when the tenant
- * grounding doc lands (BLOCKERS #1).
+ * Token-boundary containment. Hyphens deliberately do NOT count as
+ * boundaries so "UPS" can't match inside "sign-ups"; "ARMS:" and "(ARMS)"
+ * do match — AGP's live convention prefixes titles with the client
+ * abbreviation ("ARMS: Support 25-26", "PATNC: Ongoing Support").
+ */
+const containsToken = (text: string, token: string): boolean =>
+  new RegExp(`(^|[^A-Za-z0-9-])${escapeRe(token)}([^A-Za-z0-9-]|$)`, "i").test(text);
+
+/**
+ * Does a Kantata project title belong to this client? Strongest first:
+ * 1. HubSpot client abbreviation as a bounded token (the live convention).
+ * 2. The full client name appearing in the title.
+ * 3. An ALL-CAPS identifier token from the name, bounded.
+ * 4. Distinctive name words — two or more, or exactly one when the name
+ *    only HAS one (≥5 chars). Sector-generic words never count.
+ * Live-data lesson: without the boundaries and the generic-word guard,
+ * "CDW Direct" matched 147 unrelated projects.
  */
 function projectBelongsToClient(title: string, clientName: string, abbreviation?: string): boolean {
-  const t = title.toLowerCase();
-  if (abbreviation && abbreviation.trim().length >= 2 && t.includes(abbreviation.trim().toLowerCase())) return true;
-  if (t.includes(clientName.toLowerCase())) return true;
-  if (distinctiveTokens(clientName).some((tok) => t.includes(tok))) return true;
+  const abbr = abbreviation?.trim();
+  if (abbr && abbr.length >= 2 && containsToken(title, abbr)) return true;
+  if (title.toLowerCase().includes(clientName.toLowerCase())) return true;
+  if (distinctiveTokens(clientName).some((tok) => containsToken(title, tok))) return true;
   const words = significantWords(clientName);
-  const hits = words.filter((w) => t.includes(w)).length;
-  return words.length === 1 ? hits === 1 : hits >= 2;
+  const hits = words.filter((w) => containsToken(title, w)).length;
+  return words.length === 1 ? hits === 1 && (words[0]?.length ?? 0) >= 5 : hits >= 2;
 }
 
 /** Loose equality for the group↔company join: case/punctuation-insensitive. */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+/**
+ * A group strictly belongs to a client when it IS the client name, contains
+ * the full client name, or equals the client's abbreviation. Never the
+ * reverse — live data showed AGP's groups can be CATEGORIES ("Direct Mail"),
+ * and letting "CDW Direct" claim the "Direct" category imported 147 wrong
+ * projects into one workspace.
+ */
+function groupOwnedBy(group: string, clientName: string, abbreviation?: string): boolean {
+  const g = normName(group);
+  const n = normName(clientName);
+  if (g.length === 0) return false;
+  if (g === n || g.includes(n)) return true;
+  const abbr = abbreviation?.trim();
+  return !!abbr && abbr.length >= 2 && g === normName(abbr);
+}
+
+/** Per-mirror memo: which client (if any) strictly owns each project's group. */
+const ownerCache = new WeakMap<AgpMirror, Map<string, string | null>>();
+function groupOwners(mirror: AgpMirror): Map<string, string | null> {
+  const cached = ownerCache.get(mirror);
+  if (cached) return cached;
+  const owners = new Map<string, string | null>();
+  for (const p of mirror.projects) {
+    if (!p.clientGroup) {
+      owners.set(p.id, null);
+      continue;
+    }
+    const matches = mirror.clients.filter((c) => groupOwnedBy(p.clientGroup!, c.name, c.abbreviation));
+    // Exactly one owner = trustworthy; zero or ambiguous = category group.
+    owners.set(p.id, matches.length === 1 ? matches[0]!.name : null);
+  }
+  ownerCache.set(mirror, owners);
+  return owners;
+}
+
 export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
   const client = mirror.clients.find((c) => c.name === clientName);
   const abbreviation = client?.abbreviation;
-  const wanted = normName(clientName);
+  const owners = groupOwners(mirror);
 
-  // Exact join first (workspace group ↔ company); heuristics only for
-  // projects with no group.
-  const groupMatches = (p: (typeof mirror.projects)[number]): boolean | null => {
-    if (!p.clientGroup) return null;
-    const g = normName(p.clientGroup);
-    return g === wanted || g.includes(wanted) || wanted.includes(g) ||
-      (!!abbreviation && normName(abbreviation) === g);
+  const belongs = (p: (typeof mirror.projects)[number]): boolean => {
+    const owner = p.clientGroup ? owners.get(p.id) ?? null : null;
+    if (owner === clientName) return true; // exact join
+    if (owner !== null) return false; // strictly someone else's
+    // Category/no group → title evidence decides.
+    return projectBelongsToClient(p.title, clientName, abbreviation);
   };
 
   const fromProjects: ImportedCampaign[] = mirror.projects
-    .filter((p) => groupMatches(p) ?? projectBelongsToClient(p.title, clientName, abbreviation))
+    .filter(belongs)
     .map((p) => {
       const upcoming = mirror.milestones
         .filter((m) => m.projectId === p.id && m.state !== "completed" && m.dueDate >= today)

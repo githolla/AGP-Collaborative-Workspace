@@ -71,8 +71,8 @@ function BookOfBusiness({
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add clients from your book of business</div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
-            One click builds the standard workspace and imports that client's Kantata projects and
-            HubSpot campaigns — milestones included, nothing retyped.
+            Set up the standard workspace, then choose what to import from Kantata &amp; HubSpot —
+            nothing lands without your review.
           </div>
         </div>
         <span
@@ -91,7 +91,7 @@ function BookOfBusiness({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-        {viewChip("ready", `Ready to import (${readyCount})`)}
+        {viewChip("ready", `With matched work (${readyCount})`)}
         {viewChip("clients", `Active clients (${clientCount})`)}
         {viewChip("all", `All (${candidates.length})`)}
         <input
@@ -119,61 +119,59 @@ function BookOfBusiness({
           {needle ? `No companies match “${q}”.` : "Nothing in this view yet."}
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
-            gap: "0 24px",
-            marginTop: 8,
-          }}
-        >
-          {shown.map((c) => {
-            const work = c.workCount ?? 0;
-            return (
-              <div
-                key={c.name}
-                className="table-row-hover"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "9px 6px",
-                  borderBottom: `1px solid ${T.grid}`,
-                  borderRadius: 6,
-                }}
-              >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: T.ink, lineHeight: 1.35 }}>
-                    {c.name}
-                  </span>
-                  <span style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
-                    {work > 0 ? (
-                      <span style={{ fontSize: 10, fontWeight: 800, color: "#0b3c6e", background: "#e8f0f9", borderRadius: 999, padding: "1.5px 8px" }}>
-                        {work} campaign{work === 1 ? "" : "s"} ready
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 10, fontWeight: 600, color: T.inkMuted }}>nothing to import yet</span>
-                    )}
-                    {c.lifecycleStage === "customer" && (
-                      <span style={{ fontSize: 10, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                        Client
-                      </span>
-                    )}
-                    {c.vertical && <TagChip>{pretty(c.vertical)}</TagChip>}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${work > 0 ? "btn-primary" : "btn-secondary"}`}
-                  style={{ flexShrink: 0 }}
-                  onClick={() => onCreate(c.name)}
-                >
-                  {work > 0 ? `Create + import ${work} →` : "Create blank →"}
-                </button>
+        // Divided by vertical — sections instead of one bunched grid.
+        (() => {
+          const sections = new Map<string, ClientCandidate[]>();
+          for (const c of shown) {
+            const key = c.vertical ? pretty(c.vertical) : "Other";
+            sections.set(key, [...(sections.get(key) ?? []), c]);
+          }
+          const ordered = [...sections.entries()].sort(
+            (a, b) => (a[0] === "Other" ? 1 : b[0] === "Other" ? -1 : b[1].length - a[1].length || a[0].localeCompare(b[0])),
+          );
+          return ordered.map(([sectionName, rows]) => (
+            <div key={sectionName} style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6, paddingBottom: 4, borderBottom: `2px solid ${T.grid}` }}>
+                {sectionName} ({rows.length})
               </div>
-            );
-          })}
-        </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "0 28px" }}>
+                {rows.map((c) => {
+                  const work = c.workCount ?? 0;
+                  return (
+                    <div
+                      key={c.name}
+                      className="table-row-hover"
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 6px", borderBottom: `1px solid ${T.grid}`, borderRadius: 6 }}
+                    >
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: T.ink, lineHeight: 1.35 }}>
+                          {c.name}
+                        </span>
+                        <span style={{ display: "flex", gap: 5, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
+                          {c.lifecycleStage === "customer" && (
+                            <span style={{ fontSize: 10, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                              Client
+                            </span>
+                          )}
+                          {work > 0 ? (
+                            <span style={{ fontSize: 10.5, color: T.inkSecondary }}>
+                              {work} campaign{work === 1 ? "" : "s"} found — you choose what imports
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10.5, color: T.inkMuted }}>no matched work yet</span>
+                          )}
+                        </span>
+                      </span>
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ flexShrink: 0 }} onClick={() => onCreate(c.name)}>
+                        Set up workspace →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ));
+        })()
       )}
 
       {filtered.length > shown.length && (
