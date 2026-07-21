@@ -275,6 +275,26 @@ describe("mapLivePayload", () => {
     expect(aww?.abbreviation).toBe("AWW"); // acronym kept for matching
   });
 
+  it("folds fiscal-year / campaign codes and legal suffixes into one client", () => {
+    const mirror = mapLivePayload(
+      payload({
+        companies: [],
+        kantataProjects: [
+          { id: "1", title: "Feeding Forward FY26: Spring Appeal" },
+          { id: "2", title: "Feeding Forward FY27: Fall Acquisition" },
+          { id: "3", title: "Feeding Forward 2025-26: Sustainer Push" },
+          { id: "4", title: "Riverside Mission, Inc.: Year-End" },
+          { id: "5", title: "Riverside Mission: Gala" },
+          { id: "6", title: "Harbor Youth Alliance: Kickoff" }, // distinct client, untouched
+        ],
+      }),
+    );
+    const names = mirror.clients.map((c) => c.name).sort();
+    // Three FY variants → one Feeding Forward; the ", Inc." variant → one
+    // Riverside Mission (legal suffix dropped from the display name too).
+    expect(names).toEqual(["Feeding Forward", "Harbor Youth Alliance", "Riverside Mission"]);
+  });
+
   it("returns an empty mirror for an empty payload", () => {
     const mirror = mapLivePayload(payload({}));
     expect(mirror.clients).toHaveLength(0);

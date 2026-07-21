@@ -1,5 +1,5 @@
 import { setMirrorOverride, type AgpMirror, type MirrorClient } from "./agpKnowledge.js";
-import { autoAbbreviation, initialism } from "./campaignImport.js";
+import { autoAbbreviation, initialism, stripCorpSuffix } from "./campaignImport.js";
 
 /**
  * Live mirror: the browser-side half of /api/mirror. On boot the app asks
@@ -42,7 +42,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 9; // 9: verbatim titles no longer count as clients; acronym duplicates merged
+const CACHE_SCHEMA = 10; // 10: dedup by legal-suffix + trailing fiscal-year/campaign code
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -62,6 +62,24 @@ export const isInternalTitle = (title: string): boolean => /^agency\b/i.test(str
 
 const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const TITLE_SEP = /\s+[—–|]\s+|\s+-\s+/;
+
+/**
+ * Strip a TRAILING fiscal-year / campaign code from a client prefix, so
+ * "Acme FY26" / "Acme FY27" / "Acme 2025-26" / "Acme Q3" all resolve to the
+ * one client "Acme". Agencies routinely encode the cycle in the project
+ * prefix; without this each cycle looks like a new client. Trailing only —
+ * a leading year ("2025 Gala") is part of the name and left alone.
+ */
+const CAMPAIGN_CODE = /\s*[-–—|,]?\s*(fy\s?['’]?\d{2,4}(?:[-/]\d{2,4})?|q[1-4](?:\s?fy?\s?['’]?\d{2,4})?|(?:19|20)\d{2}(?:\s?[-/–]\s?(?:19|20)?\d{2})?|['’]\d{2}(?:[-/]\d{2})?|\d{2}\s?[-/–]\s?\d{2})\s*$/i;
+export function stripCampaignCode(name: string): string {
+  let n = name.trim();
+  for (let i = 0; i < 3; i += 1) {
+    const next = n.replace(CAMPAIGN_CODE, "").trim();
+    if (next === n || next.length < 2) break;
+    n = next;
+  }
+  return n || name.trim();
+}
 
 /**
  * Classify ONE workspace title into the client it belongs to and HOW that was
@@ -100,13 +118,18 @@ export function classifyClientTitle(raw: string): TitleClass {
  */
 function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   const byKey = new Map<string, MirrorClient>();
-  const add = (name: string, abbreviation: string | undefined, vertical: string) => {
+  const add = (rawName: string, abbreviation: string | undefined, vertical: string) => {
+    // Canonical display name: drop the legal suffix so "Acme, Inc." and "Acme"
+    // are ONE client (both by key and on screen) — a common inflation source.
+    const name = stripCorpSuffix(rawName).trim() || rawName.trim();
     const key = normKey(name);
     if (!key || key.length < 2 || key === "agency") return;
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.vertical && vertical) existing.vertical = vertical;
       if (!existing.abbreviation && abbreviation) existing.abbreviation = abbreviation;
+      // Prefer the fuller display name (keeps "Acme Health" over "Acme").
+      if (name.length > existing.name.length) existing.name = name;
       return;
     }
     byKey.set(key, {
@@ -123,12 +146,15 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   };
 
   for (const w of p.kantataProjects) {
-    const cls = classifyClientTitle(str(w.title));
+    const raw = classifyClientTitle(str(w.title));
     // A client is a named prefix — colon (the AGP convention) or a dash
     // separator. VERBATIM titles (no convention) are NOT clients: they're
     // project titles, and counting them inflates the directory. They stay in
     // the project list (findable via the Project Finder), just uncounted.
-    if (cls.via !== "colon" && cls.via !== "dash") continue;
+    if (raw.via !== "colon" && raw.via !== "dash") continue;
+    // Strip a trailing fiscal-year / campaign code so "Acme FY26" and
+    // "Acme FY27" are ONE client — the biggest source of prefix inflation.
+    const cls = { via: raw.via, client: stripCampaignCode(raw.client) };
     const vertical = verticalFor(String(w.id));
     // A short single-token colon prefix IS the abbreviation ("ARMS"); a longer
     // one gets a derived acronym. Dash clients carry no abbreviation.
