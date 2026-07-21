@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { T } from "../theme.js";
 import { KantataChip, SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
@@ -12,15 +12,11 @@ export interface DirectoryRow {
   vertical?: string;
   /** Live Kantata projects attributed to this client. */
   liveProjects: number;
-  /** Matched Kantata work not yet imported — drives the "Needs review" filter. */
-  waiting: number;
   nextMilestone?: string;
   nextMilestoneDate?: string;
   /** Present when a workspace already exists for this client. */
   accountId?: string;
 }
-
-type DirFilter = "all" | "review" | "no-workspace" | "has-workspace";
 
 /** A CRM client that doesn't have a workspace yet — passed in as plain data. */
 export interface ClientCandidate {
@@ -277,152 +273,126 @@ export function ClientList({
   onCreateFromClient?: (clientName: string) => void;
 }) {
   const [name, setName] = useState("");
+  const [mode, setMode] = useState<"cards" | "list">("cards");
   const today = AS_OF_TODAY();
 
-  // A manager opens this page to triage, not to browse — so it's a work
-  // queue: what needs action → what's in flight → the quiet ones, small.
-  // (The old "top 10 by weight + more" put empty shells in big cards.)
-  const DAY = 86_400_000;
-  const soonCutoff = new Date(new Date(`${today}T00:00:00Z`).getTime() + 7 * DAY).toISOString().slice(0, 10);
-  const triage = (a: ClientAccount) => {
-    const open = a.tasks.filter((t) => t.status !== "done");
-    const overdue = open.filter((t) => t.due && t.due < today).length;
-    const dueSoon = open.filter((t) => t.due && t.due >= today && t.due <= soonCutoff).length;
-    const waiting = pulse[a.clientName]?.waiting ?? 0;
-    const hasWork = a.campaigns.length + open.length + a.thread.length + a.externals.length > 0;
-    const needs = overdue > 0 || waiting > 0 || dueSoon > 0;
-    // Overdue outranks waiting-import outranks due-soon; ties by campaign volume.
-    const urgency = overdue * 1000 + waiting * 100 + dueSoon * 10 + a.campaigns.length;
-    return { a, needs, empty: !hasWork && waiting === 0, urgency };
-  };
-  const triaged = accounts.map(triage);
-  const needsYou = triaged.filter((t) => t.needs).sort((x, y) => y.urgency - x.urgency);
-  const active = triaged.filter((t) => !t.needs && !t.empty).sort((x, y) => y.urgency - x.urgency);
-  const quiet = triaged.filter((t) => t.empty).sort((x, y) => x.a.clientName.localeCompare(y.a.clientName));
+  // Heroes first: the 10 busiest client workspaces as rich cards — the
+  // accounts Cara actually lives in. Everything past 10 collapses to
+  // compact rows; the searchable, categorized book of business follows.
+  const weight = (a: ClientAccount) => a.campaigns.length + a.tasks.length + a.thread.length + a.externals.length;
+  const sorted = [...accounts].sort((a, b) => weight(b) - weight(a) || a.clientName.localeCompare(b.clientName));
+  const heroes = sorted.slice(0, 10);
+  const rest = sorted.slice(10);
 
-  const cardGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 };
-  const sectionHead = (label: string, n: number, color: string) => (
-    <div style={{ fontSize: 11, fontWeight: 800, color, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
-      {label} ({n})
-    </div>
+  const modeChip = (key: "cards" | "list", label: string) => (
+    <button
+      type="button"
+      className={`chip-pick${mode === key ? " active" : ""}`}
+      aria-pressed={mode === key}
+      onClick={() => setMode(key)}
+    >
+      {label}
+    </button>
   );
 
-  const workspaceCards = [...needsYou, ...active];
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* ───────────── Your active workspaces — the accounts you're working,
-          separate and on top. Needs-your-attention first, then active. ───── */}
-      {workspaceCards.length > 0 && (
-        <div>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: T.ink }}>
-              Your workspaces <span style={{ color: T.inkMuted, fontWeight: 600 }}>({accounts.length})</span>
-            </h2>
-            {onClearAll && (
-              <button
-                type="button"
-                className="btn-link"
-                style={{ fontSize: 11.5, color: T.status.critical }}
-                title="Archive every workspace to start clean — history is retained and each is restorable from Archived."
-                onClick={() => {
-                  if (window.confirm(`Archive all ${accounts.length} workspace${accounts.length === 1 ? "" : "s"} to start clean? They move to Archived (restorable). This affects the shared team workspace.`)) {
-                    onClearAll();
-                  }
-                }}
-              >
-                Clear all workspaces
-              </button>
-            )}
-          </div>
-          {needsYou.length > 0 && (
-            <div style={{ marginBottom: active.length > 0 ? 14 : 0 }}>
-              {sectionHead("Needs your attention", needsYou.length, T.status.critical)}
-              <div style={cardGrid}>
-                {needsYou.map((t) => (
-                  <HeroCard key={t.a.id} account={t.a} today={today} pulse={pulse[t.a.clientName]} onOpen={() => onOpen(t.a.id)} />
-                ))}
-              </div>
-            </div>
-          )}
-          {active.length > 0 && (
-            <div>
-              {sectionHead("Active", active.length, T.roi.navy)}
-              <div style={cardGrid}>
-                {active.map((t) => (
-                  <HeroCard key={t.a.id} account={t.a} today={today} pulse={pulse[t.a.clientName]} onOpen={() => onOpen(t.a.id)} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Quiet set-up workspaces (no matched work) live only in the roster
-          below under "Has workspace" — a one-line pointer keeps them findable
-          without cluttering the working set. */}
-      {workspaceCards.length > 0 && quiet.length > 0 && (
-        <div style={{ fontSize: 11.5, color: T.inkMuted }}>
-          + {quiet.length} set-up workspace{quiet.length === 1 ? "" : "s"} with no matched work yet — in the roster below (filter “Has workspace”).
-        </div>
-      )}
-
-      {/* ───────────── All clients — one filterable, searchable roster. The
-          buttons separate them the way a manager triages; search finds one. ─ */}
-      {directory.length > 0 ? (
-        <ClientDirectory
-          rows={directory}
-          live={candidatesLive}
-          {...(directoryStats ? { stats: directoryStats } : {})}
-          onOpen={onOpen}
-          onCreate={onCreateFromClient ?? onCreate}
-        />
-      ) : (
-        accounts.length === 0 && (
-          <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", maxWidth: 460 }}>
-            <SectionTitle>New client workspace</SectionTitle>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Client name, e.g. “Riverside Food Bank”" className="input" />
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Cards (the busy-client heroes) vs a sortable directory of everyone. */}
+      {(directory.length > 0 || accounts.length > 0) && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {directory.length > 0 && modeChip("cards", "Cards")}
+          {directory.length > 0 && modeChip("list", `All clients — list (${directory.length})`)}
+          {onClearAll && accounts.length > 0 && (
             <button
               type="button"
-              disabled={!name.trim()}
+              className="btn-link"
+              style={{ marginLeft: "auto", fontSize: 11.5, color: T.status.critical }}
+              title="Archive every workspace to start clean — history is retained and each is restorable from Archived."
               onClick={() => {
-                onCreate(name.trim());
-                setName("");
+                if (window.confirm(`Archive all ${accounts.length} workspace${accounts.length === 1 ? "" : "s"} to start clean? They move to Archived (restorable). This affects the shared team workspace.`)) {
+                  onClearAll();
+                }
               }}
-              className="btn btn-primary"
             >
-              Create from the standard template
+              Clear all workspaces
             </button>
-          </div>
-        )
+          )}
+        </div>
       )}
 
-      {/* Client that isn't in Kantata yet — manual create, folded small. */}
-      {directory.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: T.inkSecondary, flexWrap: "wrap" }}>
-          <span>Someone not in Kantata yet?</span>
+      {mode === "list" && directory.length > 0 && (
+        <ClientDirectory rows={directory} live={candidatesLive} {...(directoryStats ? { stats: directoryStats } : {})} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
+      )}
+
+      {mode === "cards" && heroes.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+          {heroes.map((a) => (
+            <HeroCard key={a.id} account={a} today={today} pulse={pulse[a.clientName]} onOpen={() => onOpen(a.id)} />
+          ))}
+        </div>
+      )}
+
+      {mode === "cards" && rest.length > 0 && (
+        <div className="card" style={{ padding: "4px 18px" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 4px 4px" }}>
+            More workspaces ({rest.length})
+          </div>
+          {rest.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onOpen(a.id)}
+              className="table-row-hover"
+              style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "9px 4px", cursor: "pointer", borderRadius: 6 }}
+            >
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.roi.navy }}>{a.clientName}</span>
+              {(pulse[a.clientName]?.waiting ?? 0) > 0 && (
+                <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  ⚡ {pulse[a.clientName]!.waiting} matched
+                </span>
+              )}
+              <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap" }}>Open ›</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Manual creation lives in the book-of-business footer when the CRM
+          list is present; this card is the fallback without one. */}
+      {mode === "cards" && (candidates.length === 0 || !onCreateFromClient) && (
+        <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", maxWidth: 460 }}>
+          <SectionTitle>New client workspace</SectionTitle>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Client name…"
+            placeholder="Client name, e.g. “Riverside Food Bank”"
             className="input"
-            style={{ flex: 1, minWidth: 220, maxWidth: 360, fontSize: 12.5, padding: "7px 11px" }}
           />
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
             disabled={!name.trim()}
             onClick={() => {
               onCreate(name.trim());
               setName("");
             }}
+            className="btn btn-primary"
           >
             Create from the standard template
           </button>
+          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
+            Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
+            the four core documents, discussions, and access control. Consistency is the template.
+          </div>
         </div>
       )}
 
-      {archivedAccounts.length > 0 && <ArchivedList accounts={archivedAccounts} onRestore={onRestore} />}
+      {mode === "cards" && candidates.length > 0 && onCreateFromClient && (
+        <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
+      )}
+
+      {archivedAccounts.length > 0 && (
+        <ArchivedList accounts={archivedAccounts} onRestore={onRestore} />
+      )}
     </div>
   );
 }
@@ -452,21 +422,14 @@ function ClientDirectory({
   onCreate: (name: string) => void;
 }) {
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<DirFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("liveProjects");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [copied, setCopied] = useState(false);
 
-  const nReview = rows.filter((r) => r.waiting > 0).length;
-  const nNoWs = rows.filter((r) => !r.accountId).length;
-  const nHasWs = rows.filter((r) => r.accountId).length;
-
   const needle = q.trim().toLowerCase();
-  const filtered = rows
-    .filter((r) =>
-      filter === "review" ? r.waiting > 0 : filter === "no-workspace" ? !r.accountId : filter === "has-workspace" ? !!r.accountId : true,
-    )
-    .filter((r) => !needle || r.name.toLowerCase().includes(needle) || (r.vertical ?? "").toLowerCase().includes(needle));
+  const filtered = rows.filter(
+    (r) => !needle || r.name.toLowerCase().includes(needle) || (r.vertical ?? "").toLowerCase().includes(needle),
+  );
   const sorted = [...filtered].sort((a, b) => {
     let d = 0;
     switch (sortKey) {
@@ -564,30 +527,11 @@ function ClientDirectory({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search clients…"
+            placeholder="Filter by name or vertical…"
             className="input"
             style={{ maxWidth: 240 }}
           />
         </span>
-      </div>
-      {/* Quick segments — separate the roster by what a manager acts on. */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "10px 16px", borderBottom: `1px solid ${T.grid}` }}>
-        {([
-          ["all", `All (${rows.length})`],
-          ["review", `Needs review (${nReview})`],
-          ["no-workspace", `No workspace (${nNoWs})`],
-          ["has-workspace", `Has workspace (${nHasWs})`],
-        ] as [DirFilter, string][]).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={`chip-pick${filter === key ? " active" : ""}`}
-            aria-pressed={filter === key}
-            onClick={() => setFilter(key)}
-          >
-            {label}
-          </button>
-        ))}
       </div>
       <div style={{ overflowX: "auto", maxHeight: 620, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>

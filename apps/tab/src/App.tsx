@@ -294,7 +294,6 @@ export function App() {
       name: string;
       vertical?: string;
       liveProjects: number;
-      waiting: number;
       nextMilestone?: string;
       nextMilestoneDate?: string;
       accountId?: string;
@@ -312,17 +311,10 @@ export function App() {
           }
         }
       }
-      // Matched Kantata work not yet imported — for an account, its pulse;
-      // for a client with no workspace, everything matched is "waiting".
-      const matched = campaignsFromMirror(mirror, name, today, account?.kantataProjectIds);
-      const waiting = account
-        ? matched.filter((c) => !account.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase())).length
-        : matched.length;
       rows.push({
         name,
         ...(vertical ? { vertical } : {}),
         liveProjects: ctx.projects.length,
-        waiting,
         ...(nextMilestone ? { nextMilestone } : {}),
         ...(nextMilestoneDate ? { nextMilestoneDate } : {}),
         ...(account ? { accountId: account.id } : {}),
