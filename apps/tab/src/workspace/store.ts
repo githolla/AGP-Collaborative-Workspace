@@ -58,12 +58,24 @@ function migrateInitiative(i: Initiative): Initiative {
   };
 }
 
+/** Kantata-only (ADR 0008): saved notifications/activity written in the
+ * HubSpot era get their wording scrubbed on load — stored text shouldn't
+ * contradict the product. */
+const scrubHubSpot = (t: string) => t.replace(/Kantata\s*&\s*HubSpot|HubSpot\s*&\s*Kantata/g, "Kantata");
+function migrateAccount(a: ClientAccount): ClientAccount {
+  return {
+    ...a,
+    notifications: (a.notifications ?? []).map((n) => ({ ...n, text: scrubHubSpot(n.text) })),
+    activity: (a.activity ?? []).map((ev) => ({ ...ev, text: scrubHubSpot(ev.text) })),
+  };
+}
+
 /** Apply per-field migrations to any state document (local or shared). */
 function migrateState(parsed: Partial<PersistedState>): PersistedState {
   return {
     initiatives: (Array.isArray(parsed.initiatives) ? parsed.initiatives : []).map(migrateInitiative),
     ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
-    accounts: Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts(),
+    accounts: (Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts()).map(migrateAccount),
   };
 }
 
@@ -668,8 +680,8 @@ export function useWorkspace() {
             id: newId("n"),
             text:
               matched > 0
-                ? `${matched} campaign${matched === 1 ? "" : "s"} matched in Kantata & HubSpot — open “Review import” (top right) to bring in the ones you want.`
-                : `No Kantata projects or HubSpot deals matched “${clientName}” yet — Kantata may use a different name/abbreviation, or the client has no active work.`,
+                ? `${matched} campaign${matched === 1 ? "" : "s"} matched in Kantata — open “Review import” (top right) to bring in the ones you want.`
+                : `No Kantata projects matched “${clientName}” yet — Kantata may use a different name/abbreviation, or the client has no active work.`,
             at: new Date().toISOString(),
           },
         ],
@@ -690,7 +702,7 @@ export function useWorkspace() {
           if (idx === -1) campaigns.push({ ...imp, id: newId("cmp") });
           else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id };
         }
-        const summary = `${selected.length} campaign${selected.length === 1 ? "" : "s"} imported from Kantata & HubSpot — your selection.`;
+        const summary = `${selected.length} campaign${selected.length === 1 ? "" : "s"} imported from Kantata — your selection.`;
         return {
           ...a,
           campaigns,

@@ -180,7 +180,7 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
         <button
           type="button"
           onClick={onRefreshData}
-          title={`${liveDetail ?? ""}${onRefreshData ? " — click to refresh from HubSpot & Kantata now" : ""}`}
+          title={`${liveDetail ?? ""}${onRefreshData ? " — click to refresh from Kantata now" : ""}`}
           style={{
             ...styles.live,
             ...(live ? {} : { color: "rgba(255,255,255,0.55)" }),

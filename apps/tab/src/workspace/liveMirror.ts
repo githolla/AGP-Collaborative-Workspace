@@ -238,7 +238,7 @@ function statusFrom(p: RawMirrorPayload, cached: boolean): LiveStatus {
     return {
       live: false,
       label: "Demo data",
-      detail: `HubSpot: ${p.sources.hubspot.note || "off"} · Kantata: ${p.sources.kantata.note || "off"}`,
+      detail: `Kantata: ${p.sources.kantata.note || "off"}`,
     };
   }
   // Kantata-only: HubSpot appears in the label only for legacy cached
@@ -321,6 +321,6 @@ export async function refreshLiveMirror(onStatus: (s: LiveStatus) => void): Prom
   } catch {
     // storage unavailable — the fresh fetch still applies in memory
   }
-  onStatus({ live: false, label: "Refreshing…", detail: "re-pulling HubSpot & Kantata" });
+  onStatus({ live: false, label: "Refreshing…", detail: "re-pulling Kantata" });
   await initLiveMirror(onStatus, { fresh: true });
 }
