@@ -42,7 +42,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 7; // 7: milestone pull windowed around today + focus deepen — pre-7 caches carry the wrong milestone slice
+const CACHE_SCHEMA = 8; // 8: client list = title-prefix-before-colon, "Agency:" internal projects dropped
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -50,20 +50,31 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** Leading project code ("25-031 Syracuse Fall") — not client identity. */
+const stripCode = (title: string): string => title.replace(/^\s*\d[\d.-]*\s+/, "").trim();
+
 /**
- * Kantata-only client derivation (ADR 0008 addendum): AGP's other systems
- * run on Kantata data alone, and the client is encoded in conventions —
- * a title prefix ("ARMS: Support 25-26"), a full-name title ("Harvest Hope
- * Food Bank — Fall Mail"), or a group carrying a company name. Every
- * derived client is active by construction: it exists because live
- * projects reference it.
+ * Internal AGP work, not a client: the "Agency:" title prefix (AGP's stated
+ * convention). Dropped from the client list AND the project list — it isn't
+ * delivery for an outside client.
+ */
+export const isInternalTitle = (title: string): boolean => /^agency\b/i.test(stripCode(str(title)));
+
+/**
+ * Kantata-only client derivation — AGP's stated convention (2026-07): take
+ * the active (non-archived) workspaces, DROP the internal "Agency:" projects,
+ * and group everything left by the title prefix before the colon
+ * ("ARMS: Support 25-26" → ARMS). Titles with no colon fall back to a
+ * separator split, then verbatim, so no active project is ever invisible.
+ * Every derived client is active by construction — it exists because a live
+ * project references it.
  */
 function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   const byKey = new Map<string, MirrorClient>();
   const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const add = (name: string, abbreviation: string | undefined, vertical: string) => {
     const key = normKey(name);
-    if (!key || key.length < 2) return;
+    if (!key || key.length < 2 || key === "agency") return;
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.vertical && vertical) existing.vertical = vertical;
@@ -83,50 +94,35 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
     return str(fieldsFor.find((f) => /vertical|industry/i.test(str(f.name)))?.value);
   };
 
-  // PRIMARY: workspace groups that are client records. The tenant census
-  // proved groups carry company/contact_name/email — those ARE clients
-  // (the bare-named ones are service categories and are skipped).
-  for (const g of p.kantataGroups ?? []) {
-    const isClientRecord = str(g.company) || str(g.contact_name) || str(g.email);
-    if (!isClientRecord) continue;
-    const name = str(g.company) || str(g.name);
-    const firstWs = Array.isArray(g.workspace_ids) ? String((g.workspace_ids as unknown[])[0] ?? "") : "";
-    // A legal-name client ("American Water Works Company, Inc.") gets a clean
-    // acronym ("AWW") so projects titled "AWW: …" auto-match — otherwise it
-    // can only be linked by hand.
-    add(name, autoAbbreviation(name), firstWs ? verticalFor(firstWs) : "");
-  }
-
-  // SECONDARY: title conventions for projects no client group covers.
-  const covered = new Set<string>();
-  for (const g of p.kantataGroups ?? []) {
-    if (!(str(g.company) || str(g.contact_name) || str(g.email))) continue;
-    for (const id of Array.isArray(g.workspace_ids) ? (g.workspace_ids as unknown[]).map(String) : []) covered.add(id);
-  }
   for (const w of p.kantataProjects) {
-    const id = String(w.id);
-    if (covered.has(id)) continue;
-    // Leading project codes ("25-031 Syracuse Fall") aren't client identity —
-    // strip them before parsing conventions.
-    const title = str(w.title).replace(/^\s*\d[\d.-]*\s+/, "");
-    const vertical = verticalFor(id);
-    // Abbreviation prefix — "ARMS: Support 25-26".
-    const prefix = /^\s*([A-Z][A-Za-z0-9&'.]{1,14}):\s+/.exec(title);
-    if (prefix?.[1]) {
-      add(prefix[1], prefix[1], vertical);
-      continue;
+    const raw = str(w.title);
+    if (!raw.trim()) continue;
+    if (isInternalTitle(raw)) continue; // drop internal "Agency:" work
+    const title = stripCode(raw);
+    const vertical = verticalFor(String(w.id));
+
+    // PRIMARY (AGP convention): the client is the title prefix before the
+    // first colon. "ARMS: Support 25-26" → ARMS · "American Water Works:
+    // Spring Mail" → American Water Works.
+    const colon = title.indexOf(":");
+    if (colon >= 2) {
+      const prefix = title.slice(0, colon).trim();
+      if (prefix.length >= 2 && prefix.length <= 40 && normKey(prefix) !== "agency") {
+        // A short single-token prefix IS the abbreviation ("ARMS"); a longer
+        // one gets a derived acronym so its abbreviation-titled siblings match.
+        const abbr = prefix.length <= 6 && !/\s/.test(prefix) ? prefix.toUpperCase() : autoAbbreviation(prefix);
+        add(prefix, abbr, vertical);
+        continue;
+      }
     }
-    // Client name before a separator: em/en dash, spaced hyphen, or pipe.
+    // No colon → client name before a separator (em/en dash, spaced hyphen, pipe).
     const dash = title.split(/\s+[—–|]\s+|\s+-\s+/);
     if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) {
       add(dash[0]!.trim(), undefined, vertical);
       continue;
     }
-    // ALL active clients, no project left behind: a title that follows no
-    // convention becomes its own entry, verbatim. Ugly beats invisible —
-    // every live project is reachable from the picker, and hand-linking
-    // (Project Finder) consolidates these under real clients over time.
-    if (title.trim().length >= 4) add(title.trim(), undefined, vertical);
+    // Verbatim fallback — ugly beats invisible; hand-linking consolidates later.
+    if (title.length >= 4) add(title, undefined, vertical);
   }
   return [...byKey.values()];
 }
@@ -165,7 +161,9 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
   return {
     clients,
     projects: p.kantataProjects
-      .filter((w) => str(w.title).trim().length > 0)
+      // Drop internal "Agency:" work — it's not delivery for a client, so it
+      // shouldn't appear in matching, the Project Finder, or the book count.
+      .filter((w) => str(w.title).trim().length > 0 && !isInternalTitle(str(w.title)))
       .map((w) => {
         const id = String(w.id);
         // Workspace-group join: a project can sit in BOTH a client group and

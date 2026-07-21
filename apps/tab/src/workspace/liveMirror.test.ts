@@ -203,29 +203,34 @@ describe("mapLivePayload", () => {
     });
   });
 
-  it("KANTATA-ONLY: derives the client directory when no companies arrive", () => {
+  it("KANTATA-ONLY: groups active workspaces by the title prefix, drops internal 'Agency:'", () => {
     const mirror = mapLivePayload(
       payload({
         companies: [],
         kantataProjects: [
-          { id: "1", title: "ARMS: Support 25-26 (Aug25-Jul26)" },
-          { id: "2", title: "Harvest Hope Food Bank — Fall Acquisition Mail" },
-          { id: "3", title: "Internal ops cleanup" }, // no convention → verbatim entry (ALL projects reachable)
-          { id: "4", title: "Q4 Omnichannel Program" },
+          { id: "1", title: "ARMS: Support 25-26 (Aug25-Jul26)" }, // colon prefix → ARMS
+          { id: "2", title: "CWS: Q4 Omnichannel Program" }, // colon prefix → CWS
+          { id: "3", title: "Harvest Hope Food Bank — Fall Acquisition Mail" }, // no colon → dash split
+          { id: "4", title: "Internal ops cleanup" }, // no convention → verbatim (still reachable)
+          { id: "5", title: "Agency: Internal Tooling Sprint" }, // INTERNAL → dropped entirely
+          { id: "6", title: "25-031 Agency: Website Refresh" }, // internal even behind a project code
         ],
         kantataGroups: [
-          // A client-record group (company/contact info) IS a client…
-          { id: "g1", name: "CWS", company: "Church World Service", contact_name: "Maria", email: "m@cws.org", workspace_ids: ["4"] },
-          // …a bare-named group is a service category, not a client.
-          { id: "g2", name: "Direct Mail", company: "", workspace_ids: ["1", "2"] },
+          { id: "g1", name: "CWS", company: "Church World Service", contact_name: "Maria", email: "m@cws.org", workspace_ids: ["2"] },
+          { id: "g2", name: "Direct Mail", company: "", workspace_ids: ["1", "3"] }, // category
         ],
       }),
     );
     const names = mirror.clients.map((c) => c.name).sort();
-    // ALL active work is reachable: conventional titles parse to client
-    // names; unconventional ones become verbatim entries.
-    expect(names).toEqual(["ARMS", "Church World Service", "Harvest Hope Food Bank", "Internal ops cleanup"]);
-    // Wider separators + leading project codes also derive.
+    // The prefix before the colon is the client; "Agency:" work never appears.
+    expect(names).toEqual(["ARMS", "CWS", "Harvest Hope Food Bank", "Internal ops cleanup"]);
+    expect(names).not.toContain("Agency");
+    // Internal "Agency:" projects are dropped from the project list too (no
+    // matching, no Project Finder, out of the book count).
+    expect(mirror.projects.map((p) => p.id).sort()).toEqual(["1", "2", "3", "4"]);
+    expect(mirror.projects.some((p) => /agency/i.test(p.title))).toBe(false);
+
+    // Wider separators + leading project codes still derive when there's no colon.
     const wide = mapLivePayload(
       payload({
         companies: [],
@@ -236,21 +241,17 @@ describe("mapLivePayload", () => {
       }),
     );
     expect(wide.clients.map((c) => c.name).sort()).toEqual(["Grace Health Foundation", "Riverside Mission"]);
-    const arms = mirror.clients.find((c) => c.name === "ARMS");
-    expect(arms?.abbreviation).toBe("ARMS");
-    // A legal-name group client gets a clean auto-acronym so its
-    // abbreviation-titled projects auto-match (the American Water Works case).
+    // A short prefix IS its own abbreviation; a long one gets a clean acronym.
+    expect(mirror.clients.find((c) => c.name === "ARMS")?.abbreviation).toBe("ARMS");
+    expect(mirror.clients.find((c) => c.name === "CWS")?.abbreviation).toBe("CWS");
+    // Legal-name prefix ("American Water Works: …") → acronym AWW (suffix-free).
     const legal = mapLivePayload(
-      payload({
-        companies: [],
-        kantataProjects: [{ id: "20", title: "AWW: Spring Mail" }],
-        kantataGroups: [{ id: "g9", name: "AWW", company: "American Water Works Company, Inc.", email: "x@aww.com", workspace_ids: ["20"] }],
-      }),
+      payload({ companies: [], kantataProjects: [{ id: "20", title: "American Water Works: Spring Mail" }] }),
     );
-    expect(legal.clients.find((c) => c.name === "American Water Works Company, Inc.")?.abbreviation).toBe("AWW");
-    // Grouped project prefers the CLIENT group over the category group.
-    expect(mirror.projects.find((p) => p.id === "4")?.clientGroup).toBe("Church World Service");
-    // Category-grouped project keeps the category as clientGroup fallback.
+    expect(legal.clients.find((c) => c.name === "American Water Works")?.abbreviation).toBe("AWW");
+    // Group join still drives clientGroup on the projects (for matching): the
+    // CLIENT group wins over the category group.
+    expect(mirror.projects.find((p) => p.id === "2")?.clientGroup).toBe("Church World Service");
     expect(mirror.projects.find((p) => p.id === "1")?.clientGroup).toBe("Direct Mail");
   });
 
