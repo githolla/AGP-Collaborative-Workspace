@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { T } from "../theme.js";
-import { SectionTitle } from "./bits.js";
+import { KantataChip, SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount } from "../workspace/types.js";
 
@@ -404,8 +404,11 @@ function HeroCard({
             {stat(a.externals.length, "external")}
           </span>
           {nextMs && (
-            <span style={{ fontSize: 11.5, color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              Next: <strong style={{ color: T.ink }}>{nextMs.nextMilestone}</strong> — {nextMs.nextMilestoneDate ? shortDay(nextMs.nextMilestoneDate) : ""}
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: T.inkSecondary, overflow: "hidden" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Next: <strong style={{ color: T.ink }}>{nextMs.nextMilestone}</strong> — {nextMs.nextMilestoneDate ? shortDay(nextMs.nextMilestoneDate) : ""}
+              </span>
+              {nextMs.source === "kantata" && <KantataChip compact />}
             </span>
           )}
           {waiting > 0 && (

@@ -52,6 +52,31 @@ export function TagChip({ children }: { children: ReactNode }) {
   return <span className="chip">{children}</span>;
 }
 
+/** Provenance mark: this element is synced live from Kantata. One look
+ * separates system-of-record data from locally created content. */
+export function KantataChip({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      title="Synced live from Kantata"
+      style={{
+        fontSize: compact ? 8.5 : 9.5,
+        fontWeight: 800,
+        color: "#116a43",
+        background: "#e3f4ec",
+        border: "1px solid #b9e0cc",
+        borderRadius: 999,
+        padding: compact ? "0.5px 6px" : "1.5px 8px",
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+      }}
+    >
+      ⇄ Kantata
+    </span>
+  );
+}
+
 export interface StatTileProps {
   label: string;
   value: string;

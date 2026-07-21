@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { card, T } from "../theme.js";
-import { SectionTitle, TagChip } from "./bits.js";
+import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 
@@ -113,7 +113,7 @@ export function TasksCard({
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
-        {t.label && <TagChip>{t.label}</TagChip>}
+        {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
         {onToggleClientVisible && (
           <button

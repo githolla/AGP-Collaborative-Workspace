@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { card, T } from "../theme.js";
-import { SectionTitle, TagChip } from "./bits.js";
+import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
 import { Crumbs } from "./ui.js";
@@ -663,6 +663,7 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                       <span style={{ fontWeight: 700, color: navy }}>{c.nextMilestone}</span>
                       <span style={{ color: T.inkMuted }}> — {c.name}</span>
                     </span>
+                    {c.source === "kantata" && <KantataChip compact />}
                     <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{c.nextMilestoneDate ? fmtDay(c.nextMilestoneDate) : ""}</span>
                   </RowButton>
                 ))}
@@ -799,6 +800,11 @@ function ClientDashboard({ account, tasks, liveContext }: { account: ClientAccou
                       <td style={{ fontSize: 12.5, color: T.ink, fontWeight: 600, padding: "8px" }}>
                         <span aria-hidden style={{ display: "inline-block", width: 14, color: T.inkMuted, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s ease" }}>›</span>
                         {c.name}
+                        {c.source === "kantata" && (
+                          <span style={{ marginLeft: 8 }}>
+                            <KantataChip compact />
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: "8px" }}><TagChip>{c.status}</TagChip></td>
                       <td style={{ fontSize: 12, color: T.inkSecondary, padding: "8px" }}>{c.nextMilestone ?? "—"}</td>
@@ -999,6 +1005,7 @@ function ImportReview({
                   {c.nextMilestone && c.nextMilestoneDate ? ` · next: ${c.nextMilestone} (${fmtDay(c.nextMilestoneDate)})` : ""}
                 </span>
               </span>
+              <KantataChip compact />
             </label>
           ))}
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>

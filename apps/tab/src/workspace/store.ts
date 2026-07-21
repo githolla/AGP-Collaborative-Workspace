@@ -699,8 +699,8 @@ export function useWorkspace() {
         const campaigns = [...a.campaigns];
         for (const imp of selected) {
           const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
-          if (idx === -1) campaigns.push({ ...imp, id: newId("cmp") });
-          else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id };
+          if (idx === -1) campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
+          else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
         }
         const summary = `${selected.length} campaign${selected.length === 1 ? "" : "s"} imported from Kantata — your selection.`;
         return {
@@ -728,9 +728,9 @@ export function useWorkspace() {
         for (const imp of campaignsFromMirror(mirror, a.clientName, AS_OF_TODAY(), projectIds)) {
           const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
           if (idx === -1) {
-            campaigns.push({ ...imp, id: newId("cmp") });
+            campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
             added += 1;
-          } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id };
+          } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
         }
         const summary = `${projectIds.length} Kantata project${projectIds.length === 1 ? "" : "s"} linked to this client${added > 0 ? ` — ${added} campaign${added === 1 ? "" : "s"} imported` : ""}.`;
         return {

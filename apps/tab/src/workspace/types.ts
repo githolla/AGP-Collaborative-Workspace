@@ -103,6 +103,8 @@ export interface Campaign {
   status: "active" | "planned" | "complete";
   nextMilestone?: string;
   nextMilestoneDate?: string;
+  /** "kantata" = synced from the live pull (renders the provenance chip). */
+  source?: "kantata";
 }
 
 export interface ExternalMember {
