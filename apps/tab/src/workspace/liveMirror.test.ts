@@ -203,6 +203,34 @@ describe("mapLivePayload", () => {
     });
   });
 
+  it("KANTATA-ONLY: derives the client directory when no companies arrive", () => {
+    const mirror = mapLivePayload(
+      payload({
+        companies: [],
+        kantataProjects: [
+          { id: "1", title: "ARMS: Support 25-26 (Aug25-Jul26)" },
+          { id: "2", title: "Harvest Hope Food Bank — Fall Acquisition Mail" },
+          { id: "3", title: "Internal ops cleanup" }, // no convention → no client
+          { id: "4", title: "Q4 Omnichannel Program" },
+        ],
+        kantataGroups: [
+          // A client-record group (company/contact info) IS a client…
+          { id: "g1", name: "CWS", company: "Church World Service", contact_name: "Maria", email: "m@cws.org", workspace_ids: ["4"] },
+          // …a bare-named group is a service category, not a client.
+          { id: "g2", name: "Direct Mail", company: "", workspace_ids: ["1", "2"] },
+        ],
+      }),
+    );
+    const names = mirror.clients.map((c) => c.name).sort();
+    expect(names).toEqual(["ARMS", "Church World Service", "Harvest Hope Food Bank"]);
+    const arms = mirror.clients.find((c) => c.name === "ARMS");
+    expect(arms?.abbreviation).toBe("ARMS");
+    // Grouped project prefers the CLIENT group over the category group.
+    expect(mirror.projects.find((p) => p.id === "4")?.clientGroup).toBe("Church World Service");
+    // Category-grouped project keeps the category as clientGroup fallback.
+    expect(mirror.projects.find((p) => p.id === "1")?.clientGroup).toBe("Direct Mail");
+  });
+
   it("returns an empty mirror for an empty payload", () => {
     const mirror = mapLivePayload(payload({}));
     expect(mirror.clients).toHaveLength(0);

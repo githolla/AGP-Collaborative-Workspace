@@ -141,8 +141,8 @@ function SetupChecklist({
         account.campaigns.length > 0
           ? `Campaigns imported (${account.campaigns.length})`
           : candidatesCount > 0
-            ? `Import this client's work — ${candidatesCount} campaign${candidatesCount === 1 ? "" : "s"} matched in Kantata & HubSpot`
-            : "No Kantata/HubSpot work matched yet — add campaigns as they start",
+            ? `Import this client's work — ${candidatesCount} campaign${candidatesCount === 1 ? "" : "s"} matched in Kantata`
+            : "No Kantata work matched yet — add campaigns as they start",
       action: candidatesCount > 0 && onOpenReview ? { label: "Review & import", onClick: onOpenReview } : null,
     },
     {

@@ -90,9 +90,9 @@ const TOUR_STEPS: TourStep[] = [
     key: "book",
     route: "",
     target: '[data-tour="book"]',
-    title: "Your whole book of business, live",
+    title: "Your active clients, live from Kantata",
     quote: { text: "Separate workspace per client… ability to apply a template for consistent set up.", from: "Cara's features doc — two Musts" },
-    body: "Every company in HubSpot, sectioned by vertical, with what Kantata holds for each. “With matched work” shows who has campaigns waiting; ★ Target flags the BD priorities. One click sets up the standard workspace.",
+    body: "Every active client, derived straight from Kantata — its client groups and project titles — sectioned by vertical, with the live work each one has waiting. One click sets up the standard workspace. No prospects, no CRM noise.",
   },
   {
     key: "client-tabs",

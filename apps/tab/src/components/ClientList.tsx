@@ -37,7 +37,7 @@ function BookOfBusiness({
   candidates: ClientCandidate[];
   live: boolean;
   onCreate: (name: string) => void;
-  /** Manual creation for a client not in the CRM — folded into the footer. */
+  /** Manual creation for a client with no Kantata work yet — folded into the footer. */
   onCreateBlank: (name: string) => void;
 }) {
   const [q, setQ] = useState("");
@@ -89,7 +89,7 @@ function BookOfBusiness({
             whiteSpace: "nowrap",
           }}
         >
-          {live ? "● live from HubSpot & Kantata" : "demo data"}
+          {live ? "● live from Kantata" : "demo data"}
         </span>
       </div>
 
@@ -108,11 +108,11 @@ function BookOfBusiness({
       {/* Zero-match honesty: say WHY nothing is ready instead of a bare 0. */}
       {readyCount === 0 && candidates.length > 0 && (
         <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 10, lineHeight: 1.5 }}>
-          No client matched any Kantata project yet. Matching uses Kantata <strong>workspace
-          groups</strong> (group name = client), the HubSpot <strong>client abbreviation</strong>,
-          or the client's name in the project title. Click the <strong>⟳ Live</strong> pill (top
-          right) to re-pull fresh data first — if it stays zero, Kantata's groups/titles don't
-          carry client names, and the tenant grounding doc's join mapping is the fix.
+          No client matched any Kantata project yet. Clients come from Kantata itself: workspace
+          groups with <strong>company/contact info</strong>, title prefixes (“ARMS: …”), and
+          full-name titles. Click the <strong>⟳ Live</strong> pill (top right) to re-pull fresh
+          data first — if it stays zero, the tenant's groups/titles don't carry client names and
+          we tune the derivation.
         </div>
       )}
 
@@ -191,7 +191,7 @@ function BookOfBusiness({
       )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 11.5, color: T.inkMuted }}>Someone not in the CRM?</span>
+        <span style={{ fontSize: 11.5, color: T.inkMuted }}>Someone not in Kantata yet?</span>
         <input
           className="input"
           value={manualName}
@@ -373,7 +373,7 @@ function HeroCard({
         <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: T.roi.navy, lineHeight: 1.25 }}>{a.clientName}</span>
         {unlinked && (
           <span
-            title="No company with this name exists in the live HubSpot book — open to link it to a real client, or archive it."
+            title="No client with this name exists in the live Kantata book — open to link it to a real client, or archive it."
             style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
           >
             ⚠ not in CRM
@@ -383,7 +383,7 @@ function HeroCard({
 
       {empty ? (
         <span style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
-          Empty — open to review &amp; import this client's Kantata and HubSpot work.
+          Empty — open to review &amp; import this client's Kantata work.
         </span>
       ) : (
         <>

@@ -41,7 +41,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 5; // 5: clients-only company pull (prospects filtered server-side)
+const CACHE_SCHEMA = 6; // 6: Kantata-only — clients DERIVED from Kantata, HubSpot not pulled
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -49,9 +49,77 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * Kantata-only client derivation (ADR 0008 addendum): AGP's other systems
+ * run on Kantata data alone, and the client is encoded in conventions —
+ * a title prefix ("ARMS: Support 25-26"), a full-name title ("Harvest Hope
+ * Food Bank — Fall Mail"), or a group carrying a company name. Every
+ * derived client is active by construction: it exists because live
+ * projects reference it.
+ */
+function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
+  const byKey = new Map<string, MirrorClient>();
+  const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const add = (name: string, abbreviation: string | undefined, vertical: string) => {
+    const key = normKey(name);
+    if (!key || key.length < 2) return;
+    const existing = byKey.get(key);
+    if (existing) {
+      if (!existing.vertical && vertical) existing.vertical = vertical;
+      if (!existing.abbreviation && abbreviation) existing.abbreviation = abbreviation;
+      return;
+    }
+    byKey.set(key, {
+      id: `k-${key.replace(/\s+/g, "-")}`,
+      name,
+      vertical,
+      lifecycleStage: "customer",
+      ...(abbreviation ? { abbreviation } : {}),
+    });
+  };
+  const verticalFor = (workspaceId: string) => {
+    const fieldsFor = (p.kantataCustomFields ?? []).filter((f) => String(f.subject_id) === workspaceId);
+    return str(fieldsFor.find((f) => /vertical|industry/i.test(str(f.name)))?.value);
+  };
+
+  // PRIMARY: workspace groups that are client records. The tenant census
+  // proved groups carry company/contact_name/email — those ARE clients
+  // (the bare-named ones are service categories and are skipped).
+  for (const g of p.kantataGroups ?? []) {
+    const isClientRecord = str(g.company) || str(g.contact_name) || str(g.email);
+    if (!isClientRecord) continue;
+    const name = str(g.company) || str(g.name);
+    const firstWs = Array.isArray(g.workspace_ids) ? String((g.workspace_ids as unknown[])[0] ?? "") : "";
+    add(name, undefined, firstWs ? verticalFor(firstWs) : "");
+  }
+
+  // SECONDARY: title conventions for projects no client group covers.
+  const covered = new Set<string>();
+  for (const g of p.kantataGroups ?? []) {
+    if (!(str(g.company) || str(g.contact_name) || str(g.email))) continue;
+    for (const id of Array.isArray(g.workspace_ids) ? (g.workspace_ids as unknown[]).map(String) : []) covered.add(id);
+  }
+  for (const w of p.kantataProjects) {
+    const id = String(w.id);
+    if (covered.has(id)) continue;
+    const title = str(w.title);
+    const vertical = verticalFor(id);
+    // Abbreviation prefix — "ARMS: Support 25-26".
+    const prefix = /^\s*([A-Z][A-Za-z0-9&'.]{1,14}):\s+/.exec(title);
+    if (prefix?.[1]) {
+      add(prefix[1], prefix[1], vertical);
+      continue;
+    }
+    // Full client name before an em/en dash separator.
+    const dash = title.split(/\s+[—–]\s+/);
+    if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) add(dash[0]!.trim(), undefined, vertical);
+  }
+  return [...byKey.values()];
+}
+
 /** Pure mapping: raw /api/mirror payload → the AgpMirror the Copilot grounds on. */
 export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
-  const clients: MirrorClient[] = p.companies
+  const mappedCompanies: MirrorClient[] = p.companies
     .filter((c) => str(c.name).trim().length > 0)
     .map((c) => ({
       id: String(c.id ?? str(c.domain) ?? str(c.name)),
@@ -74,6 +142,10 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
       ...(str(c.hs_is_target_account) === "true" ? { targetAccount: true } : {}),
     }));
 
+  // Kantata-only: new payloads carry no companies — derive the client
+  // directory from Kantata itself. Legacy cached payloads still map.
+  const clients = mappedCompanies.length > 0 ? mappedCompanies : deriveClientsFromKantata(p);
+
   const nameOf = (id: unknown): string => clients.find((c) => c.id === String(id))?.name ?? "";
 
   return {
@@ -82,11 +154,14 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
       .filter((w) => str(w.title).trim().length > 0)
       .map((w) => {
         const id = String(w.id);
-        // Workspace-group join: the group a project belongs to names its
-        // client (SPEC constraint #7) — exact, no title heuristics.
-        const group = (p.kantataGroups ?? []).find((g) =>
+        // Workspace-group join: a project can sit in BOTH a client group and
+        // a category group ("Direct Mail") — prefer the group that is a
+        // client record (company/contact info), never the category.
+        const groupsFor = (p.kantataGroups ?? []).filter((g) =>
           Array.isArray(g.workspace_ids) ? (g.workspace_ids as unknown[]).map(String).includes(id) : false,
         );
+        const group =
+          groupsFor.find((g) => str(g.company) || str(g.contact_name) || str(g.email)) ?? groupsFor[0];
         const clientGroup = group ? str(group.company) || str(group.name) : "";
         // Custom fields: "Service Line Detail" etc. per the tenant taxonomy.
         const fieldsFor = (p.kantataCustomFields ?? []).filter((f) => String(f.subject_id) === id);
@@ -156,14 +231,14 @@ function statusFrom(p: RawMirrorPayload, cached: boolean): LiveStatus {
       detail: `HubSpot: ${p.sources.hubspot.note || "off"} · Kantata: ${p.sources.kantata.note || "off"}`,
     };
   }
-  const bits = [
-    p.sources.hubspot.ok ? `${p.sources.hubspot.companies} clients` : "HubSpot off",
-    p.sources.kantata.ok ? `${p.sources.kantata.projects} projects` : "Kantata off",
-  ];
+  // Kantata-only: HubSpot appears in the label only for legacy cached
+  // payloads that still carry companies.
+  const bits = [p.sources.kantata.ok ? `${p.sources.kantata.projects} projects` : "Kantata off"];
+  if (p.sources.hubspot.ok) bits.unshift(`${p.sources.hubspot.companies} clients`);
   return {
     live: true,
-    label: `Live · ${bits.join(" · ")}${cached ? " (cached)" : ""}`,
-    detail: `HubSpot: ${p.sources.hubspot.note} · Kantata: ${p.sources.kantata.note} · fetched ${p.fetchedAt}`,
+    label: `Live · Kantata · ${bits.join(" · ")}${cached ? " (cached)" : ""}`,
+    detail: `Kantata: ${p.sources.kantata.note} · fetched ${p.fetchedAt}`,
     fetchedAt: p.fetchedAt,
   };
 }

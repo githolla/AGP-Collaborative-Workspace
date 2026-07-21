@@ -1,49 +1,18 @@
 /**
- * /api/mirror — the live Kantata + HubSpot pull, server-side on Vercel.
+ * /api/mirror — the live KANTATA pull, server-side on Vercel.
  *
- * Tokens (HUBSPOT_PRIVATE_APP_TOKEN, KANTATA_API_TOKEN) are read from env
- * and NEVER reach the browser; the tab app fetches this endpoint and maps
- * the raw payload into its mirror (apps/tab/src/workspace/liveMirror.ts).
- * Missing tokens or upstream failures degrade per-source — the app falls
- * back to bundled fixture data and says so in the header.
+ * Kantata-only (ADR 0008 + 2026-07-20 decision): AGP's other systems run
+ * on Kantata data alone, and so does this one. HubSpot is pre-acquisition
+ * CRM and is no longer pulled; the client directory is DERIVED from
+ * Kantata itself in the browser mapping (title prefixes like "ARMS:",
+ * full-name title conventions, group companies). The payload keeps the
+ * `companies`/`deals` fields (always empty) so older cached payload shapes
+ * stay parseable.
  *
- * Self-contained on purpose (no workspace imports): Vercel bundles this file
- * independently of the pnpm monorepo. The property list mirrors
- * services/sync/src/adapters/hubspotProperties.ts — change both together.
- * Least-privilege: no revenue fields, no contacts/PII (docs/hubspot-property-map.md).
+ * KANTATA_API_TOKEN is read from env and NEVER reaches the browser.
+ * Self-contained on purpose (no workspace imports): Vercel bundles this
+ * file independently of the pnpm monorepo.
  */
-
-const COMPANY_PROPERTIES = [
-  "name",
-  "domain",
-  "agp_industry",
-  "industry",
-  "lifecyclestage",
-  "type",
-  "ownername",
-  "client_abbreviation__c",
-  "client_health_index__c",
-  "health_score_current_month",
-  "renewal",
-  "contract_start_date",
-  "onboarding_date",
-  "gdna_subscription_level",
-  "gdna_client_type",
-  "constituent_records_on_gdna",
-  "hs_signals_summary",
-  "hs_count_intent_signals_created_last_30_days",
-  "hs_latest_intent_signal_occurred_at",
-  "hs_last_sales_activity_type",
-  "notes_last_contacted",
-  "notes_next_activity_date",
-  "num_contacted_notes",
-  "hs_ideal_customer_profile",
-  "hs_is_target_account",
-  "num_associated_deals",
-  "hs_lastmodifieddate",
-];
-
-const DEAL_PROPERTIES = ["dealname", "dealstage", "pipeline", "closedate", "hs_lastmodifieddate"];
 
 interface MirrorPayload {
   live: boolean;
@@ -73,16 +42,7 @@ interface MirrorPayload {
 let cache: { at: number; payload: MirrorPayload } | null = null;
 const TTL_MS = 5 * 60 * 1000;
 
-interface HubSpotPage {
-  results?: {
-    id: string;
-    properties: Record<string, unknown>;
-    associations?: { companies?: { results?: { id: string }[] } };
-  }[];
-  paging?: { next?: { after?: string } };
-}
-
-/** One request, hard 8s cap, one retry on HubSpot's 429 rate limit. */
+/** One request, hard 8s cap, one retry on a 429 rate limit. */
 async function timedFetch(url: string, headers: Record<string, string>): Promise<Response> {
   const attempt = () => fetch(url, { headers, signal: AbortSignal.timeout(8000) });
   let res = await attempt();
@@ -91,113 +51,6 @@ async function timedFetch(url: string, headers: Record<string, string>): Promise
     res = await attempt();
   }
   return res;
-}
-
-/** Follow HubSpot's cursor pagination up to a cap — 100 rows per page is a
- * HubSpot API limit, NOT the size of AGP's book of business. */
-async function pullHubSpotPaged(
-  baseUrl: string,
-  headers: Record<string, string>,
-  cap: number,
-): Promise<{ rows: NonNullable<HubSpotPage["results"]>; pages: number }> {
-  const rows: NonNullable<HubSpotPage["results"]> = [];
-  let after: string | undefined;
-  let pages = 0;
-  while (rows.length < cap && pages < Math.ceil(cap / 100)) {
-    const res = await timedFetch(`${baseUrl}${after ? `&after=${encodeURIComponent(after)}` : ""}`, headers);
-    if (!res.ok) {
-      if (pages === 0) throw new Error(`HTTP ${res.status}`);
-      break; // partial result beats none
-    }
-    const json = (await res.json()) as HubSpotPage;
-    rows.push(...(json.results ?? []));
-    pages += 1;
-    after = json.paging?.next?.after;
-    if (!after) break;
-  }
-  return { rows: rows.slice(0, cap), pages };
-}
-
-/**
- * CLIENTS ONLY via the Search API — the portal holds thousands of
- * prospects, and this is a delivery tool (ADR 0008): the directory is
- * companies that are customers OR carry a Client Abbreviation (AGP fills
- * that field only for real clients). Server-side filter, so the cap can't
- * silently truncate the client list the way an unfiltered walk did.
- */
-async function pullHubSpotClients(
-  headers: Record<string, string>,
-  cap: number,
-): Promise<{ rows: NonNullable<HubSpotPage["results"]>; pages: number }> {
-  const rows: NonNullable<HubSpotPage["results"]> = [];
-  let after: string | undefined;
-  let pages = 0;
-  while (rows.length < cap && pages < Math.ceil(cap / 100)) {
-    const body: Record<string, unknown> = {
-      filterGroups: [
-        { filters: [{ propertyName: "lifecyclestage", operator: "EQ", value: "customer" }] },
-        { filters: [{ propertyName: "client_abbreviation__c", operator: "HAS_PROPERTY" }] },
-      ],
-      properties: COMPANY_PROPERTIES,
-      sorts: [{ propertyName: "name", direction: "ASCENDING" }],
-      limit: 100,
-      ...(after ? { after } : {}),
-    };
-    const res = await fetch("https://api.hubapi.com/crm/v3/objects/companies/search", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (res.status === 429) {
-      await new Promise((r) => setTimeout(r, 1100));
-      continue; // retry the same page
-    }
-    if (!res.ok) {
-      if (pages === 0) throw new Error(`clients search HTTP ${res.status}`);
-      break;
-    }
-    const json = (await res.json()) as HubSpotPage;
-    rows.push(...(json.results ?? []));
-    pages += 1;
-    after = json.paging?.next?.after;
-    if (!after) break;
-  }
-  return { rows: rows.slice(0, cap), pages };
-}
-
-async function pullHubSpot(token: string): Promise<{
-  companies: Record<string, unknown>[];
-  deals: Record<string, unknown>[];
-  note: string;
-}> {
-  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const dealsUrl =
-    `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
-
-  // Clients (filtered search) and deals walk in parallel.
-  const [companiesResult, dealsResult] = await Promise.allSettled([
-    pullHubSpotClients(headers, 1000),
-    pullHubSpotPaged(dealsUrl, headers, 300),
-  ]);
-  if (companiesResult.status === "rejected") {
-    throw new Error(`companies ${companiesResult.reason instanceof Error ? companiesResult.reason.message : "failed"}`);
-  }
-  const companies = companiesResult.value.rows.map((r) => ({ id: r.id, ...r.properties }));
-
-  let deals: Record<string, unknown>[] = [];
-  let note = `${companies.length} clients (customer/abbreviation only, ${companiesResult.value.pages} pages)`;
-  if (dealsResult.status === "fulfilled") {
-    deals = dealsResult.value.rows.map((r) => ({
-      id: r.id,
-      ...r.properties,
-      company_id: r.associations?.companies?.results?.[0]?.id ?? null,
-    }));
-    note += ` + ${deals.length} deals`;
-  } else {
-    note += `; deals failed: ${dealsResult.reason instanceof Error ? dealsResult.reason.message : "unknown"} (check crm.objects.deals.read scope)`;
-  }
-  return { companies, deals, note };
 }
 
 async function pullKantata(token: string): Promise<{
@@ -248,7 +101,14 @@ async function pullKantata(token: string): Promise<{
     participant_ids?: (string | number)[];
   };
   type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
-  type KantataGroup = { id: string; name?: string; company?: string; workspace_ids?: (string | number)[] };
+  type KantataGroup = {
+    id: string;
+    name?: string;
+    company?: string;
+    contact_name?: string;
+    email?: string;
+    workspace_ids?: (string | number)[];
+  };
   type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
   type KantataTimeEntry = { id: string; workspace_id?: string | number; user_id?: string | number; date_performed?: string; time_in_minutes?: number };
 
@@ -272,20 +132,24 @@ async function pullKantata(token: string): Promise<{
       1000,
       harvestUsers,
     ),
+    // Caps sized from the tenant census (~160k stories, ~617k time entries
+    // lifetime): recency-ordered walks capture the live slice.
     pullKantataPaged<KantataStory>(
       "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
       "stories",
-      600,
+      1200,
     ),
     pullKantataPaged<KantataStory>(
       "https://api.mavenlink.com/api/v1/stories?story_type=task&per_page=200&order=updated_at:desc",
       "stories",
-      1000,
+      2000,
     ),
+    // ~688 groups in the tenant — and the client-record ones (company/
+    // contact fields) ARE the client directory. Never truncate them again.
     pullKantataPaged<KantataGroup>(
       "https://api.mavenlink.com/api/v1/workspace_groups?per_page=200&include=workspaces",
       "workspace_groups",
-      400,
+      1000,
     ),
     pullKantataPaged<KantataCfv>(
       "https://api.mavenlink.com/api/v1/custom_field_values?subject_type=Workspace&per_page=200",
@@ -293,9 +157,9 @@ async function pullKantata(token: string): Promise<{
       1000,
     ),
     pullKantataPaged<KantataTimeEntry>(
-      "https://api.mavenlink.com/api/v1/time_entries?per_page=200&order=date_performed:desc",
+      `https://api.mavenlink.com/api/v1/time_entries?per_page=200&order=date_performed:desc&date_performed_between=${new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10)}:${new Date().toISOString().slice(0, 10)}`,
       "time_entries",
-      2000,
+      4000,
     ),
   ]);
 
@@ -386,9 +250,12 @@ async function pullKantata(token: string): Promise<{
       id: String(g.id),
       name: g.name ?? "",
       company: g.company ?? "",
+      contact_name: g.contact_name ?? "",
+      email: g.email ?? "",
       workspace_ids: (g.workspace_ids ?? []).map(String),
     }));
-    notes.push(`${groups.length} groups`);
+    const clientRecords = groups.filter((g) => g.company || g.contact_name || g.email).length;
+    notes.push(`${groups.length} groups (${clientRecords} client records)`);
   } else {
     notes.push(groupsResult.reason instanceof Error ? groupsResult.reason.message : "groups failed");
   }
@@ -431,14 +298,15 @@ export default async function handler(
     return;
   }
 
-  const hubspotToken = process.env.HUBSPOT_PRIVATE_APP_TOKEN;
   const kantataToken = process.env.KANTATA_API_TOKEN;
 
   const payload: MirrorPayload = {
     live: false,
     fetchedAt: new Date().toISOString(),
     sources: {
-      hubspot: { ok: false, note: hubspotToken ? "" : "HUBSPOT_PRIVATE_APP_TOKEN not set", companies: 0, deals: 0 },
+      // Kantata-only: HubSpot is no longer pulled (ADR 0008). The entry
+      // stays so older clients parsing the payload shape don't break.
+      hubspot: { ok: false, note: "off — Kantata-only (ADR 0008)", companies: 0, deals: 0 },
       kantata: { ok: false, note: kantataToken ? "" : "KANTATA_API_TOKEN not set", projects: 0 },
     },
     companies: [],
@@ -451,22 +319,9 @@ export default async function handler(
     kantataHours: [],
   };
 
-  // Both sources pull in parallel — wall time is the slower source, not the sum.
-  const [hubspotResult, kantataResult] = await Promise.allSettled([
-    hubspotToken ? pullHubSpot(hubspotToken) : Promise.reject(new Error("token not set")),
+  const [kantataResult] = await Promise.allSettled([
     kantataToken ? pullKantata(kantataToken) : Promise.reject(new Error("token not set")),
   ]);
-
-  if (hubspotToken) {
-    if (hubspotResult.status === "fulfilled") {
-      const h = hubspotResult.value;
-      payload.companies = h.companies;
-      payload.deals = h.deals;
-      payload.sources.hubspot = { ok: true, note: h.note, companies: h.companies.length, deals: h.deals.length };
-    } else {
-      payload.sources.hubspot.note = `pull failed: ${hubspotResult.reason instanceof Error ? hubspotResult.reason.message : "unknown"}`;
-    }
-  }
 
   if (kantataToken) {
     if (kantataResult.status === "fulfilled") {
@@ -483,7 +338,7 @@ export default async function handler(
     }
   }
 
-  payload.live = payload.sources.hubspot.ok || payload.sources.kantata.ok;
+  payload.live = payload.sources.kantata.ok;
   cache = { at: Date.now(), payload };
   res.status(200).json(payload);
 }

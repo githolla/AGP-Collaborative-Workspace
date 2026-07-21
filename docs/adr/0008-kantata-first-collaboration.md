@@ -42,6 +42,35 @@ integration goal (staged behind approval; lands with the Azure deploy).
   correct?" (Suuchi: 99.99% yes.)
 - "Which Kantata features work well today that we must NOT recreate?"
 
+## Addendum (same day): HubSpot removed ENTIRELY — Kantata-only
+
+Josh: AGP's other systems run on Kantata data alone and get everything
+they need. A tenant census he shared proved the missing piece:
+**workspace_groups (688) carry `company`, `contact_name`, `email`,
+`address`, `website` — the client directory lives in Kantata.** Our
+earlier "groups are categories" finding was a truncation artifact (cap
+400 hid the client-record groups).
+
+Superseding decisions:
+- `/api/mirror` no longer calls HubSpot at all; `live` = Kantata ok. The
+  `companies`/`deals` payload fields remain, always empty, for shape
+  compatibility with cached payloads.
+- The client directory is DERIVED from Kantata in the mapping layer:
+  (1) groups with company/contact info are clients (bare-named groups are
+  categories); (2) title prefixes ("ARMS: …"); (3) full-name titles
+  ("Harvest Hope Food Bank — Fall Mail"). Every derived client is active
+  by construction.
+- A project in both a client group and a category group joins to the
+  CLIENT group.
+- Caps re-sized from the census: groups 1000 (~688 exist), milestones
+  1200, tasks 2000, time entries 4000 within a 120-day window (~617k
+  lifetime). Census also confirmed assignments (201k) and
+  workspace_allocations (158k) are heavily used — write-back map W4/W5
+  are real targets, and per-story `time_estimate_in_minutes` /
+  `budget_estimate_in_cents` exist for actuals-vs-estimate later.
+- Deals/pipeline: gone with HubSpot.
+- HUBSPOT_PRIVATE_APP_TOKEN can be removed from Vercel.
+
 ## Consequences
 
 - The pull (api/mirror) still fetches company fields — they feed the
