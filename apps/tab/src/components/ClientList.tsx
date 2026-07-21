@@ -216,12 +216,20 @@ function BookOfBusiness({
 }
 
 /** Client-account list: one workspace per client, no cross-visibility. */
+/** Live per-workspace pulse: matches waiting for review + the next date. */
+export interface AccountPulse {
+  waiting: number;
+  nextMilestone?: string;
+  nextMilestoneDate?: string;
+}
+
 export function ClientList({
   accounts,
   archivedAccounts = [],
   candidates = [],
   candidatesLive = false,
   unlinkedNames = [],
+  pulse = {},
   onOpen,
   onCreate,
   onCreateFromClient,
@@ -231,6 +239,8 @@ export function ClientList({
   /** Archived workspaces — history retained, restorable. */
   archivedAccounts?: ClientAccount[];
   onRestore?: (id: string) => void;
+  /** clientName → live Kantata pulse (waiting imports, next milestone). */
+  pulse?: Record<string, AccountPulse>;
   /** Clients from the HubSpot/Kantata mirror without a workspace yet. */
   candidates?: ClientCandidate[];
   /** True when the candidate list comes from the live pull, not demo data. */
@@ -257,7 +267,14 @@ export function ClientList({
       {heroes.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
           {heroes.map((a) => (
-            <HeroCard key={a.id} account={a} today={today} unlinked={unlinkedNames.includes(a.clientName)} onOpen={() => onOpen(a.id)} />
+            <HeroCard
+              key={a.id}
+              account={a}
+              today={today}
+              unlinked={unlinkedNames.includes(a.clientName)}
+              pulse={pulse[a.clientName]}
+              onOpen={() => onOpen(a.id)}
+            />
           ))}
         </div>
       )}
@@ -340,11 +357,13 @@ function HeroCard({
   account: a,
   today,
   unlinked,
+  pulse,
   onOpen,
 }: {
   account: ClientAccount;
   today: string;
   unlinked: boolean;
+  pulse?: AccountPulse | undefined;
   onOpen: () => void;
 }) {
   const open = a.tasks.filter((t) => t.status !== "done");
@@ -354,6 +373,7 @@ function HeroCard({
     .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
     .sort((x, y) => (x.nextMilestoneDate ?? "").localeCompare(y.nextMilestoneDate ?? ""))[0];
   const empty = active + open.length + a.thread.length + a.externals.length === 0;
+  const waiting = pulse?.waiting ?? 0;
 
   const stat = (n: number, label: string, alert = false) => (
     <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -382,9 +402,21 @@ function HeroCard({
       </span>
 
       {empty ? (
-        <span style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
-          Empty — open to review &amp; import this client's Kantata work.
-        </span>
+        waiting > 0 ? (
+          <span style={{ fontSize: 12, color: "#8a6d1a", lineHeight: 1.5 }}>
+            <strong>⚡ {waiting} campaign{waiting === 1 ? "" : "s"} matched in Kantata</strong> — waiting
+            for your review.
+            {pulse?.nextMilestone && pulse.nextMilestoneDate && (
+              <span style={{ display: "block", color: T.inkSecondary, marginTop: 2 }}>
+                Next: <strong style={{ color: T.ink }}>{pulse.nextMilestone}</strong> — {shortDay(pulse.nextMilestoneDate)}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
+            No Kantata work matched yet — open it to check, or link it to the right client.
+          </span>
+        )
       ) : (
         <>
           <span style={{ display: "flex", gap: 22 }}>
@@ -397,10 +429,13 @@ function HeroCard({
               Next: <strong style={{ color: T.ink }}>{nextMs.nextMilestone}</strong> — {nextMs.nextMilestoneDate ? shortDay(nextMs.nextMilestoneDate) : ""}
             </span>
           )}
+          {waiting > 0 && (
+            <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700 }}>⚡ +{waiting} new matched in Kantata</span>
+          )}
         </>
       )}
       <span aria-hidden style={{ marginTop: "auto", alignSelf: "flex-end", fontSize: 12, color: T.roi.navy, fontWeight: 700 }}>
-        Open ›
+        {empty && waiting > 0 ? "Review & import ›" : "Open ›"}
       </span>
     </button>
   );

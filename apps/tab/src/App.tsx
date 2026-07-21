@@ -5,6 +5,7 @@ import { Sandbox } from "./components/Sandbox.js";
 import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
+import { DataInspector } from "./components/DataInspector.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
@@ -252,6 +253,30 @@ export function App() {
     return ws.accounts.filter((a) => !a.archived && !isInBook(mirror, a.clientName)).map((a) => a.clientName);
   }, [ws.accounts, liveStatus]);
 
+  // Per-workspace live pulse for the Clients page: how many Kantata matches
+  // are WAITING for review, and the next real milestone — so the hero grid
+  // is a work queue, not a guessing game.
+  const accountPulse = useMemo(() => {
+    const mirror = loadMirror();
+    const today = AS_OF_TODAY();
+    const pulse: Record<string, { waiting: number; nextMilestone?: string; nextMilestoneDate?: string }> = {};
+    for (const a of ws.accounts) {
+      if (a.archived) continue;
+      const matched = campaignsFromMirror(mirror, a.clientName, today);
+      const waiting = matched.filter(
+        (c) => !a.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase()),
+      ).length;
+      const next = matched
+        .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
+        .sort((x, y) => (x.nextMilestoneDate ?? "").localeCompare(y.nextMilestoneDate ?? ""))[0];
+      pulse[a.clientName] = {
+        waiting,
+        ...(next ? { nextMilestone: next.nextMilestone!, nextMilestoneDate: next.nextMilestoneDate! } : {}),
+      };
+    }
+    return pulse;
+  }, [ws.accounts, liveStatus]);
+
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
   const selectedLiveCtx = selectedAccount ? accountLiveContext(loadMirror(), selectedAccount.clientName) : null;
@@ -333,10 +358,12 @@ export function App() {
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
               unlinkedNames={unlinkedNames}
+              pulse={accountPulse}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
               onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
             />
+            <DataInspector live={liveStatus.live} />
           </>
         )}
 
