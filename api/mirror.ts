@@ -100,7 +100,7 @@ async function pullKantata(token: string): Promise<{
     archived?: boolean;
     participant_ids?: (string | number)[];
   };
-  type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string };
+  type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string };
   type KantataGroup = {
     id: string;
     name?: string;
@@ -142,16 +142,23 @@ async function pullKantata(token: string): Promise<{
       "stories",
       1200,
     ).catch(() =>
+      // Filter rejected by the tenant — fall back to recently-TOUCHED
+      // milestones (updated_at), not due_date:desc, which would fill the cap
+      // with far-future placeholder dates instead of the live slice.
       pullKantataPaged<KantataStory>(
-        "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:desc",
+        "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=updated_at:desc",
         "stories",
         1200,
       ),
     ),
+    // NOT story_type=task: tenants that file work as "deliverable" (or sub-
+    // tasks) would return zero and every workspace would look task-empty.
+    // Pull recent stories of every type; milestones are filtered out below
+    // (they're pulled separately), everything else is work.
     pullKantataPaged<KantataStory>(
-      "https://api.mavenlink.com/api/v1/stories?story_type=task&per_page=200&order=updated_at:desc",
+      "https://api.mavenlink.com/api/v1/stories?per_page=200&order=updated_at:desc",
       "stories",
-      2000,
+      2500,
     ),
     // ~688 groups in the tenant — and the client-record ones (company/
     // contact fields) ARE the client directory. Never truncate them again.
@@ -209,7 +216,11 @@ async function pullKantata(token: string): Promise<{
 
   let tasks: Record<string, unknown>[] = [];
   if (tasksResult.status === "fulfilled") {
-    tasks = tasksResult.value.map((s) => ({
+    tasks = tasksResult.value
+      // Milestones ride along in the unfiltered pull — they're mapped
+      // separately; keep only actual work here.
+      .filter((s) => s.story_type !== "milestone")
+      .map((s) => ({
       id: String(s.id),
       title: s.title ?? "",
       workspace_id: String(s.workspace_id ?? ""),

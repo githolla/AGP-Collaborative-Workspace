@@ -230,6 +230,21 @@ export interface LiveTask {
   dueDate?: string;
 }
 
+/**
+ * Kantata story states vary by tenant and version — "started" / "not started"
+ * / "completed" / "accepted" / "in progress". Classify TOLERANTLY (substring,
+ * case-insensitive) so a finished task never imports as open, and an active
+ * one never lands in the wrong column, over a hyphen or a synonym. Same
+ * fragile-exact-enum class as the story_type=task pull bug.
+ */
+export const taskIsDone = (state: string): boolean => /complet|accepted|closed|finished|done/i.test(state);
+export const taskColumn = (state: string): "doing" | "todo" => {
+  const s = state.toLowerCase();
+  // "not started" / "not yet started" contains "start" — negation wins.
+  if (/\bnot\b/.test(s)) return "todo";
+  return /start|progress|active|doing|wip/.test(s) ? "doing" : "todo";
+};
+
 export interface LiveProject {
   /** Kantata workspace id — the key the focus deepen pulls by. */
   id: string;

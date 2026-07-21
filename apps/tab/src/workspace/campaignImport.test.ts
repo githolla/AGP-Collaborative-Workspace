@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, isInBook, suggestClients } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, isInBook, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -344,5 +344,23 @@ describe("quiet signals", () => {
     expect(deliveryQuiet([{ ...base, minutesRecent: 900, minutes30d: 120 }])).toBe(false);
     expect(deliveryQuiet([base])).toBe(false);
     expect(deliveryQuiet([])).toBe(false);
+  });
+
+  it("task state classifier tolerates tenant variants (not just the exact strings)", () => {
+    // Done detection: a finished task must never import as open, whatever the
+    // tenant calls it.
+    for (const s of ["completed", "Completed", "accepted", "closed", "Finished", "done"]) {
+      expect(taskIsDone(s), `${s} should be done`).toBe(true);
+    }
+    for (const s of ["", "started", "not started", "in progress", "backlog"]) {
+      expect(taskIsDone(s), `${s} should not be done`).toBe(false);
+    }
+    // Column: active work lands in "doing" over a space or a synonym.
+    expect(taskColumn("started")).toBe("doing");
+    expect(taskColumn("in progress")).toBe("doing"); // the old exact "in_progress" missed this
+    expect(taskColumn("in_progress")).toBe("doing");
+    expect(taskColumn("active")).toBe("doing");
+    expect(taskColumn("not started")).toBe("todo");
+    expect(taskColumn("")).toBe("todo");
   });
 });

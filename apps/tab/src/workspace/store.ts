@@ -5,7 +5,7 @@ import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
 import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
-import { accountLiveContext, campaignsFromMirror } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, taskColumn, taskIsDone } from "./campaignImport.js";
 import { deepenWorkspaces } from "./liveMirror.js";
 import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
@@ -155,12 +155,12 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
   let tasksAdded = 0;
   for (const p of ctx.projects) {
     for (const t of p.tasks) {
-      if (t.state === "completed") continue;
+      if (taskIsDone(t.state)) continue;
       if (tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase())) continue;
       tasks.push({
         id: newId("task"),
         title: t.title,
-        status: t.state === "started" || t.state === "in_progress" ? ("doing" as const) : ("todo" as const),
+        status: taskColumn(t.state),
         ...(t.dueDate ? { due: t.dueDate } : {}),
         label: "from Kantata",
         source: "manual" as const,

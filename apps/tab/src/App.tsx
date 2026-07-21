@@ -13,7 +13,7 @@ import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
-import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients } from "./workspace/campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import { T } from "./theme.js";
 
@@ -291,11 +291,11 @@ export function App() {
   const selectedTaskCandidates = selectedAccount && selectedLiveCtx
     ? selectedLiveCtx.projects.flatMap((p) =>
         p.tasks
-          .filter((t) => t.state !== "completed")
+          .filter((t) => !taskIsDone(t.state))
           .filter((t) => !selectedAccount.tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase()))
           .map((t) => ({
             title: t.title,
-            status: (t.state === "started" || t.state === "in_progress" ? "doing" : "todo") as "doing" | "todo",
+            status: taskColumn(t.state),
             ...(t.dueDate ? { due: t.dueDate } : {}),
             project: p.title,
           })),
