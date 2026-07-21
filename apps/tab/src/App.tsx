@@ -11,7 +11,7 @@ import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
-import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
+import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
@@ -333,6 +333,21 @@ export function App() {
     return rows;
   }, [ws.accounts, liveStatus]);
 
+  // How the client count breaks down by title convention — shown in the
+  // directory header so the number explains itself (colon-prefix clients vs
+  // dash vs the verbatim project-titles that are deliberately NOT counted).
+  const directoryStats = useMemo(() => {
+    const mirror = loadMirror();
+    const s = { colon: 0, dash: 0, verbatim: 0 };
+    for (const p of mirror.projects) {
+      const via = classifyClientTitle(p.title).via;
+      if (via === "colon") s.colon += 1;
+      else if (via === "dash") s.dash += 1;
+      else if (via === "verbatim") s.verbatim += 1;
+    }
+    return s;
+  }, [liveStatus]);
+
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
   const selectedLiveCtx = selectedAccount
@@ -427,6 +442,7 @@ export function App() {
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
               directory={clientDirectory}
+              directoryStats={directoryStats}
               pulse={accountPulse}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}

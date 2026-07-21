@@ -1,5 +1,5 @@
 import { setMirrorOverride, type AgpMirror, type MirrorClient } from "./agpKnowledge.js";
-import { autoAbbreviation } from "./campaignImport.js";
+import { autoAbbreviation, initialism } from "./campaignImport.js";
 
 /**
  * Live mirror: the browser-side half of /api/mirror. On boot the app asks
@@ -42,7 +42,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 8; // 8: client list = title-prefix-before-colon, "Agency:" internal projects dropped
+const CACHE_SCHEMA = 9; // 9: verbatim titles no longer count as clients; acronym duplicates merged
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -124,10 +124,14 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
 
   for (const w of p.kantataProjects) {
     const cls = classifyClientTitle(str(w.title));
-    if (cls.via === "internal") continue; // "Agency:" work, or too short to name
+    // A client is a named prefix — colon (the AGP convention) or a dash
+    // separator. VERBATIM titles (no convention) are NOT clients: they're
+    // project titles, and counting them inflates the directory. They stay in
+    // the project list (findable via the Project Finder), just uncounted.
+    if (cls.via !== "colon" && cls.via !== "dash") continue;
     const vertical = verticalFor(String(w.id));
     // A short single-token colon prefix IS the abbreviation ("ARMS"); a longer
-    // one gets a derived acronym. Dash/verbatim clients carry no abbreviation.
+    // one gets a derived acronym. Dash clients carry no abbreviation.
     const abbr =
       cls.via === "colon"
         ? cls.client.length <= 6 && !/\s/.test(cls.client)
@@ -136,7 +140,33 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
         : undefined;
     add(cls.client, abbr, vertical);
   }
-  return [...byKey.values()];
+  return mergeAcronymDuplicates([...byKey.values()]);
+}
+
+/**
+ * Fold an acronym client into its full-name sibling: "AWW" ⇄ "American Water
+ * Works" are one client, not two. Keeps the multi-word name, carries the
+ * acronym as its abbreviation so acronym-titled projects still match.
+ */
+function mergeAcronymDuplicates(clients: MirrorClient[]): MirrorClient[] {
+  const fullByAcronym = new Map<string, MirrorClient>();
+  for (const c of clients) {
+    if (!/\s/.test(c.name)) continue; // only multi-word names produce acronyms
+    const init = initialism(c.name).toLowerCase();
+    if (init.length >= 2 && !fullByAcronym.has(init)) fullByAcronym.set(init, c);
+  }
+  const dropped = new Set<MirrorClient>();
+  for (const c of clients) {
+    if (/\s/.test(c.name)) continue; // candidate must be a single token (the acronym)
+    const key = c.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (key.length < 2 || key.length > 6) continue;
+    const full = fullByAcronym.get(key);
+    if (full && full !== c) {
+      if (!full.abbreviation) full.abbreviation = c.name;
+      dropped.add(c);
+    }
+  }
+  return clients.filter((c) => !dropped.has(c));
 }
 
 /** Pure mapping: raw /api/mirror payload → the AgpMirror the Copilot grounds on. */

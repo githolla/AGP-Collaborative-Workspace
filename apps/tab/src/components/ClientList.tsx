@@ -243,6 +243,7 @@ export function ClientList({
   candidates = [],
   candidatesLive = false,
   directory = [],
+  directoryStats,
   pulse = {},
   onOpen,
   onCreate,
@@ -252,6 +253,8 @@ export function ClientList({
   accounts: ClientAccount[];
   /** Every client the app sees (workspaces + derived), for the sortable list. */
   directory?: DirectoryRow[];
+  /** Projects by title convention — shown so the client count self-explains. */
+  directoryStats?: { colon: number; dash: number; verbatim: number };
   /** Archived workspaces — history retained, restorable. */
   archivedAccounts?: ClientAccount[];
   onRestore?: (id: string) => void;
@@ -300,7 +303,7 @@ export function ClientList({
       )}
 
       {mode === "list" && directory.length > 0 && (
-        <ClientDirectory rows={directory} live={candidatesLive} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
+        <ClientDirectory rows={directory} live={candidatesLive} {...(directoryStats ? { stats: directoryStats } : {})} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
       )}
 
       {mode === "cards" && heroes.length > 0 && (
@@ -390,11 +393,13 @@ type SortKey = "name" | "vertical" | "liveProjects" | "nextMilestoneDate" | "wor
 function ClientDirectory({
   rows,
   live,
+  stats,
   onOpen,
   onCreate,
 }: {
   rows: DirectoryRow[];
   live: boolean;
+  stats?: { colon: number; dash: number; verbatim: number };
   onOpen: (id: string) => void;
   onCreate: (name: string) => void;
 }) {
@@ -473,6 +478,12 @@ function ClientDirectory({
             {withWorkspace} with a workspace · {rows.length - withWorkspace} not set up yet.
             {live ? " Live from Kantata." : " Demo data."} Click any column to sort.
           </div>
+          {stats && (
+            <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 3 }}>
+              From project titles: {stats.colon} “Client:” prefix · {stats.dash} name-dash
+              {stats.verbatim > 0 ? ` · ${stats.verbatim} with no prefix (not counted as clients)` : ""}
+            </div>
+          )}
         </div>
         <input
           value={q}

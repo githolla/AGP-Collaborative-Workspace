@@ -211,7 +211,7 @@ describe("mapLivePayload", () => {
           { id: "1", title: "ARMS: Support 25-26 (Aug25-Jul26)" }, // colon prefix → ARMS
           { id: "2", title: "CWS: Q4 Omnichannel Program" }, // colon prefix → CWS
           { id: "3", title: "Harvest Hope Food Bank — Fall Acquisition Mail" }, // no colon → dash split
-          { id: "4", title: "Internal ops cleanup" }, // no convention → verbatim (still reachable)
+          { id: "4", title: "Internal ops cleanup" }, // no convention → verbatim: NOT a client (inflation)
           { id: "5", title: "Agency: Internal Tooling Sprint" }, // INTERNAL → dropped entirely
           { id: "6", title: "25-031 Agency: Website Refresh" }, // internal even behind a project code
         ],
@@ -222,11 +222,13 @@ describe("mapLivePayload", () => {
       }),
     );
     const names = mirror.clients.map((c) => c.name).sort();
-    // The prefix before the colon is the client; "Agency:" work never appears.
-    expect(names).toEqual(["ARMS", "CWS", "Harvest Hope Food Bank", "Internal ops cleanup"]);
+    // Only named prefixes (colon/dash) are clients; "Agency:" and verbatim
+    // project titles ("Internal ops cleanup") never inflate the list.
+    expect(names).toEqual(["ARMS", "CWS", "Harvest Hope Food Bank"]);
+    expect(names).not.toContain("Internal ops cleanup");
     expect(names).not.toContain("Agency");
-    // Internal "Agency:" projects are dropped from the project list too (no
-    // matching, no Project Finder, out of the book count).
+    // The verbatim project stays REACHABLE (Project Finder) — dropped from the
+    // client list, not the project list. "Agency:" work is dropped from both.
     expect(mirror.projects.map((p) => p.id).sort()).toEqual(["1", "2", "3", "4"]);
     expect(mirror.projects.some((p) => /agency/i.test(p.title))).toBe(false);
 
@@ -253,6 +255,24 @@ describe("mapLivePayload", () => {
     // CLIENT group wins over the category group.
     expect(mirror.projects.find((p) => p.id === "2")?.clientGroup).toBe("Church World Service");
     expect(mirror.projects.find((p) => p.id === "1")?.clientGroup).toBe("Direct Mail");
+  });
+
+  it("folds an acronym client into its full-name sibling (AWW ⇄ American Water Works)", () => {
+    const mirror = mapLivePayload(
+      payload({
+        companies: [],
+        kantataProjects: [
+          { id: "1", title: "American Water Works: Spring Acquisition Mail" },
+          { id: "2", title: "AWW: Q3 Retainer" },
+          { id: "3", title: "SUA: Athletics Annual Fund" }, // unrelated, stays its own client
+        ],
+      }),
+    );
+    const names = mirror.clients.map((c) => c.name).sort();
+    // One American Water Works, not two — the acronym folded into the full name.
+    expect(names).toEqual(["American Water Works", "SUA"]);
+    const aww = mirror.clients.find((c) => c.name === "American Water Works");
+    expect(aww?.abbreviation).toBe("AWW"); // acronym kept for matching
   });
 
   it("returns an empty mirror for an empty payload", () => {
