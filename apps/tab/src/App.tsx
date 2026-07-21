@@ -404,9 +404,10 @@ export function App() {
             <button
               type="button"
               className={`nav-pill${route.view === "clients" || route.view === "account" ? " active" : ""}`}
+              title="Client workspaces you've set up — the full Kantata client roster is under “All clients — list”."
               onClick={() => setRoute({ view: "clients" })}
             >
-              Clients ({ws.accounts.filter((a) => !a.archived).length})
+              Workspaces ({ws.accounts.filter((a) => !a.archived).length})
             </button>
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
