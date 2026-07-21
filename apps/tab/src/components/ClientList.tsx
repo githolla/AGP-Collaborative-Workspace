@@ -4,6 +4,20 @@ import { KantataChip, SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount } from "../workspace/types.js";
 
+/** One row of the sortable client directory — every client the app sees,
+ * whether or not it has a workspace yet. Computed in App, passed as plain
+ * data so this guest-visible file stays free of store/matcher imports. */
+export interface DirectoryRow {
+  name: string;
+  vertical?: string;
+  /** Live Kantata projects attributed to this client. */
+  liveProjects: number;
+  nextMilestone?: string;
+  nextMilestoneDate?: string;
+  /** Present when a workspace already exists for this client. */
+  accountId?: string;
+}
+
 /** A CRM client that doesn't have a workspace yet — passed in as plain data. */
 export interface ClientCandidate {
   name: string;
@@ -228,6 +242,7 @@ export function ClientList({
   archivedAccounts = [],
   candidates = [],
   candidatesLive = false,
+  directory = [],
   pulse = {},
   onOpen,
   onCreate,
@@ -235,6 +250,8 @@ export function ClientList({
   onRestore,
 }: {
   accounts: ClientAccount[];
+  /** Every client the app sees (workspaces + derived), for the sortable list. */
+  directory?: DirectoryRow[];
   /** Archived workspaces — history retained, restorable. */
   archivedAccounts?: ClientAccount[];
   onRestore?: (id: string) => void;
@@ -250,6 +267,7 @@ export function ClientList({
   onCreateFromClient?: (clientName: string) => void;
 }) {
   const [name, setName] = useState("");
+  const [mode, setMode] = useState<"cards" | "list">("cards");
   const today = AS_OF_TODAY();
 
   // Heroes first: the 10 busiest client workspaces as rich cards — the
@@ -260,9 +278,32 @@ export function ClientList({
   const heroes = sorted.slice(0, 10);
   const rest = sorted.slice(10);
 
+  const modeChip = (key: "cards" | "list", label: string) => (
+    <button
+      type="button"
+      className={`chip-pick${mode === key ? " active" : ""}`}
+      aria-pressed={mode === key}
+      onClick={() => setMode(key)}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {heroes.length > 0 && (
+      {/* Cards (the busy-client heroes) vs a sortable directory of everyone. */}
+      {directory.length > 0 && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {modeChip("cards", "Cards")}
+          {modeChip("list", `All clients — list (${directory.length})`)}
+        </div>
+      )}
+
+      {mode === "list" && directory.length > 0 && (
+        <ClientDirectory rows={directory} live={candidatesLive} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
+      )}
+
+      {mode === "cards" && heroes.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
           {heroes.map((a) => (
             <HeroCard key={a.id} account={a} today={today} pulse={pulse[a.clientName]} onOpen={() => onOpen(a.id)} />
@@ -270,7 +311,7 @@ export function ClientList({
         </div>
       )}
 
-      {rest.length > 0 && (
+      {mode === "cards" && rest.length > 0 && (
         <div className="card" style={{ padding: "4px 18px" }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 4px 4px" }}>
             More workspaces ({rest.length})
@@ -297,7 +338,7 @@ export function ClientList({
 
       {/* Manual creation lives in the book-of-business footer when the CRM
           list is present; this card is the fallback without one. */}
-      {(candidates.length === 0 || !onCreateFromClient) && (
+      {mode === "cards" && (candidates.length === 0 || !onCreateFromClient) && (
         <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", maxWidth: 460 }}>
           <SectionTitle>New client workspace</SectionTitle>
           <input
@@ -324,7 +365,7 @@ export function ClientList({
         </div>
       )}
 
-      {candidates.length > 0 && onCreateFromClient && (
+      {mode === "cards" && candidates.length > 0 && onCreateFromClient && (
         <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
       )}
 
@@ -338,6 +379,166 @@ export function ClientList({
 /** "2026-09-14" → "Sep 14". */
 const shortDay = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+type SortKey = "name" | "vertical" | "liveProjects" | "nextMilestoneDate" | "workspace";
+
+/**
+ * Sortable directory of every client the app sees — workspaces and
+ * derived-from-Kantata alike. Click a header to sort; click a row to open
+ * its workspace (or set one up). Pure presentation: rows arrive as data.
+ */
+function ClientDirectory({
+  rows,
+  live,
+  onOpen,
+  onCreate,
+}: {
+  rows: DirectoryRow[];
+  live: boolean;
+  onOpen: (id: string) => void;
+  onCreate: (name: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("liveProjects");
+  const [dir, setDir] = useState<"asc" | "desc">("desc");
+
+  const needle = q.trim().toLowerCase();
+  const filtered = rows.filter(
+    (r) => !needle || r.name.toLowerCase().includes(needle) || (r.vertical ?? "").toLowerCase().includes(needle),
+  );
+  const sorted = [...filtered].sort((a, b) => {
+    let d = 0;
+    switch (sortKey) {
+      case "name":
+        d = a.name.localeCompare(b.name);
+        break;
+      case "vertical":
+        d = (a.vertical ?? "").localeCompare(b.vertical ?? "");
+        break;
+      case "liveProjects":
+        d = a.liveProjects - b.liveProjects;
+        break;
+      case "nextMilestoneDate":
+        d = (a.nextMilestoneDate ?? "9999-99-99").localeCompare(b.nextMilestoneDate ?? "9999-99-99");
+        break;
+      case "workspace":
+        d = Number(!!a.accountId) - Number(!!b.accountId);
+        break;
+    }
+    return (d || a.name.localeCompare(b.name)) * (dir === "asc" ? 1 : -1);
+  });
+
+  const clickSort = (k: SortKey) => {
+    if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setDir(k === "name" || k === "vertical" ? "asc" : "desc"); // text A→Z, numbers/dates high→low
+    }
+  };
+
+  const withWorkspace = rows.filter((r) => r.accountId).length;
+
+  const th = (k: SortKey, label: string, align: "left" | "right" = "left") => (
+    <th
+      onClick={() => clickSort(k)}
+      style={{
+        textAlign: align,
+        padding: "9px 12px",
+        fontSize: 10.5,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        color: sortKey === k ? T.roi.navy : T.inkMuted,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+        userSelect: "none",
+        position: "sticky",
+        top: 0,
+        background: T.surface,
+      }}
+    >
+      {label}
+      <span aria-hidden style={{ opacity: sortKey === k ? 1 : 0.25 }}> {sortKey === k ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+    </th>
+  );
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderBottom: `1px solid ${T.grid}` }}>
+        <div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>
+            Client directory — {rows.length} {rows.length === 1 ? "client" : "clients"}
+          </div>
+          <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
+            {withWorkspace} with a workspace · {rows.length - withWorkspace} not set up yet.
+            {live ? " Live from Kantata." : " Demo data."} Click any column to sort.
+          </div>
+        </div>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Filter by name or vertical…"
+          className="input"
+          style={{ maxWidth: 260 }}
+        />
+      </div>
+      <div style={{ overflowX: "auto", maxHeight: 620, overflowY: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <thead>
+            <tr>
+              {th("name", "Client")}
+              {th("vertical", "Vertical")}
+              {th("liveProjects", "Live projects", "right")}
+              {th("nextMilestoneDate", "Next milestone")}
+              {th("workspace", "Workspace", "right")}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const go = () => (r.accountId ? onOpen(r.accountId) : onCreate(r.name));
+              return (
+                <tr
+                  key={r.name}
+                  className="table-row-hover"
+                  onClick={go}
+                  style={{ borderTop: `1px solid ${T.grid}`, cursor: "pointer" }}
+                >
+                  <td style={{ padding: "9px 12px", fontWeight: 700, color: T.roi.navy }}>{r.name}</td>
+                  <td style={{ padding: "9px 12px", color: T.inkSecondary }}>{r.vertical ? pretty(r.vertical) : "—"}</td>
+                  <td style={{ padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.liveProjects > 0 ? T.ink : T.inkMuted }}>
+                    {r.liveProjects}
+                  </td>
+                  <td style={{ padding: "9px 12px", color: r.nextMilestoneDate ? T.inkSecondary : T.inkMuted, whiteSpace: "nowrap", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {r.nextMilestoneDate ? (
+                      <>
+                        {shortDay(r.nextMilestoneDate)}
+                        {r.nextMilestone ? <span style={{ color: T.inkMuted }}> · {r.nextMilestone}</span> : null}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: r.accountId ? T.roi.navy : T.inkMuted }}>
+                      {r.accountId ? "Open ›" : "Set up →"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ padding: "18px 12px", color: T.inkMuted, textAlign: "center" }}>
+                  No clients match “{q}”.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Hero card — one busy client workspace at a glance: the counters that

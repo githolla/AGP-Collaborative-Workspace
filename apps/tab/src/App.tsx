@@ -15,6 +15,7 @@ import { initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
+import type { ClientAccount } from "./workspace/types.js";
 import { T } from "./theme.js";
 
 /**
@@ -279,6 +280,59 @@ export function App() {
     return pulse;
   }, [ws.accounts, liveStatus]);
 
+  // Sortable directory: EVERY client the app sees — derived-from-Kantata and
+  // existing workspaces alike — with its live project count and next
+  // milestone. Computed here (App can reach the matcher) and passed to
+  // ClientList as plain data, keeping the guest-safety boundary intact.
+  const clientDirectory = useMemo(() => {
+    const mirror = loadMirror();
+    const today = AS_OF_TODAY();
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const activeAccounts = ws.accounts.filter((a) => !a.archived);
+    const accountByName = new Map(activeAccounts.map((a) => [norm(a.clientName), a] as const));
+    const rows: {
+      name: string;
+      vertical?: string;
+      liveProjects: number;
+      nextMilestone?: string;
+      nextMilestoneDate?: string;
+      accountId?: string;
+    }[] = [];
+    const usedAccounts = new Set<string>();
+    const emit = (name: string, vertical: string | undefined, account?: ClientAccount) => {
+      const ctx = accountLiveContext(mirror, name, account?.kantataProjectIds);
+      let nextMilestone: string | undefined;
+      let nextMilestoneDate: string | undefined;
+      for (const p of ctx.projects) {
+        for (const m of p.milestones) {
+          if (m.state !== "completed" && m.dueDate >= today && (nextMilestoneDate === undefined || m.dueDate < nextMilestoneDate)) {
+            nextMilestoneDate = m.dueDate;
+            nextMilestone = m.title;
+          }
+        }
+      }
+      rows.push({
+        name,
+        ...(vertical ? { vertical } : {}),
+        liveProjects: ctx.projects.length,
+        ...(nextMilestone ? { nextMilestone } : {}),
+        ...(nextMilestoneDate ? { nextMilestoneDate } : {}),
+        ...(account ? { accountId: account.id } : {}),
+      });
+    };
+    for (const c of mirror.clients) {
+      const account = accountByName.get(norm(c.name));
+      if (account) usedAccounts.add(account.id);
+      emit(c.name, c.vertical, account);
+    }
+    // Workspaces whose name isn't in the derived directory (manual / renamed).
+    for (const a of activeAccounts) {
+      if (usedAccounts.has(a.id)) continue;
+      emit(a.clientName, undefined, a);
+    }
+    return rows;
+  }, [ws.accounts, liveStatus]);
+
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
   const selectedLiveCtx = selectedAccount
@@ -372,6 +426,7 @@ export function App() {
               onRestore={(id) => ws.setAccountArchived(id, false)}
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
+              directory={clientDirectory}
               pulse={accountPulse}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
