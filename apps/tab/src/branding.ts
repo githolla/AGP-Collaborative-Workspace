@@ -7,7 +7,7 @@ export const APP_TITLE = {
 /** Client Health design system (2026-07): deep indigo navy, teal accent,
  * lime highlight — colours + logo lifted from AGP's live portfolio tool. */
 export const BRAND = {
-  headerBg: "#141a38",
+  headerBg: "#22346f",
   headerText: "#ffffff",
   headerMuted: "#7f88ad",
   /** Teal — the accent that marks the product name and section labels. */

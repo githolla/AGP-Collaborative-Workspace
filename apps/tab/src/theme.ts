@@ -26,7 +26,7 @@ export const T = {
   seq: ["#d6f0f3", "#bde6ec", "#a1dbe3", "#84cfda", "#63c2d0", "#43b5c6", "#2bb8c9", "#249fb0", "#1e8695", "#186d7a"],
   // Brand accent set.
   roi: {
-    navy: "#141a38",
+    navy: "#22346f",
     cyan: "#2bb8c9",
     confirmed: "#2ea44f",
     amber: "#e0a92e",
