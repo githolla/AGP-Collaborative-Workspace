@@ -286,6 +286,23 @@ describe("link rescue", () => {
     expect(suggestClients(book, "Harvest Hope Food Bank")).toEqual(["Harvest Hope of the Carolinas"]); // shared distinctive words
     expect(suggestClients(book, "Riverside Animal Shelter")).toEqual([]); // nothing similar → say so honestly
   });
+
+  it("INITIALISM BRIDGE: full-name workspaces link to Kantata's abbreviation clients", () => {
+    // The Kantata-derived directory speaks in abbreviations.
+    const kantataBook = mirror({
+      clients: [{ id: "1", name: "SUA", vertical: "", abbreviation: "SUA" }],
+      projects: [{ id: "ws-1", title: "SUA: Athletics Annual Fund", serviceLine: "", vertical: "", model: "" }],
+    });
+    // "Syracuse University Athletics" → initials SUA → linked, badge clears…
+    expect(isInBook(kantataBook, "Syracuse University Athletics")).toBe(true);
+    // …and the matcher finds the client's work through the same bridge.
+    expect(campaignsFromMirror(kantataBook, "Syracuse University Athletics", TODAY)).toHaveLength(1);
+    // Suggestions also bridge, for the relink flow.
+    expect(suggestClients(kantataBook, "Syracuse University Athletics")).toEqual(["SUA"]);
+    // Reverse: a workspace literally named by the abbreviation finds the full-name client.
+    const fullBook = mirror({ clients: [{ id: "1", name: "Church World Service", vertical: "" }] });
+    expect(isInBook(fullBook, "CWS")).toBe(true);
+  });
 });
 
 describe("quiet signals", () => {

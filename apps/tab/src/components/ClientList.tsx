@@ -278,7 +278,7 @@ export function ClientList({
               <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.roi.navy }}>{a.clientName}</span>
               {unlinkedNames.includes(a.clientName) && (
                 <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>
-                  ⚠ not in CRM
+                  ⚠ no Kantata match
                 </span>
               )}
               <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap" }}>Open ›</span>
@@ -376,7 +376,7 @@ function HeroCard({
             title="No client with this name exists in the live Kantata book — open to link it to a real client, or archive it."
             style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
           >
-            ⚠ not in CRM
+            ⚠ no Kantata match
           </span>
         )}
       </span>

@@ -81,6 +81,39 @@ function projectBelongsToClient(title: string, clientName: string, abbreviation?
 /** Loose equality for the group↔company join: case/punctuation-insensitive. */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+/** "Syracuse University Athletics" → "SUA" (connector words skipped). */
+const SMALL_WORDS = new Set(["of", "the", "at", "and", "a", "an", "for", "in"]);
+export function initialism(name: string): string {
+  const words = name.split(/[^A-Za-z0-9]+/).filter((w) => w.length > 0 && !SMALL_WORDS.has(w.toLowerCase()));
+  if (words.length < 2) return "";
+  return words.map((w) => w[0]!.toUpperCase()).join("");
+}
+
+/**
+ * Find a directory client for a workspace name. Kantata's derived directory
+ * often speaks in abbreviations ("SUA") while workspaces carry full names
+ * ("Syracuse University Athletics") — the initialism bridges them, both
+ * ways. Exact (normalized) match always wins.
+ */
+function findDirectoryClient(mirror: AgpMirror, name: string): AgpMirror["clients"][number] | undefined {
+  const n = normName(name);
+  const exact = mirror.clients.find((c) => normName(c.name) === n);
+  if (exact) return exact;
+  const init = initialism(name).toLowerCase();
+  if (init.length >= 2) {
+    const viaInitials = mirror.clients.find(
+      (c) => normName(c.name) === init || c.abbreviation?.trim().toLowerCase() === init,
+    );
+    if (viaInitials) return viaInitials;
+  }
+  // Reverse: the workspace name IS an abbreviation of a directory client.
+  if (n.length >= 2 && n.length <= 8 && !n.includes(" ")) {
+    const reverse = mirror.clients.find((c) => initialism(c.name).toLowerCase() === n);
+    if (reverse) return reverse;
+  }
+  return undefined;
+}
+
 /**
  * A group strictly belongs to a client when it IS the client name, contains
  * the full client name, or equals the client's abbreviation. Never the
@@ -132,7 +165,7 @@ function projectMatcher(mirror: AgpMirror, clientName: string, abbreviation?: st
 }
 
 export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
-  const client = mirror.clients.find((c) => normName(c.name) === normName(clientName));
+  const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
   const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
 
@@ -245,7 +278,7 @@ export interface AccountLiveContext {
 }
 
 export function accountLiveContext(mirror: AgpMirror, clientName: string): AccountLiveContext {
-  const client = mirror.clients.find((c) => normName(c.name) === normName(clientName));
+  const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
   const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
 
@@ -324,9 +357,10 @@ export function crmGoneQuiet(crm: AccountCrmRecord | undefined, today: string): 
   return !crm.lastTouch || crm.lastTouch < cutoff;
 }
 
-/** Is this workspace name an actual client in the (live) book? */
+/** Is this workspace name an actual client in the (live) book? Full names
+ * bridge to abbreviation-style directory entries via initialism. */
 export function isInBook(mirror: AgpMirror, name: string): boolean {
-  return mirror.clients.some((c) => normName(c.name) === normName(name));
+  return !!findDirectoryClient(mirror, name);
 }
 
 /**
@@ -339,15 +373,19 @@ export function suggestClients(mirror: AgpMirror, name: string, limit = 3): stri
   const targetNorm = normName(name);
   const targetWords = new Set(significantWords(name));
   const targetTokens = new Set(distinctiveTokens(name));
+  const targetInit = initialism(name).toLowerCase();
   return mirror.clients
     .map((c) => {
       const cNorm = normName(c.name);
       let score = 0;
       if (cNorm === targetNorm) score += 100;
       else if (cNorm.includes(targetNorm) || targetNorm.includes(cNorm)) score += 50;
+      // Initialism bridge, both ways: "Syracuse University Athletics" ↔ "SUA".
+      const abbr = c.abbreviation?.trim().toLowerCase();
+      if (targetInit.length >= 2 && (cNorm === targetInit || abbr === targetInit)) score += 60;
+      if (initialism(c.name).toLowerCase() === targetNorm && targetNorm.length >= 2) score += 60;
       score += significantWords(c.name).filter((w) => targetWords.has(w)).length * 10;
       score += distinctiveTokens(c.name).filter((t) => targetTokens.has(t)).length * 15;
-      const abbr = c.abbreviation?.trim().toLowerCase();
       if (abbr && (targetTokens.has(abbr) || targetWords.has(abbr))) score += 25;
       return { name: c.name, score };
     })

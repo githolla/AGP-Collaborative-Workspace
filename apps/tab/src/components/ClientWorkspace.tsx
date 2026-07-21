@@ -298,9 +298,9 @@ function LinkDoctor({
     <div style={{ background: "#faf3dc", border: "1.5px solid #e7c66f", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#6b5410", lineHeight: 1.6 }}>
       {!crm ? (
         <>
-          <strong>This workspace isn’t linked to the live book.</strong> No HubSpot company is
-          named “{clientName}” — it was likely created from demo data, or the name differs from
-          the CRM. {pulled}
+          <strong>This workspace isn’t linked to a Kantata client.</strong> No client derived from
+          Kantata matches “{clientName}” — the name may differ from how Kantata knows them (often
+          an abbreviation like “SUA”), or it was created from demo data. {pulled}
           {suggestions.length > 0 && (
             <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
               <span style={{ fontWeight: 700 }}>Closest real clients:</span>
@@ -312,26 +312,19 @@ function LinkDoctor({
             </span>
           )}
           <span style={{ display: "block", marginTop: 6, fontSize: 11.5 }}>
-            {suggestions.length === 0 ? "No similar name found in the book. " : ""}
-            Real clients can be set up from the <strong>Clients</strong> page — pick from the live
-            book there. If this client genuinely isn’t in HubSpot yet, keep working; data pulls
-            attach as soon as it is.
+            {suggestions.length === 0 ? "No similar name found in the Kantata book. " : ""}
+            Active clients can be set up from the <strong>Clients</strong> page — pick from the
+            live Kantata list there. If this client has no Kantata projects yet, keep working;
+            data attaches as soon as their first project exists.
           </span>
         </>
       ) : (
         <>
-          <strong>“{clientName}” is in HubSpot, but no Kantata work matched it.</strong> {pulled}{" "}
-          Matching uses (1) the Kantata workspace group named for the client, (2) the HubSpot{" "}
-          <strong>Client Abbreviation</strong> as a title prefix (“ARMS: …”), or (3) the client’s
-          name in the project title.
-          {!crm.abbreviation && (
-            <span style={{ display: "block", marginTop: 6 }}>
-              ⚠ The <strong>Client Abbreviation</strong> field is empty for this company in
-              HubSpot — that’s the strongest signal, since AGP’s Kantata titles lead with it. Fill
-              it (e.g. “{clientName.split(/\s+/).map((w) => w[0]).join("").toUpperCase().slice(0, 5)}”), then
-              refresh with the ⟳ pill.
-            </span>
-          )}
+          <strong>“{clientName}” is in the client book, but no Kantata work matched it.</strong>{" "}
+          {pulled} Matching uses (1) the Kantata client group this project belongs to, (2) the
+          client abbreviation as a title prefix (“ARMS: …”), or (3) the client’s name in the
+          project title. Refresh with the ⟳ pill; if it stays empty, the project titles may use a
+          different convention — tell us one project title and we tune the matcher.
         </>
       )}
     </div>
@@ -928,14 +921,14 @@ function ImportReview({
 
       {candidates.length === 0 && taskCandidates.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "6px 0" }}>
-          Nothing new matched this client in Kantata or HubSpot. If work exists under a different
-          name or abbreviation, fix the HubSpot “Client Abbreviation” field and refresh (⟳ pill,
-          top right).
+          Nothing new matched this client in Kantata. If their work is titled under a different
+          name or abbreviation, refresh (⟳ pill, top right) — and if it stays empty, send us one
+          real project title and we tune the matcher to it.
         </div>
       ) : candidates.length === 0 ? null : (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>
-            Matched in Kantata &amp; HubSpot — uncheck anything that isn't this client's
+            Matched in Kantata — uncheck anything that isn't this client's
           </div>
           {candidates.map((c) => (
             <label
