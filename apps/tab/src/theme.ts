@@ -3,41 +3,43 @@
  * reference dataviz palette (light mode; Teams theme tokens arrive in M3).
  */
 export const T = {
-  page: "#f6f6f3",
-  surface: "#fcfcfb",
-  ink: "#0b0b0b",
-  inkSecondary: "#52514e",
-  inkMuted: "#898781",
-  grid: "#e1e0d9",
-  baseline: "#c3c2b7",
-  border: "rgba(11,11,11,0.10)",
-  series1: "#2a78d6", // blue — fee burn, primary series
-  series2: "#008300", // green
-  successText: "#006300",
+  // Client Health design system: deep indigo navy, teal accent, lime.
+  page: "#eef1f5",
+  surface: "#ffffff",
+  ink: "#10152e",
+  inkSecondary: "#545b70",
+  inkMuted: "#8a90a3",
+  grid: "#e2e5ec",
+  baseline: "#c6cbd6",
+  border: "rgba(16,21,46,0.10)",
+  series1: "#2bb8c9", // teal — primary series/accent
+  series2: "#2ea44f", // green
+  successText: "#1c7a3f",
+  lime: "#c2e24c",
   status: {
-    good: "#0ca30c",
-    warning: "#fab219",
+    good: "#2ea44f",
+    warning: "#e0a92e",
     serious: "#ec835a",
-    critical: "#d03b3b",
+    critical: "#e5484d",
   },
-  // sequential blue ramp (heat shading; lightest = near zero)
-  seq: ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab"],
-  // ROI calculator brand colors (roi-calculator-spec §9)
+  // sequential teal ramp (heat shading; lightest = near zero)
+  seq: ["#d6f0f3", "#bde6ec", "#a1dbe3", "#84cfda", "#63c2d0", "#43b5c6", "#2bb8c9", "#249fb0", "#1e8695", "#186d7a"],
+  // Brand accent set.
   roi: {
-    navy: "#0b3c6e",
-    cyan: "#4fb8e0",
-    confirmed: "#1f9d6b",
-    amber: "#d8932f",
+    navy: "#141a38",
+    cyan: "#2bb8c9",
+    confirmed: "#2ea44f",
+    amber: "#e0a92e",
   },
 } as const;
 
 export type Grade = "A" | "B" | "C" | "D";
 
 export const gradeColor: Record<Grade, string> = {
-  A: "#1f9d6b",
-  B: "#4fb8e0",
-  C: "#d8932f",
-  D: "#d03b3b",
+  A: "#2ea44f",
+  B: "#2bb8c9",
+  C: "#e0a92e",
+  D: "#e5484d",
 };
 
 export const card: React.CSSProperties = {

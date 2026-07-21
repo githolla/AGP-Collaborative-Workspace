@@ -5,29 +5,31 @@
    ========================================================================== */
 
 :root {
-  --navy: #0b3c6e;
-  --navy-hover: #0d477f;
-  --navy-soft: #eef3f9;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #898781;
-  --surface: #fcfcfb;
-  --page: #f6f6f3;
-  --line: #e1e0d9;
-  --line-strong: #c3c2b7;
-  --ring: rgba(11, 60, 110, 0.35);
-  --green: #1f9d6b;
-  --green-soft: #e3f4ec;
-  --amber: #d8932f;
-  --amber-soft: #faf3dd;
-  --red: #d03b3b;
-  --cyan: #4fb8e0;
-  --cyan-soft: #eef8fc;
+  /* Client Health design system: deep indigo navy, teal accent, lime. */
+  --navy: #141a38;
+  --navy-hover: #1e2650;
+  --navy-soft: #eef0f7;
+  --ink: #10152e;
+  --ink-2: #545b70;
+  --ink-3: #8a90a3;
+  --surface: #ffffff;
+  --page: #eef1f5;
+  --line: #e2e5ec;
+  --line-strong: #c6cbd6;
+  --ring: rgba(43, 184, 201, 0.40);
+  --green: #2ea44f;
+  --green-soft: #e4f4ea;
+  --amber: #e0a92e;
+  --amber-soft: #fbf1da;
+  --red: #e5484d;
+  --cyan: #2bb8c9;
+  --cyan-soft: #e5f6f8;
+  --lime: #c2e24c;
   --radius: 10px;
   --radius-sm: 7px;
-  --shadow-1: 0 1px 2px rgba(11, 11, 11, 0.05);
-  --shadow-2: 0 4px 14px rgba(11, 30, 60, 0.10);
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --shadow-1: 0 1px 2px rgba(16, 21, 46, 0.06);
+  --shadow-2: 0 4px 14px rgba(16, 21, 46, 0.12);
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -52,7 +54,7 @@ button { font-family: inherit; }
   border-radius: 4px;
 }
 
-::selection { background: rgba(79, 184, 224, 0.35); }
+::selection { background: rgba(43, 184, 201, 0.32); }
 
 /* ---- buttons ------------------------------------------------------------ */
 
@@ -81,7 +83,7 @@ button { font-family: inherit; }
 .btn-secondary:hover:not(:disabled) { background: var(--navy-soft); }
 
 .btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line); }
-.btn-ghost:hover:not(:disabled) { background: #f1f0ec; border-color: var(--line-strong); }
+.btn-ghost:hover:not(:disabled) { background: #eceff4; border-color: var(--line-strong); }
 
 .btn-danger { background: transparent; color: var(--red); border-color: var(--red); }
 .btn-danger:hover:not(:disabled) { background: #fbecec; }
@@ -92,8 +94,8 @@ button { font-family: inherit; }
 .btn-success { background: var(--green); color: #fff; }
 .btn-success:hover:not(:disabled) { background: #188a5c; }
 
-.btn-ai { background: var(--cyan-soft); color: #16708f; border-color: var(--cyan); }
-.btn-ai:hover:not(:disabled) { background: #ddf1fa; }
+.btn-ai { background: var(--cyan-soft); color: #1a8291; border-color: var(--cyan); }
+.btn-ai:hover:not(:disabled) { background: #d5f0f4; }
 
 .btn-sm { font-size: 11px; padding: 5px 11px; }
 .btn-lg { font-size: 13.5px; padding: 11px 22px; }
@@ -126,11 +128,11 @@ button { font-family: inherit; }
 .input:focus, .select:focus, .textarea:focus {
   outline: none;
   border-color: var(--navy);
-  box-shadow: 0 0 0 3px rgba(11, 60, 110, 0.12);
+  box-shadow: 0 0 0 3px rgba(43, 184, 201, 0.16);
 }
 .input::placeholder, .textarea::placeholder { color: var(--ink-3); }
 .textarea { resize: vertical; line-height: 1.5; }
-.input:disabled, .select:disabled, .textarea:disabled { background: #f4f3ef; color: var(--ink-3); }
+.input:disabled, .select:disabled, .textarea:disabled { background: #f0f3f7; color: var(--ink-3); }
 
 /* ---- cards --------------------------------------------------------------- */
 
@@ -148,7 +150,7 @@ button { font-family: inherit; }
   text-align: left;
 }
 .card-hover:hover {
-  border-color: rgba(11, 60, 110, 0.45);
+  border-color: rgba(43, 184, 201, 0.45);
   box-shadow: var(--shadow-2);
   transform: translateY(-1px);
 }
@@ -171,7 +173,7 @@ button { font-family: inherit; }
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.nav-pill:hover { background: #f1f0ec; }
+.nav-pill:hover { background: #eceff4; }
 .nav-pill[aria-selected="true"], .nav-pill.active {
   background: var(--navy);
   border-color: var(--navy);
@@ -189,7 +191,7 @@ button { font-family: inherit; }
   color: var(--ink-2);
   transition: background 0.12s ease, color 0.12s ease;
 }
-.ws-tab:hover { background: rgba(11, 60, 110, 0.07); }
+.ws-tab:hover { background: rgba(20, 26, 56, 0.06); }
 .ws-tab[aria-selected="true"] { background: var(--navy); color: #fff; font-weight: 700; }
 
 .crumb {
@@ -210,7 +212,7 @@ button { font-family: inherit; }
   gap: 4px;
   font-size: 10.5px;
   color: var(--ink-2);
-  background: #f0efec;
+  background: #eceff4;
   border-radius: 4px;
   padding: 2px 7px;
   white-space: nowrap;
@@ -241,7 +243,7 @@ button { font-family: inherit; }
 
 /* ---- tables ---------------------------------------------------------------- */
 
-.table-row-hover:hover { background: #f7f6f2; }
+.table-row-hover:hover { background: #f1f4f8; }
 
 /* ---- layout helpers -------------------------------------------------------- */
 

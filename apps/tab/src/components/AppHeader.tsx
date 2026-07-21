@@ -26,7 +26,7 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "pre-line",
   },
   title: { display: "flex", alignItems: "baseline", gap: 7, whiteSpace: "nowrap" },
-  titlePrimary: { fontSize: 13, fontWeight: 700, letterSpacing: 1.2 },
+  titlePrimary: { fontSize: 13, fontWeight: 700, letterSpacing: 1.2, color: BRAND.accent },
   titleSecondary: { fontSize: 13, fontWeight: 500, letterSpacing: 1.2, color: BRAND.headerMuted },
   right: { display: "flex", alignItems: "center", gap: 16 },
   live: { display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: BRAND.live },
