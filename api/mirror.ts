@@ -118,20 +118,66 @@ async function pullHubSpotPaged(
   return { rows: rows.slice(0, cap), pages };
 }
 
+/**
+ * CLIENTS ONLY via the Search API — the portal holds thousands of
+ * prospects, and this is a delivery tool (ADR 0008): the directory is
+ * companies that are customers OR carry a Client Abbreviation (AGP fills
+ * that field only for real clients). Server-side filter, so the cap can't
+ * silently truncate the client list the way an unfiltered walk did.
+ */
+async function pullHubSpotClients(
+  headers: Record<string, string>,
+  cap: number,
+): Promise<{ rows: NonNullable<HubSpotPage["results"]>; pages: number }> {
+  const rows: NonNullable<HubSpotPage["results"]> = [];
+  let after: string | undefined;
+  let pages = 0;
+  while (rows.length < cap && pages < Math.ceil(cap / 100)) {
+    const body: Record<string, unknown> = {
+      filterGroups: [
+        { filters: [{ propertyName: "lifecyclestage", operator: "EQ", value: "customer" }] },
+        { filters: [{ propertyName: "client_abbreviation__c", operator: "HAS_PROPERTY" }] },
+      ],
+      properties: COMPANY_PROPERTIES,
+      sorts: [{ propertyName: "name", direction: "ASCENDING" }],
+      limit: 100,
+      ...(after ? { after } : {}),
+    };
+    const res = await fetch("https://api.hubapi.com/crm/v3/objects/companies/search", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 1100));
+      continue; // retry the same page
+    }
+    if (!res.ok) {
+      if (pages === 0) throw new Error(`clients search HTTP ${res.status}`);
+      break;
+    }
+    const json = (await res.json()) as HubSpotPage;
+    rows.push(...(json.results ?? []));
+    pages += 1;
+    after = json.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows: rows.slice(0, cap), pages };
+}
+
 async function pullHubSpot(token: string): Promise<{
   companies: Record<string, unknown>[];
   deals: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const companiesUrl =
-    `https://api.hubapi.com/crm/v3/objects/companies?limit=100&properties=${COMPANY_PROPERTIES.join(",")}`;
   const dealsUrl =
     `https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=${DEAL_PROPERTIES.join(",")}&associations=companies`;
 
-  // Companies and deals walk their cursors in parallel.
+  // Clients (filtered search) and deals walk in parallel.
   const [companiesResult, dealsResult] = await Promise.allSettled([
-    pullHubSpotPaged(companiesUrl, headers, 1000),
+    pullHubSpotClients(headers, 1000),
     pullHubSpotPaged(dealsUrl, headers, 300),
   ]);
   if (companiesResult.status === "rejected") {
@@ -140,7 +186,7 @@ async function pullHubSpot(token: string): Promise<{
   const companies = companiesResult.value.rows.map((r) => ({ id: r.id, ...r.properties }));
 
   let deals: Record<string, unknown>[] = [];
-  let note = `${companies.length} companies (${companiesResult.value.pages} pages)`;
+  let note = `${companies.length} clients (customer/abbreviation only, ${companiesResult.value.pages} pages)`;
   if (dealsResult.status === "fulfilled") {
     deals = dealsResult.value.rows.map((r) => ({
       id: r.id,

@@ -41,23 +41,22 @@ function BookOfBusiness({
   onCreateBlank: (name: string) => void;
 }) {
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"ready" | "clients" | "all">("ready");
+  const [view, setView] = useState<"ready" | "clients">("ready");
   const [manualName, setManualName] = useState("");
 
+  // Kantata decides who's ACTIVE (has live projects); the directory only
+  // names them. Prospects never reach this list (ADR 0008 + server filter).
   const readyCount = candidates.filter((c) => (c.workCount ?? 0) > 0).length;
-  const clientCount = candidates.filter((c) => c.lifecycleStage === "customer").length;
-  // "Ready" is the useful default view — but only when something is ready.
-  const effectiveView = view === "ready" && readyCount === 0 ? "all" : view;
+  const restCount = candidates.length - readyCount;
+  const effectiveView = view === "ready" && readyCount === 0 ? "clients" : view;
 
   const needle = q.trim().toLowerCase();
   const filtered = candidates
-    .filter((c) =>
-      effectiveView === "ready" ? (c.workCount ?? 0) > 0 : effectiveView === "clients" ? c.lifecycleStage === "customer" : true,
-    )
+    .filter((c) => (effectiveView === "ready" ? (c.workCount ?? 0) > 0 : (c.workCount ?? 0) === 0))
     .filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.vertical.toLowerCase().includes(needle));
   const shown = filtered.slice(0, 18);
 
-  const viewChip = (key: "ready" | "clients" | "all", label: string) => (
+  const viewChip = (key: "ready" | "clients", label: string) => (
     <button
       type="button"
       className={`chip-pick${effectiveView === key ? " active" : ""}`}
@@ -72,10 +71,11 @@ function BookOfBusiness({
     <div className="card" data-tour="book" style={{ padding: 18 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add clients from your book of business</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add a client workspace</div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
-            Set up the standard workspace, then choose what to import from Kantata &amp; HubSpot —
-            nothing lands without your review.
+            Active clients only — Kantata decides who's active (live projects); prospects never
+            appear here. Set up the standard workspace, then choose what imports — nothing lands
+            without your review.
           </div>
         </div>
         <span
@@ -94,9 +94,8 @@ function BookOfBusiness({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-        {viewChip("ready", `With matched work (${readyCount})`)}
-        {viewChip("clients", `Active clients (${clientCount})`)}
-        {viewChip("all", `All (${candidates.length})`)}
+        {viewChip("ready", `Active in Kantata (${readyCount})`)}
+        {viewChip("clients", `Clients without live work (${restCount})`)}
         <input
           className="input"
           value={q}

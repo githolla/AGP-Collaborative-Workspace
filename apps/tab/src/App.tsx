@@ -223,7 +223,12 @@ export function App() {
         ...(c.targetAccount ? { targetAccount: true } : {}),
         ...(c.icpTier ? { icpTier: c.icpTier } : {}),
         workCount: campaignsFromMirror(mirror, c.name, today).length,
+        isClient: c.lifecycleStage === "customer" || !!c.abbreviation,
       }))
+      // Delivery tool = clients only: active Kantata work, or a real client
+      // marker. The server already filters the live pull; this guards the
+      // demo fixture and any stale cached payload.
+      .filter((c) => c.workCount > 0 || c.isClient)
       .sort(
         (a, b) =>
           b.workCount - a.workCount ||
