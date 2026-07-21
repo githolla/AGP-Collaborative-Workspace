@@ -240,6 +240,19 @@ export interface MirrorTask {
   title: string;
   state: string;
   dueDate?: string;
+  /** Owner(s) — resolved from Kantata assignees. Turns the plan accountable. */
+  assignees?: string[];
+  /** 0–100 progress from Kantata. */
+  percent?: number;
+}
+
+/** Kantata post — a comment on a workspace/story: the project conversation. */
+export interface MirrorPost {
+  id: string;
+  projectId: string;
+  message: string;
+  author: string;
+  createdAt: string;
 }
 
 /** Kantata milestone (story_type "milestone") — the dates client work hangs on. */
@@ -290,6 +303,8 @@ export interface AgpMirror {
   milestones: MirrorMilestone[];
   /** Optional so older cached mirrors and minimal test fixtures stay valid. */
   tasks?: MirrorTask[];
+  /** Kantata project conversation (posts). Optional for the same reason. */
+  posts?: MirrorPost[];
 }
 
 /**

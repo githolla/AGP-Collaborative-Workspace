@@ -203,6 +203,25 @@ describe("mapLivePayload", () => {
     });
   });
 
+  it("maps task OWNERS (assignees) and the project CONVERSATION (posts)", () => {
+    const mirror = mapLivePayload(
+      payload({
+        kantataProjects: [{ id: "900", title: "Fall Mail", status: "In Progress" }],
+        kantataTasks: [
+          { id: "t1", workspace_id: 900, title: "Package creative", state: "started", assignees: ["Priya Raman"], percent: 40 },
+        ],
+        kantataPosts: [
+          { id: "p1", workspace_id: 900, message: "Proofs are with the client — need sign-off by Fri.", author: "Dana Whitfield", created_at: "2026-07-19T14:00:00Z" },
+          { id: "p2", workspace_id: 900, message: "", author: "X", created_at: "2026-07-18T10:00:00Z" }, // empty dropped
+        ],
+      }),
+    );
+    expect(mirror.tasks?.[0]).toMatchObject({ title: "Package creative", assignees: ["Priya Raman"], percent: 40 });
+    expect(mirror.posts).toEqual([
+      { id: "p1", projectId: "900", message: "Proofs are with the client — need sign-off by Fri.", author: "Dana Whitfield", createdAt: "2026-07-19T14:00:00Z" },
+    ]);
+  });
+
   it("KANTATA-ONLY: groups active workspaces by the title prefix, drops internal 'Agency:'", () => {
     const mirror = mapLivePayload(
       payload({

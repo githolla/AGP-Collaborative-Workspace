@@ -27,8 +27,11 @@ interface MirrorPayload {
   kantataMilestones: Record<string, unknown>[];
   kantataGroups: Record<string, unknown>[];
   kantataCustomFields: Record<string, unknown>[];
-  /** Full task tree (story_type=task) — feeds the review-gated task import. */
+  /** Full task tree (story_type=task) — feeds the review-gated task import.
+   * Each task now carries `assignees` (owner names) + `percent`. */
   kantataTasks: Record<string, unknown>[];
+  /** Recent project conversation — Kantata posts (workspace/story comments). */
+  kantataPosts: Record<string, unknown>[];
   /**
    * Per-workspace hours AGGREGATED SERVER-SIDE from time entries. Only
    * minutes and dates cross the wire — bill/cost rates are stripped here,
@@ -60,6 +63,7 @@ async function pullKantata(token: string): Promise<{
   groups: Record<string, unknown>[];
   customFields: Record<string, unknown>[];
   hours: Record<string, unknown>[];
+  posts: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
@@ -100,7 +104,26 @@ async function pullKantata(token: string): Promise<{
     archived?: boolean;
     participant_ids?: (string | number)[];
   };
-  type KantataStory = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string };
+  type KantataStory = {
+    id: string;
+    title?: string;
+    workspace_id?: string | number;
+    due_date?: string;
+    state?: string;
+    story_type?: string;
+    /** WHO owns the work — the missing half of a collaboration board. */
+    assignee_ids?: (string | number)[];
+    percentage_complete?: number;
+  };
+  type KantataPost = {
+    id: string;
+    workspace_id?: string | number;
+    story_id?: string | number;
+    subject_id?: string | number;
+    message?: string;
+    user_id?: string | number;
+    created_at?: string;
+  };
   type KantataGroup = {
     id: string;
     name?: string;
@@ -121,11 +144,12 @@ async function pullKantata(token: string): Promise<{
     }
   };
 
-  // All six endpoints walk in parallel — workspaces (+participants),
-  // milestones, the full task tree, workspace groups (the client↔project
-  // join, SPEC §7), custom-field taxonomy, and recent time entries. Each
-  // degrades independently; only a workspaces failure is fatal.
-  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult] = await Promise.allSettled([
+  // All endpoints walk in parallel — workspaces (+participants), milestones,
+  // the full task tree (+assignees, so tasks carry an OWNER), workspace
+  // groups (the client↔project join, SPEC §7), custom-field taxonomy, recent
+  // time entries, and recent posts (the project conversation). Each degrades
+  // independently; only a workspaces failure is fatal.
+  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult] = await Promise.allSettled([
     pullKantataPaged<KantataWorkspace>(
       "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc&include=participants",
       "workspaces",
@@ -156,9 +180,10 @@ async function pullKantata(token: string): Promise<{
     // Pull recent stories of every type; milestones are filtered out below
     // (they're pulled separately), everything else is work.
     pullKantataPaged<KantataStory>(
-      "https://api.mavenlink.com/api/v1/stories?per_page=200&order=updated_at:desc",
+      "https://api.mavenlink.com/api/v1/stories?per_page=200&order=updated_at:desc&include=assignees",
       "stories",
       2500,
+      harvestUsers,
     ),
     // ~688 groups in the tenant — and the client-record ones (company/
     // contact fields) ARE the client directory. Never truncate them again.
@@ -176,6 +201,14 @@ async function pullKantata(token: string): Promise<{
       `https://api.mavenlink.com/api/v1/time_entries?per_page=200&order=date_performed:desc&date_performed_between=${new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10)}:${new Date().toISOString().slice(0, 10)}`,
       "time_entries",
       4000,
+    ),
+    // Recent posts — the actual project conversation (Kantata comments on
+    // workspaces & stories). include=user harvests the authors' names.
+    pullKantataPaged<KantataPost>(
+      "https://api.mavenlink.com/api/v1/posts?per_page=200&order=created_at:desc&include=user",
+      "posts",
+      2000,
+      harvestUsers,
     ),
   ]);
 
@@ -221,15 +254,41 @@ async function pullKantata(token: string): Promise<{
       // separately; keep only actual work here.
       .filter((s) => s.story_type !== "milestone")
       .map((s) => ({
-      id: String(s.id),
-      title: s.title ?? "",
-      workspace_id: String(s.workspace_id ?? ""),
-      due_date: s.due_date ?? "",
-      state: s.state ?? "",
-    }));
-    notes.push(`${tasks.length} tasks`);
+        id: String(s.id),
+        title: s.title ?? "",
+        workspace_id: String(s.workspace_id ?? ""),
+        due_date: s.due_date ?? "",
+        state: s.state ?? "",
+        // WHO owns it — resolved from the assignees side-bucket. This is what
+        // turns an imported task list into a shared, accountable plan.
+        assignees: (s.assignee_ids ?? [])
+          .map((id) => userNames.get(String(id)))
+          .filter((n): n is string => !!n),
+        ...(typeof s.percentage_complete === "number" ? { percent: s.percentage_complete } : {}),
+      }));
+    const withOwner = tasks.filter((t) => Array.isArray(t.assignees) && (t.assignees as unknown[]).length > 0).length;
+    notes.push(`${tasks.length} tasks (${withOwner} assigned)`);
   } else {
     notes.push(tasksResult.reason instanceof Error ? tasksResult.reason.message : "tasks failed");
+  }
+
+  // Posts — the project conversation. Author resolved from the users bucket;
+  // the message is trimmed but not otherwise transformed.
+  let posts: Record<string, unknown>[] = [];
+  if (postsResult.status === "fulfilled") {
+    posts = postsResult.value
+      .filter((p) => String(p.message ?? "").trim().length > 0)
+      .map((p) => ({
+        id: String(p.id),
+        workspace_id: String(p.workspace_id ?? ""),
+        story_id: String(p.story_id ?? p.subject_id ?? ""),
+        message: String(p.message ?? "").slice(0, 2000),
+        author: userNames.get(String(p.user_id ?? "")) ?? "",
+        created_at: p.created_at ?? "",
+      }));
+    notes.push(`${posts.length} posts`);
+  } else {
+    notes.push(postsResult.reason instanceof Error ? postsResult.reason.message : "posts failed");
   }
 
   // Time entries aggregate per workspace HERE — minutes and dates only.
@@ -292,7 +351,7 @@ async function pullKantata(token: string): Promise<{
     notes.push(cfvResult.reason instanceof Error ? cfvResult.reason.message : "custom fields failed");
   }
 
-  return { projects, milestones, tasks, groups, customFields, hours, note: notes.join(" · ") };
+  return { projects, milestones, tasks, groups, customFields, hours, posts, note: notes.join(" · ") };
 }
 
 /**
@@ -307,20 +366,27 @@ async function pullWorkspaceStories(
   workspaceIds: string[],
 ): Promise<{ milestones: Record<string, unknown>[]; tasks: Record<string, unknown>[]; note: string }> {
   const headers = { Authorization: `Bearer ${token}` };
-  type Story = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string };
+  type Story = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string; assignee_ids?: (string | number)[]; percentage_complete?: number };
   const milestones: Record<string, unknown>[] = [];
   const tasks: Record<string, unknown>[] = [];
+  // Assignee names harvested from the include=assignees users side-bucket, so
+  // the deepened tasks keep their OWNER (the tenant-wide pull's is otherwise
+  // overwritten by this focus pull).
+  const userNames = new Map<string, string>();
 
   const pullOne = async (wsId: string): Promise<void> => {
     // 200/page, up to 4 pages = 800 stories per workspace — beyond any real
     // single project. All story types come back; we bucket what we map.
     for (let page = 1; page <= 4; page += 1) {
       const res = await timedFetch(
-        `https://api.mavenlink.com/api/v1/stories?workspace_id=${wsId}&per_page=200&page=${page}`,
+        `https://api.mavenlink.com/api/v1/stories?workspace_id=${wsId}&per_page=200&page=${page}&include=assignees`,
         headers,
       );
       if (!res.ok) return; // partial results beat none; note carries totals
-      const json = (await res.json()) as { stories?: Record<string, Story> };
+      const json = (await res.json()) as { stories?: Record<string, Story>; users?: Record<string, { full_name?: string }> };
+      for (const [id, u] of Object.entries(json.users ?? {})) {
+        if (u?.full_name) userNames.set(String(id), u.full_name);
+      }
       const batch = Object.values(json.stories ?? {});
       for (const s of batch) {
         if (!s.title) continue;
@@ -330,6 +396,8 @@ async function pullWorkspaceStories(
           workspace_id: String(s.workspace_id ?? wsId),
           due_date: s.due_date ?? "",
           state: s.state ?? "",
+          assignees: (s.assignee_ids ?? []).map((aid) => userNames.get(String(aid))).filter((n): n is string => !!n),
+          ...(typeof s.percentage_complete === "number" ? { percent: s.percentage_complete } : {}),
         };
         // Milestones are the only special type; EVERYTHING else with a title
         // is work to surface — task, deliverable, sub-task, whatever the
@@ -409,6 +477,7 @@ export default async function handler(
     kantataCustomFields: [],
     kantataTasks: [],
     kantataHours: [],
+    kantataPosts: [],
   };
 
   const [kantataResult] = await Promise.allSettled([
@@ -424,6 +493,7 @@ export default async function handler(
       payload.kantataCustomFields = k.customFields;
       payload.kantataTasks = k.tasks;
       payload.kantataHours = k.hours;
+      payload.kantataPosts = k.posts;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } else {
       payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;

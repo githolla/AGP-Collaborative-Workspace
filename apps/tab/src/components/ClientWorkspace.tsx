@@ -1128,6 +1128,40 @@ function ImportReview({
 // account data.
 // ---------------------------------------------------------------------------
 
+/** The project conversation from Kantata — posts on the client's workspaces
+ * and stories, read-only. The team's real back-and-forth, in one place. */
+function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? posts : posts.slice(0, 6);
+  return (
+    <div style={card}>
+      <SectionTitle right={<KantataChip />}>Project conversation · from Kantata</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {shown.map((p, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, padding: "9px 0", borderBottom: i < shown.length - 1 ? `1px solid ${T.grid}` : "none" }}>
+            <Avatar name={p.author || "Kantata"} size={28} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{p.author || "Kantata user"}</span>
+                {p.createdAt && <span style={{ fontSize: 10.5, color: T.inkMuted }}>{timeAgo(p.createdAt)}</span>}
+              </div>
+              <div style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5, marginTop: 2, whiteSpace: "pre-wrap" }}>{p.message}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {posts.length > 6 && (
+        <button type="button" className="btn-link" style={{ fontSize: 11.5, marginTop: 8 }} onClick={() => setShowAll((s) => !s)}>
+          {showAll ? "Show less" : `Show all ${posts.length} from Kantata`}
+        </button>
+      )}
+      <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
+        Read-only mirror of Kantata comments. Two-way posting lands with the write-back layer.
+      </div>
+    </div>
+  );
+}
+
 function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; tasks: Task[]; onPost: (body: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -1646,6 +1680,7 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
           <Thread messages={account.thread} onPost={onPost} />
+          {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
             Tip: “@FirstName” in a message notifies that person in Team Notifications on Home —
             works for the AGP team and external members alike.

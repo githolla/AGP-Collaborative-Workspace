@@ -162,6 +162,7 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
         title: t.title,
         status: taskColumn(t.state),
         ...(t.dueDate ? { due: t.dueDate } : {}),
+        ...(t.assignees && t.assignees.length > 0 ? { ownerName: t.assignees[0] } : {}),
         label: "from Kantata",
         source: "manual" as const,
         createdAt: new Date().toISOString(),

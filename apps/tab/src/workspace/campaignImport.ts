@@ -258,6 +258,16 @@ export interface LiveTask {
   title: string;
   state: string;
   dueDate?: string;
+  /** Kantata owner(s) — who's accountable for the work. */
+  assignees?: string[];
+  percent?: number;
+}
+
+/** A Kantata post surfaced in the workspace — the project conversation. */
+export interface LivePost {
+  message: string;
+  author: string;
+  createdAt: string;
 }
 
 /**
@@ -327,6 +337,8 @@ export interface AccountLiveContext {
   crm?: AccountCrmRecord;
   projects: LiveProject[];
   deals: LiveDeal[];
+  /** The project conversation — recent Kantata posts for this client's work. */
+  posts: LivePost[];
   /** What the whole mirror holds — so a zero-match workspace can show the
    * denominator ("422 projects pulled, 0 matched") instead of a bare blank. */
   book: { clients: number; projects: number; milestones: number; tasks: number; deals: number };
@@ -359,7 +371,13 @@ export function accountLiveContext(
       .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
     tasks: (mirror.tasks ?? [])
       .filter((t) => t.projectId === p.id)
-      .map((t) => ({ title: t.title, state: t.state, ...(t.dueDate ? { dueDate: t.dueDate } : {}) })),
+      .map((t) => ({
+        title: t.title,
+        state: t.state,
+        ...(t.dueDate ? { dueDate: t.dueDate } : {}),
+        ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
+        ...(t.percent != null ? { percent: t.percent } : {}),
+      })),
     ...(p.team && p.team.length > 0 ? { team: p.team } : {}),
     ...(p.minutes30d != null ? { minutes30d: p.minutes30d } : {}),
     ...(p.minutesRecent != null ? { minutesRecent: p.minutesRecent } : {}),
@@ -396,10 +414,19 @@ export function accountLiveContext(
       }
     : undefined;
 
+  // The project conversation for this client's matched projects, newest first.
+  const projectIds = new Set(projects.map((p) => p.id));
+  const posts: LivePost[] = (mirror.posts ?? [])
+    .filter((post) => projectIds.has(post.projectId) && post.message.trim().length > 0)
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+    .slice(0, 50)
+    .map((post) => ({ message: post.message, author: post.author, createdAt: post.createdAt }));
+
   return {
     ...(crm ? { crm } : {}),
     projects,
     deals,
+    posts,
     book: {
       clients: mirror.clients.length,
       projects: mirror.projects.length,

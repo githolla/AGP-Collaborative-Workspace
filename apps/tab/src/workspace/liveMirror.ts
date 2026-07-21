@@ -34,6 +34,7 @@ export interface RawMirrorPayload {
   kantataCustomFields?: Record<string, unknown>[];
   kantataTasks?: Record<string, unknown>[];
   kantataHours?: Record<string, unknown>[];
+  kantataPosts?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -274,13 +275,18 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
       }),
     tasks: (p.kantataTasks ?? [])
       .filter((t) => str(t.title).trim().length > 0)
-      .map((t) => ({
-        id: String(t.id),
-        projectId: String(t.workspace_id),
-        title: str(t.title),
-        state: str(t.state),
-        ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
-      })),
+      .map((t) => {
+        const assignees = Array.isArray(t.assignees) ? (t.assignees as unknown[]).map(String).filter((n) => n.length > 0) : [];
+        return {
+          id: String(t.id),
+          projectId: String(t.workspace_id),
+          title: str(t.title),
+          state: str(t.state),
+          ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
+          ...(assignees.length > 0 ? { assignees } : {}),
+          ...(typeof t.percent === "number" ? { percent: num(t.percent) } : {}),
+        };
+      }),
     campaigns: p.deals
       .filter((d) => str(d.dealname).trim().length > 0)
       .map((d) => ({
@@ -299,6 +305,15 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         title: str(m.title),
         dueDate: str(m.due_date).slice(0, 10),
         state: str(m.state),
+      })),
+    posts: (p.kantataPosts ?? [])
+      .filter((post) => str(post.message).trim().length > 0)
+      .map((post) => ({
+        id: String(post.id),
+        projectId: String(post.workspace_id),
+        message: str(post.message),
+        author: str(post.author),
+        createdAt: str(post.created_at),
       })),
   };
 }
