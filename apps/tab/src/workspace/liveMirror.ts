@@ -102,7 +102,9 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   for (const w of p.kantataProjects) {
     const id = String(w.id);
     if (covered.has(id)) continue;
-    const title = str(w.title);
+    // Leading project codes ("25-031 Syracuse Fall") aren't client identity —
+    // strip them before parsing conventions.
+    const title = str(w.title).replace(/^\s*\d[\d.-]*\s+/, "");
     const vertical = verticalFor(id);
     // Abbreviation prefix — "ARMS: Support 25-26".
     const prefix = /^\s*([A-Z][A-Za-z0-9&'.]{1,14}):\s+/.exec(title);
@@ -110,8 +112,8 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
       add(prefix[1], prefix[1], vertical);
       continue;
     }
-    // Full client name before an em/en dash separator.
-    const dash = title.split(/\s+[—–]\s+/);
+    // Client name before a separator: em/en dash, spaced hyphen, or pipe.
+    const dash = title.split(/\s+[—–|]\s+|\s+-\s+/);
     if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) add(dash[0]!.trim(), undefined, vertical);
   }
   return [...byKey.values()];

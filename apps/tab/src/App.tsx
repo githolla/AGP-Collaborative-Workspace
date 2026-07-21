@@ -363,7 +363,7 @@ export function App() {
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
               onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
             />
-            <DataInspector live={liveStatus.live} />
+            <DataInspector live={liveStatus.live} unlinkedCount={unlinkedNames.length} />
           </>
         )}
 

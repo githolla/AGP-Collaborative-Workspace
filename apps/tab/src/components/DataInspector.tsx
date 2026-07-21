@@ -10,8 +10,11 @@ import { loadMirror } from "../workspace/agpKnowledge.js";
  * Internal-only surface: rendered by App (never reachable from the guest
  * component graph).
  */
-export function DataInspector({ live }: { live: boolean }) {
-  const [open, setOpen] = useState(false);
+export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unlinkedCount?: number }) {
+  // Live data + several unlinked workspaces = the exact moment this panel
+  // matters. Open itself instead of hiding behind a link.
+  const [open, setOpen] = useState(() => live && unlinkedCount >= 3);
+  const [copied, setCopied] = useState(false);
   if (!open) {
     return (
       <button type="button" className="btn-link" style={{ fontSize: 11.5, alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
@@ -24,19 +27,45 @@ export function DataInspector({ live }: { live: boolean }) {
   const groups = [...new Set(mirror.projects.map((p) => p.clientGroup).filter((g): g is string => !!g))];
   const mono: React.CSSProperties = { fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 11, lineHeight: 1.6, color: T.inkSecondary, whiteSpace: "pre-wrap", wordBreak: "break-word" };
 
+  const asText = [
+    `=== derived clients (${mirror.clients.length}) ===`,
+    ...mirror.clients.map((c) => `${c.name}${c.abbreviation && c.abbreviation !== c.name ? ` [${c.abbreviation}]` : ""}`),
+    ``,
+    `=== raw project titles (first 60 of ${mirror.projects.length}) ===`,
+    ...mirror.projects.slice(0, 60).map((p) => p.title),
+    ``,
+    `=== group names on projects (${groups.length} distinct) ===`,
+    ...groups.slice(0, 60),
+  ].join("\n");
+
   return (
     <div style={{ ...card, borderColor: "#e7c66f" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: T.roi.navy }}>
           Matching diagnostics — what {live ? "the live pull" : "demo data"} contains
         </span>
-        <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setOpen(false)}>
-          Close
-        </button>
+        <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              void navigator.clipboard?.writeText(asText).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+              });
+            }}
+          >
+            {copied ? "✓ Copied" : "Copy as text"}
+          </button>
+          <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setOpen(false)}>
+            Close
+          </button>
+        </span>
       </div>
       <div style={{ fontSize: 11.5, color: T.inkMuted, margin: "4px 0 10px" }}>
-        Screenshot this panel and share it — it's exactly what's needed to tune client matching to
-        the tenant's real naming conventions.
+        {unlinkedCount >= 3 ? `${unlinkedCount} workspaces have no Kantata match — ` : ""}
+        hit <strong>Copy as text</strong> (or screenshot this panel) and share it; it's exactly
+        what's needed to tune client matching to the tenant's real naming conventions.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>

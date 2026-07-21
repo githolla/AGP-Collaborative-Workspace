@@ -223,6 +223,17 @@ describe("mapLivePayload", () => {
     );
     const names = mirror.clients.map((c) => c.name).sort();
     expect(names).toEqual(["ARMS", "Church World Service", "Harvest Hope Food Bank"]);
+    // Wider separators + leading project codes also derive.
+    const wide = mapLivePayload(
+      payload({
+        companies: [],
+        kantataProjects: [
+          { id: "10", title: "25-031 Riverside Mission - Year-End Appeal" },
+          { id: "11", title: "Grace Health Foundation | Digital Retainer" },
+        ],
+      }),
+    );
+    expect(wide.clients.map((c) => c.name).sort()).toEqual(["Grace Health Foundation", "Riverside Mission"]);
     const arms = mirror.clients.find((c) => c.name === "ARMS");
     expect(arms?.abbreviation).toBe("ARMS");
     // Grouped project prefers the CLIENT group over the category group.
