@@ -20,7 +20,7 @@ import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspa
  * realism, human-in-the-loop) exist anywhere in this component tree.
  */
 
-export type ClientTab = "home" | "plan" | "dashboard" | "files" | "discussions" | "access";
+export type ClientTab = "home" | "plan" | "dashboard" | "files" | "discussions" | "sandbox" | "access";
 
 const TABS: { key: ClientTab; label: string }[] = [
   { key: "home", label: "Home" },
@@ -28,6 +28,10 @@ const TABS: { key: ClientTab; label: string }[] = [
   { key: "dashboard", label: "Client Dashboard" },
   { key: "files", label: "Files" },
   { key: "discussions", label: "Discussions" },
+  // The Sandbox lives INSIDE each client — ideas are tied to the client
+  // they're for. Content is composed by App (internal-only modules never
+  // enter this file's import graph — clientSafety.test.ts).
+  { key: "sandbox", label: "Sandbox" },
   { key: "access", label: "Contractor Access" },
 ];
 
@@ -1385,6 +1389,8 @@ export function ClientWorkspace({
   onLinkProjects,
   onArchive,
   onApplyTemplate,
+  sandboxContent,
+  sandboxCount = 0,
 }: {
   account: ClientAccount;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
@@ -1412,6 +1418,12 @@ export function ClientWorkspace({
   onArchive?: () => void;
   /** Apply a service-line template: dated task skeleton from a start date. */
   onApplyTemplate?: (templateKey: string, startDate: string) => void;
+  /** This client's Sandbox tab, composed by App — keeps internal-only
+   * modules (ROI, copilot) out of this file's import graph. Absent = tab
+   * hidden (e.g. a guest build passes nothing). */
+  sandboxContent?: React.ReactNode;
+  /** Idea count shown on the Sandbox tab label. */
+  sandboxCount?: number;
   onImportCampaigns?: (selected: ImportCandidate[]) => void;
   onRemoveCampaign?: (campaignId: string) => void;
   onClearCampaigns?: () => void;
@@ -1451,7 +1463,7 @@ export function ClientWorkspace({
             {account.clientName}
           </h1>
           <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap", alignItems: "stretch" }}>
-            {TABS.map((t) => {
+            {TABS.filter((t) => t.key !== "sandbox" || sandboxContent).map((t) => {
               const active = t.key === tab;
               return (
                 <button
@@ -1472,8 +1484,9 @@ export function ClientWorkspace({
                     whiteSpace: "nowrap",
                   }}
                   {...(t.key === "access" ? { "data-tour": "client-access" } : {})}
+                  {...(t.key === "sandbox" ? { "data-tour": "client-sandbox" } : {})}
                 >
-                  {t.label}
+                  {t.key === "sandbox" && sandboxCount > 0 ? `${t.label} (${sandboxCount})` : t.label}
                 </button>
               );
             })}
@@ -1639,6 +1652,7 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
+      {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
         <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} />
       )}

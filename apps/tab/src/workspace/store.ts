@@ -397,7 +397,7 @@ export function useWorkspace() {
 
   // ---- sandbox ideas ----
 
-  const createIdea = useCallback((title: string, pitch: string, aiMode: AiMode = "copilot", overrides?: DraftOverrides): string => {
+  const createIdea = useCallback((title: string, pitch: string, aiMode: AiMode = "copilot", overrides?: DraftOverrides, accountId?: string): string => {
     const id = newId("idea");
     let idea: SandboxIdea;
     if (aiMode === "copilot") {
@@ -453,6 +453,7 @@ export function useWorkspace() {
         createdAt: new Date().toISOString(),
       };
     }
+    if (accountId) idea = { ...idea, accountId };
     setState((s) => ({ ...s, ideas: [...s.ideas, idea] }));
     return id;
   }, []);
@@ -461,6 +462,12 @@ export function useWorkspace() {
    * is gone (a promoted idea's build lives on independently). */
   const removeIdea = useCallback((id: string) => {
     setState((s) => ({ ...s, ideas: s.ideas.filter((i) => i.id !== id) }));
+  }, []);
+
+  /** Tie a legacy/unclaimed idea to a client workspace — the sandbox lives
+   * inside each client, so every idea should end up owned by one. */
+  const claimIdea = useCallback((id: string, accountId: string) => {
+    setState((s) => ({ ...s, ideas: s.ideas.map((i) => (i.id === id ? { ...i, accountId } : i)) }));
   }, []);
 
   /** The human signed off on the Copilot's draft — the review panel retires. */
@@ -1211,6 +1218,7 @@ export function useWorkspace() {
     acceptDraftReview,
     updateIdea,
     removeIdea,
+    claimIdea,
     postIdeaMessage,
     askIdeaAnalyst,
     promoteIdea,

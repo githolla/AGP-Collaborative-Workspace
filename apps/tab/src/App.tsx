@@ -18,15 +18,14 @@ import { AS_OF_TODAY } from "./workspace/format.js";
 import { T } from "./theme.js";
 
 /**
- * Two surfaces, per the focus decision: Cara's client-account workspace
- * (the wireframe, exactly) and the Sandbox where anything starts. Promoted
- * builds keep their full ROI workspace — reached from their idea or via
- * search — but they don't get a top-level section.
+ * One surface: Cara's client-account workspace (the wireframe, exactly).
+ * The Sandbox lives INSIDE each client as a tab — every idea is tied to
+ * the client it's for, never a separate top-level pile. Promoted builds
+ * keep their full ROI workspace — reached from their idea or via search.
  */
 
 type Route =
   | { view: "clients" }
-  | { view: "sandbox" }
   | { view: "initiative"; id: string }
   | { view: "idea"; id: string }
   | { view: "account"; id: string };
@@ -39,7 +38,7 @@ function parseHash(): Route {
   if (idea?.[1]) return { view: "idea", id: idea[1] };
   const account = hash.match(/^#c\/(.+)$/);
   if (account?.[1]) return { view: "account", id: account[1] };
-  if (hash === "#sandbox") return { view: "sandbox" };
+  // Legacy "#sandbox" links land on Clients — the sandbox is per-client now.
   return { view: "clients" };
 }
 
@@ -51,17 +50,9 @@ function hashOf(route: Route): string {
       return `s/${route.id}`;
     case "account":
       return `c/${route.id}`;
-    case "sandbox":
-      return "sandbox";
     default:
       return "";
   }
-}
-
-/** Which top-level section a route belongs to (keeps nav lit inside workspaces). */
-function sectionOf(route: Route): "clients" | "sandbox" {
-  if (route.view === "clients" || route.view === "account") return "clients";
-  return "sandbox";
 }
 
 const TOUR_KEY = "agp-collab-tour-v1";
@@ -83,9 +74,9 @@ const TOUR_STEPS: TourStep[] = [
     key: "nav",
     route: "",
     target: '[data-tour="nav"]',
-    title: "Two surfaces, that's it",
+    title: "One surface: your clients",
     quote: { text: "…without adding unnecessary complexity or overhead.", from: "Cara's features doc — opening line" },
-    body: "Taken literally. Clients is everything client-facing; the Sandbox is where anything new starts. Search reaches the rest — including builds promoted out of the sandbox.",
+    body: "Taken literally. Everything lives with the client it belongs to — delivery, discussions, files, and each client's own Sandbox for new ideas. Search reaches the rest, including builds promoted out of a sandbox.",
   },
   {
     key: "book",
@@ -120,19 +111,12 @@ const TOUR_STEPS: TourStep[] = [
     body: "The register shows who invited whom and when they were last active — 30 days idle raises a review flag. Remove revokes on the spot, and “Offboard everywhere” clears a person from every client workspace at once, audit-logged.",
   },
   {
-    key: "intake",
-    route: "sandbox",
-    target: '[data-tour="intake-box"]',
-    title: "Start anything in a sentence",
+    key: "sandbox",
+    route: "c/acct-abc-foodbank",
+    target: '[data-tour="client-sandbox"]',
+    title: "Every client has its own Sandbox",
     quote: { text: "A collaboration workspace where the AI is used to help collaborate on projects — new ones and iterations of current ones.", from: "the product-owner brief" },
-    body: "Type what should exist. “Build it for me” has the Copilot name it, size it, plan it, and pick the team. “Start blank” keeps it human-only — the AI observes silently until invited.",
-  },
-  {
-    key: "chips",
-    route: "sandbox",
-    target: '[data-tour="intake-chips"]',
-    title: "Tap what you already know",
-    body: "Department, service line, vertical, client — one tap each, no forms, no drop-down maze. Your picks steer the AI's draft, and the picked department's person leads the plan.",
+    body: "Ideas live INSIDE the client they're for — no separate pile. Open the tab, describe an idea in a sentence, and the Copilot names it, sizes it, plans it, and picks the team. “Start blank” keeps it human-only — the AI observes silently until invited.",
   },
   {
     key: "review",
@@ -153,7 +137,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     key: "done",
     title: "That's the loop",
-    body: "Live book → workspace per client → you approve what imports → the team works one plan, and the Copilot drafts the weekly client update for your sign-off. Ideas run the Sandbox loop beside it (delete the dead ones — sandbox is disposable). Every Must in Cara's doc is built or backend-gated. Restart any time with “Take the tour”.",
+    body: "Live book → workspace per client → everything Kantata has populates in → the team works one plan, and the Copilot drafts the weekly client update for your sign-off. Ideas run in each client's own Sandbox tab (delete the dead ones — sandbox is disposable). Every Must in Cara's doc is built or backend-gated. Restart any time with “Take the tour”.",
   },
 ];
 
@@ -300,14 +284,20 @@ export function App() {
       )
     : [];
 
-  const section = sectionOf(route);
-  const listView = route.view === "clients" || route.view === "sandbox";
+  const listView = route.view === "clients";
 
-  const navPill = (label: string, key: "clients" | "sandbox", target: Route) => (
-    <button type="button" className={`nav-pill${section === key ? " active" : ""}`} onClick={() => setRoute(target)}>
-      {label}
-    </button>
-  );
+  // The sandbox lives inside each client: an idea's Back returns to its
+  // owning workspace when one still exists.
+  const ideaHome = (idea: { accountId?: string }): Route =>
+    idea.accountId && ws.accounts.some((a) => a.id === idea.accountId)
+      ? { view: "account", id: idea.accountId }
+      : { view: "clients" };
+
+  // This client's sandbox: its own ideas, plus legacy ideas not yet tied to
+  // any client (claimable). Composed HERE so internal-only modules (ROI,
+  // copilot) never enter ClientWorkspace's import graph — clientSafety.test.ts.
+  const selectedAccountIdeas = selectedAccount ? ws.ideas.filter((i) => i.accountId === selectedAccount.id) : [];
+  const unclaimedIdeas = ws.ideas.filter((i) => !i.accountId || !ws.accounts.some((a) => a.id === i.accountId));
 
   return (
     <div style={{ minHeight: "100vh", background: T.page }}>
@@ -324,8 +314,13 @@ export function App() {
       <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span data-tour="nav" style={{ display: "inline-flex", gap: 6 }}>
-            {navPill(`Clients (${ws.accounts.filter((a) => !a.archived).length})`, "clients", { view: "clients" })}
-            {navPill(`Sandbox (${ws.ideas.length})`, "sandbox", { view: "sandbox" })}
+            <button
+              type="button"
+              className={`nav-pill${route.view === "clients" || route.view === "account" ? " active" : ""}`}
+              onClick={() => setRoute({ view: "clients" })}
+            >
+              Clients ({ws.accounts.filter((a) => !a.archived).length})
+            </button>
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
             ✦ Take the tour
@@ -395,23 +390,6 @@ export function App() {
           </>
         )}
 
-        {route.view === "sandbox" && (
-          <>
-            <PageIntro title="Sandbox">
-              Where anything starts. Describe an idea and the Copilot builds the project behind the
-              scenes — or start blank with just your team and invite the AI in later. Promote an
-              idea when it earns it, and its full build workspace opens from here.
-            </PageIntro>
-            <Sandbox
-              ideas={ws.ideas}
-              onOpen={(id) => setRoute({ view: "idea", id })}
-              onCreate={(title, pitch, aiMode, overrides) =>
-                setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode, overrides) })
-              }
-            />
-          </>
-        )}
-
         {listView && (
           <div style={{ marginTop: 18, fontSize: 11, color: T.inkMuted }}>
             {ws.syncStatus.mode === "shared" ? (
@@ -437,7 +415,13 @@ export function App() {
         {selectedInitiative && (
           <InitiativeWorkspace
             initiative={selectedInitiative}
-            onBack={() => setRoute({ view: "sandbox" })}
+            onBack={() =>
+              setRoute(
+                selectedInitiative.clientAccountId && ws.accounts.some((a) => a.id === selectedInitiative.clientAccountId)
+                  ? { view: "account", id: selectedInitiative.clientAccountId }
+                  : { view: "clients" },
+              )
+            }
             onFactorChange={(key, patch) => ws.updateFactor(selectedInitiative.id, key, patch)}
             onPost={(body) => ws.postMessage(selectedInitiative.id, body, userName)}
             onAskAnalyst={() => ws.askRoiAnalyst(selectedInitiative.id)}
@@ -456,10 +440,12 @@ export function App() {
         {selectedIdea && (
           <SandboxWorkspace
             idea={selectedIdea}
-            onBack={() => setRoute({ view: "sandbox" })}
+            onBack={() => setRoute(ideaHome(selectedIdea))}
+            backLabel={ws.accounts.find((a) => a.id === selectedIdea.accountId)?.clientName ?? "Clients"}
             onDelete={() => {
+              const home = ideaHome(selectedIdea);
               ws.removeIdea(selectedIdea.id);
-              setRoute({ view: "sandbox" });
+              setRoute(home);
             }}
             onUpdate={(patch) => ws.updateIdea(selectedIdea.id, patch)}
             onPost={(body) => ws.postIdeaMessage(selectedIdea.id, body, userName)}
@@ -514,6 +500,19 @@ export function App() {
               setRoute({ view: "clients" });
             }}
             onApplyTemplate={(templateKey, startDate) => ws.applyTemplate(selectedAccount.id, templateKey, startDate)}
+            sandboxCount={selectedAccountIdeas.length}
+            sandboxContent={
+              <Sandbox
+                ideas={selectedAccountIdeas}
+                clientName={selectedAccount.clientName}
+                unclaimed={unclaimedIdeas}
+                onClaim={(ideaId) => ws.claimIdea(ideaId, selectedAccount.id)}
+                onOpen={(id) => setRoute({ view: "idea", id })}
+                onCreate={(title, pitch, aiMode, overrides) =>
+                  setRoute({ view: "idea", id: ws.createIdea(title, pitch, aiMode, overrides, selectedAccount.id) })
+                }
+              />
+            }
           />
         )}
 
@@ -530,7 +529,7 @@ export function App() {
             icon="🔍"
             title="Build not found"
             hint="It may have been removed, or the link is stale."
-            action={<Button variant="secondary" onClick={() => setRoute({ view: "sandbox" })}>Back to the Sandbox</Button>}
+            action={<Button variant="secondary" onClick={() => setRoute({ view: "clients" })}>Back to Clients</Button>}
           />
         )}
         {route.view === "idea" && !selectedIdea && (
@@ -538,7 +537,7 @@ export function App() {
             icon="🔍"
             title="Idea not found"
             hint="It may have been removed, or the link is stale."
-            action={<Button variant="secondary" onClick={() => setRoute({ view: "sandbox" })}>Back to the Sandbox</Button>}
+            action={<Button variant="secondary" onClick={() => setRoute({ view: "clients" })}>Back to Clients</Button>}
           />
         )}
       </div>

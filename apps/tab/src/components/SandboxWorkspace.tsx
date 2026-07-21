@@ -43,6 +43,7 @@ const numberInput: React.CSSProperties = {
 export function SandboxWorkspace({
   idea,
   onBack,
+  backLabel = "Sandbox",
   onDelete,
   onUpdate,
   onPost,
@@ -59,6 +60,9 @@ export function SandboxWorkspace({
 }: {
   idea: SandboxIdea;
   onBack: () => void;
+  /** Where Back leads — the owning client workspace's name (the sandbox
+   * lives inside each client), or "Clients" for unclaimed ideas. */
+  backLabel?: string;
   /** Delete this sandbox project for good (confirmed in the UI). */
   onDelete?: () => void;
   onUpdate: (patch: Partial<Pick<SandboxIdea, "title" | "pitch" | "basis" | "team">>) => void;
@@ -84,7 +88,7 @@ export function SandboxWorkspace({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <Crumbs trail={[{ label: "Sandbox", onClick: onBack }, { label: idea.title }]} />
+        <Crumbs trail={[{ label: backLabel, onClick: onBack }, { label: idea.title }]} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
           <input
             value={idea.title}

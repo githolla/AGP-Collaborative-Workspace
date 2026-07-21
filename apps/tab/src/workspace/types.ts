@@ -215,6 +215,10 @@ export type AiMode = "copilot" | "observer";
 
 export interface SandboxIdea {
   id: string;
+  /** The client workspace this idea belongs to — the sandbox lives INSIDE
+   * each client, not as a separate surface. Absent = legacy/unclaimed;
+   * claimable into a workspace from its Sandbox tab. */
+  accountId?: string;
   title: string;
   aiMode: AiMode;
   /** The idea in the manager's own words. */

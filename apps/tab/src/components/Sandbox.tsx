@@ -8,16 +8,26 @@ import type { DraftOverrides } from "../workspace/copilot.js";
 import type { SandboxIdea } from "../workspace/types.js";
 
 /**
- * The Sandbox: ideas not tied to any product. Any manager can drop an idea
- * here and start exploring a build from it — no product, no initiative, no
- * commitment. Promote when it earns a real number.
+ * The Sandbox — INSIDE a client workspace: every idea is tied to the client
+ * it's for, explored beside that client's live work. No separate surface.
+ * Promote when it earns a real number. Internal-only: this component is
+ * composed from App, never imported by the guest-visible workspace shell
+ * (clientSafety.test.ts enforces the graph).
  */
 export function Sandbox({
   ideas,
+  clientName,
+  unclaimed = [],
+  onClaim,
   onOpen,
   onCreate,
 }: {
   ideas: SandboxIdea[];
+  /** The client this sandbox belongs to — copy speaks to them. */
+  clientName?: string;
+  /** Legacy ideas not yet tied to any client — claimable into this one. */
+  unclaimed?: SandboxIdea[];
+  onClaim?: (id: string) => void;
   onOpen: (id: string) => void;
   onCreate: (title: string, pitch: string, aiMode: "copilot" | "observer", overrides: DraftOverrides) => void;
 }) {
@@ -25,10 +35,13 @@ export function Sandbox({
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10, padding: "20px 22px" }}>
         <div>
-          <div style={{ fontSize: 15.5, fontWeight: 800, color: T.roi.navy }}>Start a new project</div>
+          <div style={{ fontSize: 15.5, fontWeight: 800, color: T.roi.navy }}>
+            {clientName ? `Start an idea for ${clientName}` : "Start a new project"}
+          </div>
           <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 3 }}>
             Describe it in a sentence. The Copilot drafts the plan, the team, and the numbers for
             your review — or start without AI and invite it in later.
+            {clientName ? " It stays tied to this client." : ""}
           </div>
         </div>
         <IntakePanel
@@ -78,9 +91,27 @@ export function Sandbox({
           );
         })}
         {ideas.length === 0 && (
-          <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>No ideas yet — the sandbox is empty.</div>
+          <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>
+            No ideas yet{clientName ? ` for ${clientName}` : ""} — the sandbox is empty.
+          </div>
         )}
       </div>
+
+      {unclaimed.length > 0 && onClaim && (
+        <div className="card" style={{ padding: "14px 18px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 6 }}>
+            {unclaimed.length} idea{unclaimed.length === 1 ? "" : "s"} not yet tied to a client
+          </div>
+          {unclaimed.map((idea) => (
+            <div key={idea.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderTop: `1px solid ${T.grid}` }}>
+              <span style={{ fontSize: 12.5, color: T.inkSecondary, flex: 1 }}>{idea.title}</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => onClaim(idea.id)}>
+                Bring into this workspace
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

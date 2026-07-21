@@ -252,6 +252,9 @@ export function seedIdeas(): import("./types.js").SandboxIdea[] {
   return [
     {
       id: "idea-grant-report",
+      // The sandbox lives inside each client — this idea belongs to the
+      // demo client workspace it was pitched for.
+      accountId: "acct-abc-foodbank",
       title,
       aiMode: "copilot",
       pitch,
