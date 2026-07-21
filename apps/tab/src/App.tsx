@@ -357,7 +357,6 @@ export function App() {
               onRestore={(id) => ws.setAccountArchived(id, false)}
               candidates={clientCandidates}
               candidatesLive={liveStatus.live}
-              unlinkedNames={unlinkedNames}
               pulse={accountPulse}
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}

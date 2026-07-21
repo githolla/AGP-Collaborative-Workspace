@@ -228,7 +228,6 @@ export function ClientList({
   archivedAccounts = [],
   candidates = [],
   candidatesLive = false,
-  unlinkedNames = [],
   pulse = {},
   onOpen,
   onCreate,
@@ -246,7 +245,6 @@ export function ClientList({
   /** True when the candidate list comes from the live pull, not demo data. */
   candidatesLive?: boolean;
   /** Workspace names with NO matching company in the live book (demo leftovers). */
-  unlinkedNames?: string[];
   onOpen: (id: string) => void;
   onCreate: (clientName: string) => void;
   onCreateFromClient?: (clientName: string) => void;
@@ -267,14 +265,7 @@ export function ClientList({
       {heroes.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
           {heroes.map((a) => (
-            <HeroCard
-              key={a.id}
-              account={a}
-              today={today}
-              unlinked={unlinkedNames.includes(a.clientName)}
-              pulse={pulse[a.clientName]}
-              onOpen={() => onOpen(a.id)}
-            />
+            <HeroCard key={a.id} account={a} today={today} pulse={pulse[a.clientName]} onOpen={() => onOpen(a.id)} />
           ))}
         </div>
       )}
@@ -293,9 +284,9 @@ export function ClientList({
               style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "9px 4px", cursor: "pointer", borderRadius: 6 }}
             >
               <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.roi.navy }}>{a.clientName}</span>
-              {unlinkedNames.includes(a.clientName) && (
-                <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>
-                  ⚠ no Kantata match
+              {(pulse[a.clientName]?.waiting ?? 0) > 0 && (
+                <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  ⚡ {pulse[a.clientName]!.waiting} matched
                 </span>
               )}
               <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap" }}>Open ›</span>
@@ -356,13 +347,11 @@ const shortDay = (iso: string) =>
 function HeroCard({
   account: a,
   today,
-  unlinked,
   pulse,
   onOpen,
 }: {
   account: ClientAccount;
   today: string;
-  unlinked: boolean;
   pulse?: AccountPulse | undefined;
   onOpen: () => void;
 }) {
@@ -389,17 +378,7 @@ function HeroCard({
       className="card card-hover"
       style={{ display: "flex", flexDirection: "column", gap: 9, textAlign: "left", padding: 16, minHeight: 128 }}
     >
-      <span style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-        <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: T.roi.navy, lineHeight: 1.25 }}>{a.clientName}</span>
-        {unlinked && (
-          <span
-            title="No client with this name exists in the live Kantata book — open to link it to a real client, or archive it."
-            style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "1.5px 8px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap", flexShrink: 0 }}
-          >
-            ⚠ no Kantata match
-          </span>
-        )}
-      </span>
+      <span style={{ fontSize: 15, fontWeight: 800, color: T.roi.navy, lineHeight: 1.25 }}>{a.clientName}</span>
 
       {empty ? (
         waiting > 0 ? (
