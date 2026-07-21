@@ -60,6 +60,35 @@ const stripCode = (title: string): string => title.replace(/^\s*\d[\d.-]*\s+/, "
  */
 export const isInternalTitle = (title: string): boolean => /^agency\b/i.test(stripCode(str(title)));
 
+const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const TITLE_SEP = /\s+[—–|]\s+|\s+-\s+/;
+
+/**
+ * Classify ONE workspace title into the client it belongs to and HOW that was
+ * decided — the single source of truth for the derivation and its diagnostics.
+ * - "internal": an "Agency:" project (not a client).
+ * - "colon": the AGP convention — prefix before the first colon.
+ * - "dash": client name before an em/en dash, spaced hyphen, or pipe.
+ * - "verbatim": no convention matched — the whole title stands in as a client
+ *   (reachable, but a sign the title doesn't follow the convention).
+ */
+export type TitleClass = { via: "internal" } | { via: "colon" | "dash" | "verbatim"; client: string };
+export function classifyClientTitle(raw: string): TitleClass {
+  if (isInternalTitle(raw)) return { via: "internal" };
+  const title = stripCode(str(raw));
+  const colon = title.indexOf(":");
+  if (colon >= 2) {
+    const prefix = title.slice(0, colon).trim();
+    if (prefix.length >= 2 && prefix.length <= 40 && normKey(prefix) !== "agency") {
+      return { via: "colon", client: prefix };
+    }
+  }
+  const dash = title.split(TITLE_SEP);
+  if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) return { via: "dash", client: dash[0]!.trim() };
+  if (title.length >= 4) return { via: "verbatim", client: title };
+  return { via: "internal" };
+}
+
 /**
  * Kantata-only client derivation — AGP's stated convention (2026-07): take
  * the active (non-archived) workspaces, DROP the internal "Agency:" projects,
@@ -71,7 +100,6 @@ export const isInternalTitle = (title: string): boolean => /^agency\b/i.test(str
  */
 function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   const byKey = new Map<string, MirrorClient>();
-  const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const add = (name: string, abbreviation: string | undefined, vertical: string) => {
     const key = normKey(name);
     if (!key || key.length < 2 || key === "agency") return;
@@ -95,34 +123,18 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
   };
 
   for (const w of p.kantataProjects) {
-    const raw = str(w.title);
-    if (!raw.trim()) continue;
-    if (isInternalTitle(raw)) continue; // drop internal "Agency:" work
-    const title = stripCode(raw);
+    const cls = classifyClientTitle(str(w.title));
+    if (cls.via === "internal") continue; // "Agency:" work, or too short to name
     const vertical = verticalFor(String(w.id));
-
-    // PRIMARY (AGP convention): the client is the title prefix before the
-    // first colon. "ARMS: Support 25-26" → ARMS · "American Water Works:
-    // Spring Mail" → American Water Works.
-    const colon = title.indexOf(":");
-    if (colon >= 2) {
-      const prefix = title.slice(0, colon).trim();
-      if (prefix.length >= 2 && prefix.length <= 40 && normKey(prefix) !== "agency") {
-        // A short single-token prefix IS the abbreviation ("ARMS"); a longer
-        // one gets a derived acronym so its abbreviation-titled siblings match.
-        const abbr = prefix.length <= 6 && !/\s/.test(prefix) ? prefix.toUpperCase() : autoAbbreviation(prefix);
-        add(prefix, abbr, vertical);
-        continue;
-      }
-    }
-    // No colon → client name before a separator (em/en dash, spaced hyphen, pipe).
-    const dash = title.split(/\s+[—–|]\s+|\s+-\s+/);
-    if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) {
-      add(dash[0]!.trim(), undefined, vertical);
-      continue;
-    }
-    // Verbatim fallback — ugly beats invisible; hand-linking consolidates later.
-    if (title.length >= 4) add(title, undefined, vertical);
+    // A short single-token colon prefix IS the abbreviation ("ARMS"); a longer
+    // one gets a derived acronym. Dash/verbatim clients carry no abbreviation.
+    const abbr =
+      cls.via === "colon"
+        ? cls.client.length <= 6 && !/\s/.test(cls.client)
+          ? cls.client.toUpperCase()
+          : autoAbbreviation(cls.client)
+        : undefined;
+    add(cls.client, abbr, vertical);
   }
   return [...byKey.values()];
 }
