@@ -1103,6 +1103,24 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Add an AGP teammate to the account — collaborate from anywhere in the
+   * client, not just the Contractor Access tab. Idempotent by person. */
+  const addAccountMember = useCallback(
+    (id: string, personId: string) => {
+      const person = personById(personId);
+      if (!person) return;
+      mutateAccount(id, (a) => {
+        if (a.members.some((m) => m.personId === personId)) return a;
+        return {
+          ...a,
+          members: [...a.members, { personId: person.id, name: person.name, title: person.title }],
+          activity: [...a.activity, activityEvent(`${person.name} (${person.title}) added to the account team`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   const addExternal = useCallback(
     (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
       mutateAccount(id, (a) => ({
@@ -1250,6 +1268,7 @@ export function useWorkspace() {
     removeCampaign,
     clearCampaigns,
     addAccountTask,
+    addAccountMember,
     setAccountTaskStatus,
     postAccountMessage,
     setAccountArchived,

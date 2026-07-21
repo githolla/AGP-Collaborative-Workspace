@@ -1128,6 +1128,146 @@ function ImportReview({
 // account data.
 // ---------------------------------------------------------------------------
 
+/**
+ * People & collaboration hub — reachable from the navy band on EVERY tab.
+ * Add an AGP teammate, invite the client/contractor, or post an update
+ * without leaving whatever you're doing. This is what makes "wherever I am
+ * in the client, I can collaborate" true.
+ */
+function CollaborateHub({
+  account,
+  people,
+  onAddMember,
+  onAddExternal,
+  onPost,
+  onOpenAccess,
+  onClose,
+}: {
+  account: ClientAccount;
+  people: { id: string; name: string; title: string }[];
+  onAddMember?: (personId: string) => void;
+  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onPost: (body: string) => void;
+  onOpenAccess: () => void;
+  onClose: () => void;
+}) {
+  const [msg, setMsg] = useState("");
+  const [invName, setInvName] = useState("");
+  const [invOrg, setInvOrg] = useState("");
+  const [invRole, setInvRole] = useState<ExternalMember["role"]>("client");
+  const onAccount = new Set(account.members.map((m) => m.personId));
+  const addable = people.filter((p) => !onAccount.has(p.id));
+
+  const label = { fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" as const, color: T.inkMuted, margin: "12px 0 5px" };
+  return (
+    <>
+      {/* click-away backdrop */}
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 55 }} />
+      <div
+        role="dialog"
+        aria-label="People and collaboration"
+        style={{ position: "absolute", top: 40, right: 0, width: 320, maxHeight: "76vh", overflowY: "auto", background: "#fff", color: T.ink, border: `1px solid ${T.grid}`, borderRadius: 12, boxShadow: "0 14px 40px rgba(16,21,46,0.24)", padding: 16, zIndex: 56, textAlign: "left" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 13.5, fontWeight: 800, color: T.roi.navy }}>People & collaboration</span>
+          <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={onClose}>Close</button>
+        </div>
+
+        <div style={label}>On this account ({account.members.length + account.externals.length})</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {account.members.map((m) => (
+            <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+              <Avatar name={m.name} size={24} />
+              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{m.name}<span style={{ color: T.inkMuted }}> · {m.title}</span></span>
+            </div>
+          ))}
+          {account.externals.map((e) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+              <Avatar name={e.name} size={24} />
+              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{e.name}<span style={{ color: T.inkMuted }}> · {e.org} ({e.role})</span></span>
+            </div>
+          ))}
+        </div>
+
+        {onAddMember && addable.length > 0 && (
+          <>
+            <div style={label}>Add an AGP teammate</div>
+            <select
+              className="select"
+              defaultValue=""
+              style={{ width: "100%", fontSize: 12.5 }}
+              onChange={(e) => {
+                if (e.target.value) {
+                  onAddMember(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+            >
+              <option value="" disabled>Choose a teammate…</option>
+              {addable.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} — {p.title}</option>
+              ))}
+            </select>
+          </>
+        )}
+
+        <div style={label}>Invite client / contractor</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <input className="input" style={{ fontSize: 12.5 }} placeholder="Name" value={invName} onChange={(e) => setInvName(e.target.value)} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input className="input" style={{ fontSize: 12.5, flex: 1 }} placeholder="Organization" value={invOrg} onChange={(e) => setInvOrg(e.target.value)} />
+            <select className="select" style={{ fontSize: 12.5 }} value={invRole} onChange={(e) => setInvRole(e.target.value as ExternalMember["role"])}>
+              <option value="client">Client</option>
+              <option value="contractor">Contractor</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={!invName.trim() || !invOrg.trim()}
+            onClick={() => {
+              onAddExternal(invName.trim(), invOrg.trim(), invRole, "workspace");
+              setInvName("");
+              setInvOrg("");
+            }}
+          >
+            Grant access
+          </button>
+          <button type="button" className="btn-link" style={{ fontSize: 11, alignSelf: "flex-start" }} onClick={onOpenAccess}>
+            Manage all access & offboarding →
+          </button>
+        </div>
+
+        <div style={label}>Post an update to the team</div>
+        <textarea
+          className="textarea"
+          rows={2}
+          style={{ width: "100%", fontSize: 12.5 }}
+          placeholder="Write to everyone on this account…"
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          style={{ marginTop: 6 }}
+          disabled={!msg.trim()}
+          onClick={() => {
+            onPost(msg.trim());
+            setMsg("");
+            onClose();
+          }}
+        >
+          Post to the team
+        </button>
+        <div style={{ fontSize: 10, color: T.inkMuted, marginTop: 8 }}>
+          Tip: “@FirstName” notifies that person. Reachable from every tab.
+        </div>
+      </div>
+    </>
+  );
+}
+
 /** The project conversation from Kantata — posts on the client's workspaces
  * and stories, read-only. The team's real back-and-forth, in one place. */
 function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) {
@@ -1425,8 +1565,14 @@ export function ClientWorkspace({
   onApplyTemplate,
   sandboxContent,
   sandboxCount = 0,
+  people = [],
+  onAddMember,
 }: {
   account: ClientAccount;
+  /** AGP roster to add to the account (plain data — guest-safe). */
+  people?: { id: string; name: string; title: string }[];
+  /** Add an AGP teammate to this account from anywhere in the workspace. */
+  onAddMember?: (personId: string) => void;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
@@ -1470,6 +1616,9 @@ export function ClientWorkspace({
   onOffboardEverywhere: (personName: string) => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
+  // Collaborate hub: add people / post an update from ANY tab (the navy band
+  // is persistent, so this popover is always reachable).
+  const [hubOpen, setHubOpen] = useState(false);
   // A fresh workspace with matched work opens the review panel by itself —
   // the next action should be on screen, not hidden behind a corner button.
   const [reviewOpen, setReviewOpen] = useState(
@@ -1525,19 +1674,33 @@ export function ClientWorkspace({
               );
             })}
           </div>
-          <button
-            type="button"
-            title="The team on this account — open Contractor Access"
-            onClick={() => setTab("access")}
-            style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0, alignSelf: "center" }}
-          >
-            {account.members.slice(0, 3).map((m, i) => (
-              <span key={m.personId} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: "50%", border: "2px solid #fff", display: "inline-flex" }}>
-                <Avatar name={m.name} size={28} />
-              </span>
-            ))}
-            <span aria-hidden style={{ color: "#fff", fontSize: 16, fontWeight: 800, marginLeft: 8, letterSpacing: 1 }}>⋯</span>
-          </button>
+          <div style={{ position: "relative", alignSelf: "center" }}>
+            <button
+              type="button"
+              title="People & collaboration — add teammates, invite the client, post an update"
+              aria-expanded={hubOpen}
+              onClick={() => setHubOpen((o) => !o)}
+              style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            >
+              {account.members.slice(0, 3).map((m, i) => (
+                <span key={m.personId} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: "50%", border: "2px solid #fff", display: "inline-flex" }}>
+                  <Avatar name={m.name} size={28} />
+                </span>
+              ))}
+              <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, marginLeft: 6, borderRadius: "50%", border: "1.5px dashed rgba(255,255,255,0.6)", color: "#fff", fontSize: 15, fontWeight: 700 }}>+</span>
+            </button>
+            {hubOpen && (
+              <CollaborateHub
+                account={account}
+                people={people}
+                {...(onAddMember ? { onAddMember } : {})}
+                onAddExternal={onAddExternal}
+                onPost={onPost}
+                onOpenAccess={() => { setHubOpen(false); setTab("access"); }}
+                onClose={() => setHubOpen(false)}
+              />
+            )}
+          </div>
         </div>
 
         {/* Our additions live BELOW the wireframe band: internal facts left,

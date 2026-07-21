@@ -591,6 +591,8 @@ export function App() {
               setRoute({ view: "clients" });
             }}
             onApplyTemplate={(templateKey, startDate) => ws.applyTemplate(selectedAccount.id, templateKey, startDate)}
+            people={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
+            onAddMember={(personId) => ws.addAccountMember(selectedAccount.id, personId)}
             sandboxCount={selectedAccountIdeas.length}
             sandboxContent={
               <Sandbox
