@@ -1072,6 +1072,21 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Start-clean: archive every active workspace at once (history retained,
+   * each restorable from Archived). Returns how many were archived. */
+  const archiveAllAccounts = useCallback((): number => {
+    let n = 0;
+    setState((s) => ({
+      ...s,
+      accounts: s.accounts.map((a) => {
+        if (a.archived) return a;
+        n += 1;
+        return { ...a, archived: true, activity: [...a.activity, activityEvent("Workspace archived — bulk clear", "workspace")] };
+      }),
+    }));
+    return n;
+  }, []);
+
   const addAccountLink = useCallback(
     (id: string, name: string, kind: "file" | "doc", url?: string) => {
       mutateAccount(id, (a) => {
@@ -1237,6 +1252,7 @@ export function useWorkspace() {
     setAccountTaskStatus,
     postAccountMessage,
     setAccountArchived,
+    archiveAllAccounts,
     applyTemplate,
     addAccountLink,
     addExternal,

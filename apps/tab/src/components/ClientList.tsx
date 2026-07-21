@@ -249,8 +249,11 @@ export function ClientList({
   onCreate,
   onCreateFromClient,
   onRestore,
+  onClearAll,
 }: {
   accounts: ClientAccount[];
+  /** Archive every active workspace at once (start-clean). */
+  onClearAll?: () => void;
   /** Every client the app sees (workspaces + derived), for the sortable list. */
   directory?: DirectoryRow[];
   /** Projects by title convention — shown so the client count self-explains. */
@@ -295,10 +298,25 @@ export function ClientList({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Cards (the busy-client heroes) vs a sortable directory of everyone. */}
-      {directory.length > 0 && (
+      {(directory.length > 0 || accounts.length > 0) && (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {modeChip("cards", "Cards")}
-          {modeChip("list", `All clients — list (${directory.length})`)}
+          {directory.length > 0 && modeChip("cards", "Cards")}
+          {directory.length > 0 && modeChip("list", `All clients — list (${directory.length})`)}
+          {onClearAll && accounts.length > 0 && (
+            <button
+              type="button"
+              className="btn-link"
+              style={{ marginLeft: "auto", fontSize: 11.5, color: T.status.critical }}
+              title="Archive every workspace to start clean — history is retained and each is restorable from Archived."
+              onClick={() => {
+                if (window.confirm(`Archive all ${accounts.length} workspace${accounts.length === 1 ? "" : "s"} to start clean? They move to Archived (restorable). This affects the shared team workspace.`)) {
+                  onClearAll();
+                }
+              }}
+            >
+              Clear all workspaces
+            </button>
+          )}
         </div>
       )}
 

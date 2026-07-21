@@ -448,6 +448,7 @@ export function App() {
               onOpen={(id) => setRoute({ view: "account", id })}
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
               onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
+              onClearAll={() => ws.archiveAllAccounts()}
             />
             {(() => {
               const waitingTotal = Object.values(accountPulse).reduce((s, p) => s + p.waiting, 0);
