@@ -58,6 +58,7 @@ export function TasksCard({
   onAdd,
   onStatus,
   onToggleClientVisible,
+  onOpenTask,
 }: {
   tasks: Task[];
   owners: string[];
@@ -65,6 +66,8 @@ export function TasksCard({
   onStatus: (taskId: string, status: TaskStatus) => void;
   /** Layer 0.3: present only on builds linked to a client account. */
   onToggleClientVisible?: (taskId: string) => void;
+  /** Click the task title to see everything about it (detail drawer). */
+  onOpenTask?: (task: Task) => void;
 }) {
   const [view, setView] = useState<"list" | "board">("list");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -108,9 +111,21 @@ export function TasksCard({
         borderRadius: compact ? 8 : 0,
       }}
     >
-      <span style={{ flex: 1, fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}>
-        {t.title}
-      </span>
+      {onOpenTask ? (
+        <button
+          type="button"
+          onClick={() => onOpenTask(t)}
+          title="See everything about this task"
+          className="table-row-hover"
+          style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}
+        >
+          {t.title}
+        </button>
+      ) : (
+        <span style={{ flex: 1, fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}>
+          {t.title}
+        </span>
+      )}
       <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
         {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}

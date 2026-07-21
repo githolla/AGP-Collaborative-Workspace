@@ -255,6 +255,14 @@ export interface MirrorPost {
   createdAt: string;
 }
 
+/** An AGP team member as Kantata knows them — the live internal roster. */
+export interface MirrorStaff {
+  id: string;
+  name: string;
+  title: string;
+  email: string;
+}
+
 /** Kantata milestone (story_type "milestone") — the dates client work hangs on. */
 export interface MirrorMilestone {
   id: string;
@@ -305,6 +313,8 @@ export interface AgpMirror {
   tasks?: MirrorTask[];
   /** Kantata project conversation (posts). Optional for the same reason. */
   posts?: MirrorPost[];
+  /** The AGP team from Kantata (account members). Optional for the same reason. */
+  staff?: MirrorStaff[];
 }
 
 /**

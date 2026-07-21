@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./types.js";
 import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
@@ -9,7 +9,7 @@ import { accountLiveContext, campaignsFromMirror, taskColumn, taskIsDone } from 
 import { deepenWorkspaces } from "./liveMirror.js";
 import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
-import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
+import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, type AgpPerson, type MirrorStaff } from "./agpKnowledge.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
@@ -184,9 +184,44 @@ function kantataWorkspaceIdsFor(clientName: string, linkedIds?: string[]): strin
   return [...new Set([...(linkedIds ?? []), ...ctx.projects.map((p) => p.id)])];
 }
 
+/**
+ * The AGP team roster — LIVE from Kantata when available. Every member of the
+ * AGP Kantata account (mirror.staff) becomes an addable teammate; the bundled
+ * AGP_PEOPLE list is the fallback (offline / no live pull) and also supplies
+ * function/routing metadata for anyone Kantata and the seed both know by name.
+ * Kantata is the source of truth, so it wins on ties.
+ */
+function buildRoster(staff?: MirrorStaff[]): AgpPerson[] {
+  // No live pull → the bundled roster (offline / demo). When Kantata DOES
+  // answer, it is authoritative: the roster is EXACTLY the AGP account, and
+  // the fictional seed people never leak into a real team list. Seed metadata
+  // (function/team/routing) still enriches anyone Kantata knows by name.
+  if (!staff || staff.length === 0) return AGP_PEOPLE;
+  const seedByName = new Map(AGP_PEOPLE.map((p) => [p.name.toLowerCase(), p]));
+  return staff
+    .map((u) => {
+      const seed = seedByName.get(u.name.toLowerCase());
+      return {
+        id: `k-${u.id}`,
+        name: u.name,
+        title: u.title || seed?.title || "AGP team",
+        fn: seed?.fn ?? "project_management",
+        team: seed?.team ?? "",
+        entity: seed?.entity ?? "PG Agency",
+        routing: seed?.routing ?? "direct",
+        ...(seed?.managerId ? { managerId: seed.managerId } : {}),
+      } as AgpPerson;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function useWorkspace() {
   const [state, setState] = useState<PersistedState>(load);
   const { initiatives, ideas, accounts } = state;
+  // The live AGP team from Kantata (mirror.staff), falling back to the bundled
+  // roster. Recomputed when the live mirror's staff array changes identity.
+  const roster = useMemo(() => buildRoster(loadMirror().staff), [loadMirror().staff]);
+  const rosterById = useMemo(() => new Map(roster.map((p) => [p.id, p])), [roster]);
 
   // ---- shared persistence (Supabase via /api/state) ----------------------
   // Boot: adopt the shared state if one exists (or seed it from this browser
@@ -1107,10 +1142,10 @@ export function useWorkspace() {
    * client, not just the Contractor Access tab. Idempotent by person. */
   const addAccountMember = useCallback(
     (id: string, personId: string) => {
-      const person = personById(personId);
+      const person = rosterById.get(personId) ?? personById(personId);
       if (!person) return;
       mutateAccount(id, (a) => {
-        if (a.members.some((m) => m.personId === personId)) return a;
+        if (a.members.some((m) => m.personId === person.id)) return a;
         return {
           ...a,
           members: [...a.members, { personId: person.id, name: person.name, title: person.title }],
@@ -1118,7 +1153,7 @@ export function useWorkspace() {
         };
       });
     },
-    [mutateAccount],
+    [mutateAccount, rosterById],
   );
 
   const addExternal = useCallback(
@@ -1302,7 +1337,7 @@ export function useWorkspace() {
     addTask,
     setTaskStatus,
     setArchived,
-    availablePeople: AGP_PEOPLE,
+    availablePeople: roster,
     resetDemo,
     syncStatus,
   };

@@ -32,13 +32,13 @@ live pull against what collaboration needs, and records what shipped.
 | users (via includes) | 197 | ✅ | names for team/owner/author |
 | percentage_complete | — | ✅ **(new)** | task progress |
 | workspace_allocations | 158k | ❌ | resourcing (Kelly surface) |
-| account_memberships / roles | 296 / 46 | ❌ | team roles |
+| **account_memberships** | 296 | ✅ **(new)** | **the AGP team roster** |
 | attachments / documents | — | ❌ | Files tab (still local) |
 | story dependencies / sub-stories | — | ❌ | plan structure |
 | expenses / invoices / rate_cards | 8.6k / 16k / 291 | ❌ (by design) | financials → internal Portfolio only, never the collaboration surface (no-financials rule) |
 | skills / time_offs | 17 / — | ❌ | staffing / availability |
 
-## Shipped this pass — the two collaboration essentials
+## Shipped — the collaboration essentials
 
 1. **Task owners (assignments).** The task tree now pulls `include=assignees`
    (tenant-wide AND the per-workspace deepen), resolves assignee ids → names,
@@ -51,13 +51,18 @@ live pull against what collaboration needs, and records what shipped.
    · from Kantata" feed. The team's real back-and-forth now lives beside the
    local thread. (Two-way posting waits on the write-back layer.)
 
+3. **The AGP team roster (account_memberships).** The people you can add to
+   an account are now the *live AGP Kantata account* — every member, by name
+   and title, pulled from `account_memberships?include=user`. Kantata is
+   authoritative: the bundled demo roster only stands in when the pull is
+   offline, so a real team list never shows fictional names. Add-a-teammate,
+   everywhere in the client, draws from this.
+
 ## Recommended next (ranked by collaboration value)
 
 1. **Files / attachments** → feed the Files tab from Kantata attachments.
-2. **Team roles** (account_memberships) → label who's PM vs. creative on the
-   member stack.
-3. **Task hierarchy** (parent/sub-stories + dependencies) → structure the plan.
-4. **Allocations / availability** → the Resource surface (Kelly), not the
+2. **Task hierarchy** (parent/sub-stories + dependencies) → structure the plan.
+3. **Allocations / availability** → the Resource surface (Kelly), not the
    client-facing collaboration view.
 
 Financials stay out of collaboration surfaces by design (guest-safety rule);

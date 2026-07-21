@@ -554,7 +554,7 @@ function WhatsNew({ account }: { account: ClientAccount }) {
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
 
-function Home({ account, tasks, userName, goTo }: { account: ClientAccount; tasks: Task[]; userName: string; goTo: (t: ClientTab) => void }) {
+function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   const open = tasks.filter((t) => t.status !== "done");
@@ -622,8 +622,8 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
                     <button
                       key={t.id}
                       type="button"
-                      onClick={() => goTo("plan")}
-                      title="Open in Project Plan"
+                      onClick={() => onOpenTask(t)}
+                      title="See everything about this task"
                       className="table-row-hover"
                       style={{ fontSize: 11.5, textAlign: "left", background: "none", border: "none", padding: "2px 3px", borderRadius: 4, cursor: "pointer" }}
                     >
@@ -650,7 +650,7 @@ function Home({ account, tasks, userName, goTo }: { account: ClientAccount; task
           <SectionTitle>Due This Week</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {dueThisWeek.map((t, i) => (
-              <RowButton key={t.id} onClick={() => goTo("plan")} title="Open in Project Plan" style={{ padding: "9px 4px" }}>
+              <RowButton key={t.id} onClick={() => onOpenTask(t)} title="See everything about this task" style={{ padding: "9px 4px" }}>
                 <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{t.due ? fmtDay(t.due) : ""}</span>
@@ -1268,6 +1268,103 @@ function CollaborateHub({
   );
 }
 
+/**
+ * Task detail — click any task to see everything about it, and act on it
+ * without leaving the page. A right-side drawer (additive overlay, no layout
+ * change): status, owner, due, provenance, plus quick actions — advance the
+ * status or raise it with the team. This is the "clickable to see more" the
+ * plan needed: a task is no longer a dead line of text.
+ */
+function TaskDetail({
+  task,
+  onStatus,
+  onPost,
+  goTo,
+  onClose,
+}: {
+  task: Task;
+  onStatus: (taskId: string, status: TaskStatus) => void;
+  onPost: (body: string) => void;
+  goTo: (t: ClientTab) => void;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const fromKantata = task.label === "from Kantata";
+  const overdue = task.status !== "done" && !!task.due && task.due < AS_OF_TODAY();
+  const statusLabel: Record<TaskStatus, string> = { todo: "To do", doing: "In progress", done: "Done" };
+  const field = (k: string, v: React.ReactNode) => (
+    <div style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+      <span style={{ width: 92, flexShrink: 0, fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>{k}</span>
+      <span style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>{v}</span>
+    </div>
+  );
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,21,46,0.28)", zIndex: 60 }} />
+      <div
+        role="dialog"
+        aria-label={`Task — ${task.title}`}
+        style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: 380, maxWidth: "94vw", background: "#fff", color: T.ink, boxShadow: "-14px 0 40px rgba(16,21,46,0.22)", zIndex: 61, padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Task</span>
+          <button type="button" className="btn-link" style={{ fontSize: 12 }} onClick={onClose}>Close ✕</button>
+        </div>
+        <h3 style={{ fontSize: 16, fontWeight: 800, color: navy, margin: "2px 0 10px", lineHeight: 1.3 }}>{task.title}</h3>
+
+        {field("Status", statusLabel[task.status])}
+        {field("Owner", task.ownerName || <span style={{ color: T.inkMuted }}>Unassigned</span>)}
+        {field("Due", task.due ? <span style={{ color: overdue ? T.status.critical : T.ink, fontWeight: overdue ? 700 : 400 }}>{overdue ? "⚠ " : ""}{fmtDay(task.due)}</span> : <span style={{ color: T.inkMuted }}>No date</span>)}
+        {task.label && field("Label", fromKantata ? <KantataChip /> : <TagChip>{task.label}</TagChip>)}
+        {task.phaseKey && field("Phase", <TagChip>{task.phaseKey}</TagChip>)}
+        {field("Source", fromKantata ? "Synced from Kantata" : task.source === "plan" ? "From a linked build plan" : "Added here")}
+
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "14px 0 6px" }}>Move to</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["todo", "doing", "done"] as TaskStatus[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onStatus(task.id, s)}
+              className={task.status === s ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+              style={{ flex: 1 }}
+            >
+              {statusLabel[s]}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "16px 0 6px" }}>Raise it with the team</div>
+        <textarea
+          className="textarea"
+          rows={3}
+          style={{ width: "100%", fontSize: 12.5 }}
+          placeholder={`Ask a question or flag a blocker on “${task.title.slice(0, 40)}”…`}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          style={{ marginTop: 6, alignSelf: "flex-start" }}
+          disabled={!note.trim()}
+          onClick={() => {
+            onPost(`**Re: ${task.title}** — ${note.trim()}`);
+            setNote("");
+            onClose();
+            goTo("discussions");
+          }}
+        >
+          Post to Discussions
+        </button>
+        <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
+          The note lands in this account's Discussions with the task quoted — everyone on the account sees it.
+        </div>
+      </div>
+    </>
+  );
+}
+
 /** The project conversation from Kantata — posts on the client's workspaces
  * and stories, read-only. The team's real back-and-forth, in one place. */
 function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) {
@@ -1619,6 +1716,8 @@ export function ClientWorkspace({
   // Collaborate hub: add people / post an update from ANY tab (the navy band
   // is persistent, so this popover is always reachable).
   const [hubOpen, setHubOpen] = useState(false);
+  // Click any task to see everything about it (detail drawer, additive overlay).
+  const [openTask, setOpenTask] = useState<Task | null>(null);
   // A fresh workspace with matched work opens the review panel by itself —
   // the next action should be on screen, not hidden behind a corner button.
   const [reviewOpen, setReviewOpen] = useState(
@@ -1793,7 +1892,7 @@ export function ClientWorkspace({
               onOpenReview={() => setReviewOpen(true)}
             />
           )}
-          <Home account={account} tasks={tasks} userName={userName} goTo={setTab} />
+          <Home account={account} tasks={tasks} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
           {/* Below the wireframe: our additions side by side, not stacked. */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 14, alignItems: "start" }}>
             {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
@@ -1804,7 +1903,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
               type="button"
@@ -1853,6 +1952,15 @@ export function ClientWorkspace({
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
         <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} />
+      )}
+      {openTask && (
+        <TaskDetail
+          task={openTask}
+          onStatus={(id, s) => { onTaskStatus(id, s); setOpenTask((t) => (t && t.id === id ? { ...t, status: s } : t)); }}
+          onPost={onPost}
+          goTo={setTab}
+          onClose={() => setOpenTask(null)}
+        />
       )}
     </div>
   );

@@ -35,6 +35,7 @@ export interface RawMirrorPayload {
   kantataTasks?: Record<string, unknown>[];
   kantataHours?: Record<string, unknown>[];
   kantataPosts?: Record<string, unknown>[];
+  kantataStaff?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -314,6 +315,14 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         message: str(post.message),
         author: str(post.author),
         createdAt: str(post.created_at),
+      })),
+    staff: (p.kantataStaff ?? [])
+      .filter((u) => str(u.name).trim().length > 0)
+      .map((u) => ({
+        id: String(u.id),
+        name: str(u.name),
+        title: str(u.title),
+        email: str(u.email),
       })),
   };
 }

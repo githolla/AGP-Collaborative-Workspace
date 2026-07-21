@@ -38,6 +38,9 @@ interface MirrorPayload {
    * never sent to the browser (no-financials rule).
    */
   kantataHours: Record<string, unknown>[];
+  /** The AGP team — every member of the AGP Kantata account (id, name, title,
+   * email). This is the live roster the collaboration UI adds teammates from. */
+  kantataStaff: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -64,6 +67,7 @@ async function pullKantata(token: string): Promise<{
   customFields: Record<string, unknown>[];
   hours: Record<string, unknown>[];
   posts: Record<string, unknown>[];
+  staff: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
@@ -135,6 +139,8 @@ async function pullKantata(token: string): Promise<{
   type KantataCfv = { id: string; subject_id?: string | number; custom_field_name?: string; display_value?: string; value?: unknown };
   type KantataTimeEntry = { id: string; workspace_id?: string | number; user_id?: string | number; date_performed?: string; time_in_minutes?: number };
 
+  type KantataMembership = { id: string; user_id?: string | number; role?: string };
+
   // Users side-bucket harvested from `include=participants` — id → full name.
   const userNames = new Map<string, string>();
   const harvestUsers = (json: Record<string, unknown>): void => {
@@ -144,12 +150,36 @@ async function pullKantata(token: string): Promise<{
     }
   };
 
+  // The AGP team roster — everyone in the AGP Kantata account. Harvested from
+  // the account_memberships walk's `include=user` side-bucket, so it's the
+  // internal staff (not external client collaborators). id → name/title/email.
+  const staffById = new Map<string, { id: string; name: string; title: string; email: string }>();
+  const harvestStaff = (json: Record<string, unknown>): void => {
+    const users = (json.users ?? {}) as Record<
+      string,
+      { full_name?: string; headline?: string; email_address?: string }
+    >;
+    for (const [id, u] of Object.entries(users)) {
+      if (u?.full_name) {
+        staffById.set(String(id), {
+          id: String(id),
+          name: u.full_name,
+          title: u.headline ?? "",
+          email: u.email_address ?? "",
+        });
+        // Also feed the name map so owners/authors resolve even if a user
+        // never appears on a story/post.
+        if (!userNames.has(String(id))) userNames.set(String(id), u.full_name);
+      }
+    }
+  };
+
   // All endpoints walk in parallel — workspaces (+participants), milestones,
   // the full task tree (+assignees, so tasks carry an OWNER), workspace
   // groups (the client↔project join, SPEC §7), custom-field taxonomy, recent
   // time entries, and recent posts (the project conversation). Each degrades
   // independently; only a workspaces failure is fatal.
-  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult] = await Promise.allSettled([
+  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult, membersResult] = await Promise.allSettled([
     pullKantataPaged<KantataWorkspace>(
       "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc&include=participants",
       "workspaces",
@@ -209,6 +239,15 @@ async function pullKantata(token: string): Promise<{
       "posts",
       2000,
       harvestUsers,
+    ),
+    // The AGP team — every member of the AGP Kantata account. include=user
+    // carries each member's name/title/email into the side-bucket that
+    // harvestStaff reads. This is the roster the collaboration UI adds from.
+    pullKantataPaged<KantataMembership>(
+      "https://api.mavenlink.com/api/v1/account_memberships?per_page=200&include=user",
+      "account_memberships",
+      1000,
+      harvestStaff,
     ),
   ]);
 
@@ -351,7 +390,17 @@ async function pullKantata(token: string): Promise<{
     notes.push(cfvResult.reason instanceof Error ? cfvResult.reason.message : "custom fields failed");
   }
 
-  return { projects, milestones, tasks, groups, customFields, hours, posts, note: notes.join(" · ") };
+  // The AGP team roster — harvestStaff filled staffById during the members
+  // walk. Sorted by name so the picker is stable. If the endpoint was
+  // rejected, staffById is empty and the app keeps its built-in roster.
+  const staff = [...staffById.values()].sort((a, b) => a.name.localeCompare(b.name));
+  if (membersResult.status === "fulfilled") {
+    notes.push(`${staff.length} AGP team members`);
+  } else {
+    notes.push(membersResult.reason instanceof Error ? membersResult.reason.message : "team roster failed");
+  }
+
+  return { projects, milestones, tasks, groups, customFields, hours, posts, staff, note: notes.join(" · ") };
 }
 
 /**
@@ -478,6 +527,7 @@ export default async function handler(
     kantataTasks: [],
     kantataHours: [],
     kantataPosts: [],
+    kantataStaff: [],
   };
 
   const [kantataResult] = await Promise.allSettled([
@@ -494,6 +544,7 @@ export default async function handler(
       payload.kantataTasks = k.tasks;
       payload.kantataHours = k.hours;
       payload.kantataPosts = k.posts;
+      payload.kantataStaff = k.staff;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } else {
       payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;
