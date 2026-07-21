@@ -132,6 +132,12 @@ export interface ClientAccount {
   files: ClientFileLink[];
   docs: ClientFileLink[];
   activity: ActivityEvent[];
+  /**
+   * Kantata project IDs a human explicitly linked to this workspace (the
+   * Project Finder). Beats every name heuristic: once linked, the project's
+   * campaigns/milestones/tasks/hours follow this client permanently.
+   */
+  kantataProjectIds?: string[];
   archived?: boolean;
   createdAt: string;
 }

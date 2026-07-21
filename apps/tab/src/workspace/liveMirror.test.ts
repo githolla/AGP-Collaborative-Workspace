@@ -210,7 +210,7 @@ describe("mapLivePayload", () => {
         kantataProjects: [
           { id: "1", title: "ARMS: Support 25-26 (Aug25-Jul26)" },
           { id: "2", title: "Harvest Hope Food Bank — Fall Acquisition Mail" },
-          { id: "3", title: "Internal ops cleanup" }, // no convention → no client
+          { id: "3", title: "Internal ops cleanup" }, // no convention → verbatim entry (ALL projects reachable)
           { id: "4", title: "Q4 Omnichannel Program" },
         ],
         kantataGroups: [
@@ -222,7 +222,9 @@ describe("mapLivePayload", () => {
       }),
     );
     const names = mirror.clients.map((c) => c.name).sort();
-    expect(names).toEqual(["ARMS", "Church World Service", "Harvest Hope Food Bank"]);
+    // ALL active work is reachable: conventional titles parse to client
+    // names; unconventional ones become verbatim entries.
+    expect(names).toEqual(["ARMS", "Church World Service", "Harvest Hope Food Bank", "Internal ops cleanup"]);
     // Wider separators + leading project codes also derive.
     const wide = mapLivePayload(
       payload({

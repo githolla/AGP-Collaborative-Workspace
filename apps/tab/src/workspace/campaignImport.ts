@@ -164,10 +164,18 @@ function projectMatcher(mirror: AgpMirror, clientName: string, abbreviation?: st
   };
 }
 
-export function campaignsFromMirror(mirror: AgpMirror, clientName: string, today: string): ImportedCampaign[] {
+export function campaignsFromMirror(
+  mirror: AgpMirror,
+  clientName: string,
+  today: string,
+  linkedProjectIds?: readonly string[],
+): ImportedCampaign[] {
   const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
-  const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
+  const linked = new Set(linkedProjectIds ?? []);
+  const matcherBelongs = projectMatcher(mirror, canonical, client?.abbreviation);
+  // A human-linked project ALWAYS belongs — links beat heuristics.
+  const belongs = (p: (typeof mirror.projects)[number]): boolean => linked.has(p.id) || matcherBelongs(p);
 
   const fromProjects: ImportedCampaign[] = mirror.projects
     .filter(belongs)
@@ -268,19 +276,28 @@ export interface AccountCrmRecord {
 }
 
 export interface AccountLiveContext {
-  /** Missing = no HubSpot company matched the workspace name. */
+  /** Missing = no directory client matched the workspace name. */
   crm?: AccountCrmRecord;
   projects: LiveProject[];
   deals: LiveDeal[];
   /** What the whole mirror holds — so a zero-match workspace can show the
    * denominator ("422 projects pulled, 0 matched") instead of a bare blank. */
   book: { clients: number; projects: number; milestones: number; tasks: number; deals: number };
+  /** EVERY live project, minimal — the Project Finder searches this so a
+   * human can hand-link work no naming convention could find. */
+  searchable: { id: string; title: string; dueDate?: string; clientGroup?: string }[];
 }
 
-export function accountLiveContext(mirror: AgpMirror, clientName: string): AccountLiveContext {
+export function accountLiveContext(
+  mirror: AgpMirror,
+  clientName: string,
+  linkedProjectIds?: readonly string[],
+): AccountLiveContext {
   const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
-  const belongs = projectMatcher(mirror, canonical, client?.abbreviation);
+  const linked = new Set(linkedProjectIds ?? []);
+  const matcherBelongs = projectMatcher(mirror, canonical, client?.abbreviation);
+  const belongs = (p: (typeof mirror.projects)[number]): boolean => linked.has(p.id) || matcherBelongs(p);
 
   const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => ({
     title: p.title,
@@ -342,6 +359,12 @@ export function accountLiveContext(mirror: AgpMirror, clientName: string): Accou
       tasks: (mirror.tasks ?? []).length,
       deals: mirror.campaigns.filter((c) => c.kind === "deal").length,
     },
+    searchable: mirror.projects.map((p) => ({
+      id: p.id,
+      title: p.title,
+      ...(p.dueDate ? { dueDate: p.dueDate } : {}),
+      ...(p.clientGroup ? { clientGroup: p.clientGroup } : {}),
+    })),
   };
 }
 

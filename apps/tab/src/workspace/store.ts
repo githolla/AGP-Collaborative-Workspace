@@ -702,6 +702,37 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Project Finder: a human hand-picked Kantata projects for this client.
+   * Links are permanent (beat every name heuristic) and the picked
+   * projects' campaigns import immediately — the pick IS the review. */
+  const linkProjects = useCallback(
+    (id: string, projectIds: string[]) => {
+      if (projectIds.length === 0) return;
+      mutateAccount(id, (a) => {
+        const linked = [...new Set([...(a.kantataProjectIds ?? []), ...projectIds])];
+        const mirror = loadMirror();
+        const campaigns = [...a.campaigns];
+        let added = 0;
+        for (const imp of campaignsFromMirror(mirror, a.clientName, AS_OF_TODAY(), projectIds)) {
+          const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
+          if (idx === -1) {
+            campaigns.push({ ...imp, id: newId("cmp") });
+            added += 1;
+          } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id };
+        }
+        const summary = `${projectIds.length} Kantata project${projectIds.length === 1 ? "" : "s"} linked to this client${added > 0 ? ` — ${added} campaign${added === 1 ? "" : "s"} imported` : ""}.`;
+        return {
+          ...a,
+          kantataProjectIds: linked,
+          campaigns,
+          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
+          activity: [...a.activity, activityEvent(summary, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /** Relink a workspace to a real CRM client (fixes demo-seeded or
    * misspelled names) — matching, imports, and context follow the new name. */
   const renameAccount = useCallback(
@@ -1055,6 +1086,7 @@ export function useWorkspace() {
     importCampaigns,
     importTasks,
     renameAccount,
+    linkProjects,
     removeCampaign,
     clearCampaigns,
     addAccountTask,

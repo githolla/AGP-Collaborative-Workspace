@@ -305,6 +305,27 @@ describe("link rescue", () => {
   });
 });
 
+describe("hand-linked projects (Project Finder)", () => {
+  it("a linked project ALWAYS belongs, regardless of any name evidence", () => {
+    const m = mirror({
+      projects: [
+        { id: "ws-1", title: "24-117 FY Support Retainer", serviceLine: "", vertical: "", model: "", dueDate: "2026-12-01" },
+        { id: "ws-2", title: "Some Other Org Appeal", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+    // No heuristic could connect this title to the client…
+    expect(campaignsFromMirror(m, "Syracuse University Athletics", TODAY)).toHaveLength(0);
+    // …but a human link settles it, and only for the linked project.
+    const linked = campaignsFromMirror(m, "Syracuse University Athletics", TODAY, ["ws-1"]);
+    expect(linked).toHaveLength(1);
+    expect(linked[0]?.name).toBe("24-117 FY Support Retainer");
+    // Live context honors the same link, and exposes the searchable list.
+    const ctx = accountLiveContext(m, "Syracuse University Athletics", ["ws-1"]);
+    expect(ctx.projects).toHaveLength(1);
+    expect(ctx.searchable.map((p) => p.id).sort()).toEqual(["ws-1", "ws-2"]);
+  });
+});
+
 describe("quiet signals", () => {
   it("crmGoneQuiet: stale last touch with nothing booked → quiet", () => {
     expect(crmGoneQuiet({ name: "X", lastTouch: "2026-06-01" }, TODAY)).toBe(true);

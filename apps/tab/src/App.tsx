@@ -262,7 +262,7 @@ export function App() {
     const pulse: Record<string, { waiting: number; nextMilestone?: string; nextMilestoneDate?: string }> = {};
     for (const a of ws.accounts) {
       if (a.archived) continue;
-      const matched = campaignsFromMirror(mirror, a.clientName, today);
+      const matched = campaignsFromMirror(mirror, a.clientName, today, a.kantataProjectIds);
       const waiting = matched.filter(
         (c) => !a.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase()),
       ).length;
@@ -279,7 +279,9 @@ export function App() {
 
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
-  const selectedLiveCtx = selectedAccount ? accountLiveContext(loadMirror(), selectedAccount.clientName) : null;
+  const selectedLiveCtx = selectedAccount
+    ? accountLiveContext(loadMirror(), selectedAccount.clientName, selectedAccount.kantataProjectIds)
+    : null;
   const selectedLinkSuggestions =
     selectedAccount && selectedLiveCtx && liveStatus.live && !selectedLiveCtx.crm
       ? suggestClients(loadMirror(), selectedAccount.clientName)
@@ -463,9 +465,12 @@ export function App() {
             onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
-            importCandidates={campaignsFromMirror(loadMirror(), selectedAccount.clientName, AS_OF_TODAY()).filter(
-              (c) => !selectedAccount.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase()),
-            )}
+            importCandidates={campaignsFromMirror(
+              loadMirror(),
+              selectedAccount.clientName,
+              AS_OF_TODAY(),
+              selectedAccount.kantataProjectIds,
+            ).filter((c) => !selectedAccount.campaigns.some((e) => e.name.toLowerCase() === c.name.toLowerCase()))}
             onImportCampaigns={(selected) => ws.importCampaigns(selectedAccount.id, selected)}
             onRemoveCampaign={(campaignId) => ws.removeCampaign(selectedAccount.id, campaignId)}
             onClearCampaigns={() => ws.clearCampaigns(selectedAccount.id)}
@@ -475,6 +480,7 @@ export function App() {
             liveDataOn={liveStatus.live}
             linkSuggestions={selectedLinkSuggestions}
             onRelink={(name) => ws.renameAccount(selectedAccount.id, name)}
+            onLinkProjects={(ids) => ws.linkProjects(selectedAccount.id, ids)}
             onArchive={() => {
               ws.setAccountArchived(selectedAccount.id, true);
               setRoute({ view: "clients" });

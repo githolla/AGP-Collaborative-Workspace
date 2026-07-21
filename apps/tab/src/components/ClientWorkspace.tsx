@@ -270,6 +270,75 @@ const prettyValue = (v: string) => {
 };
 
 /**
+ * Project Finder — the fix that always works: search EVERY live Kantata
+ * project title, hand-pick this client's work, one click links it forever
+ * (and imports the campaigns). No naming convention required.
+ */
+function ProjectFinder({
+  projects,
+  onLink,
+}: {
+  projects: AccountLiveContext["searchable"];
+  onLink: (ids: string[]) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const needle = q.trim().toLowerCase();
+  const results =
+    needle.length >= 2
+      ? projects
+          .filter((p) => p.title.toLowerCase().includes(needle) || (p.clientGroup ?? "").toLowerCase().includes(needle))
+          .slice(0, 10)
+      : [];
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const pickedTitles = projects.filter((p) => picked.has(p.id));
+
+  return (
+    <div style={{ marginTop: 10, background: "#fff", border: `1px solid ${T.grid}`, borderRadius: 8, padding: "10px 12px" }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: T.roi.navy, marginBottom: 6 }}>
+        Find this client's Kantata projects
+      </div>
+      <input
+        className="input"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={`Search ${projects.length} live project titles — part of a name, an abbreviation, anything…`}
+        style={{ width: "100%", fontSize: 12.5, padding: "8px 12px" }}
+      />
+      {results.map((p) => (
+        <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}>
+          <input type="checkbox" checked={picked.has(p.id)} onChange={() => toggle(p.id)} />
+          <span style={{ flex: 1, fontSize: 12, color: T.ink, fontWeight: 600 }}>{p.title}</span>
+          {p.clientGroup && <span style={{ fontSize: 10.5, color: T.inkMuted }}>{p.clientGroup}</span>}
+          {p.dueDate && <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>due {p.dueDate}</span>}
+        </label>
+      ))}
+      {needle.length >= 2 && results.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "8px 2px" }}>
+          No live project title contains “{q}”. Try a shorter fragment or an abbreviation.
+        </div>
+      )}
+      {picked.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => onLink([...picked])}>
+            Link {picked.size} project{picked.size === 1 ? "" : "s"} to this workspace →
+          </button>
+          <span style={{ fontSize: 10.5, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
+            {pickedTitles.map((p) => p.title).join(" · ")}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Link doctor — when live data is on but a workspace attached to nothing,
  * this banner (on EVERY tab) says exactly what was pulled, what didn't
  * match, and how to fix it. A blank workspace with no explanation is a
@@ -281,6 +350,7 @@ function LinkDoctor({
   suggestions,
   hasImportedWork,
   onRelink,
+  onLinkProjects,
 }: {
   context: AccountLiveContext;
   clientName: string;
@@ -288,44 +358,30 @@ function LinkDoctor({
   /** Campaigns already live here — a "nothing matched" banner would lie. */
   hasImportedWork: boolean;
   onRelink?: ((name: string) => void) | undefined;
+  onLinkProjects?: ((ids: string[]) => void) | undefined;
 }) {
-  const { crm, projects, deals, book } = context;
+  const { projects, deals, book } = context;
   if (projects.length > 0 || deals.length > 0) return null; // linked + matched — healthy
-  if (crm && hasImportedWork) return null; // work already imported — nothing to diagnose
-  const pulled = `Pulled live: ${book.clients} clients · ${book.projects} projects · ${book.milestones} milestones · ${book.tasks} tasks · ${book.deals} deals.`;
+  if (hasImportedWork) return null; // work already imported — nothing to diagnose
 
   return (
     <div style={{ background: "#faf3dc", border: "1.5px solid #e7c66f", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#6b5410", lineHeight: 1.6 }}>
-      {!crm ? (
-        <>
-          <strong>This workspace isn’t linked to a Kantata client.</strong> No client derived from
-          Kantata matches “{clientName}” — the name may differ from how Kantata knows them (often
-          an abbreviation like “SUA”), or it was created from demo data. {pulled}
-          {suggestions.length > 0 && (
-            <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-              <span style={{ fontWeight: 700 }}>Closest real clients:</span>
-              {suggestions.map((s) => (
-                <button key={s} type="button" className="btn btn-primary btn-sm" onClick={() => onRelink?.(s)}>
-                  Link to “{s}” →
-                </button>
-              ))}
-            </span>
-          )}
-          <span style={{ display: "block", marginTop: 6, fontSize: 11.5 }}>
-            {suggestions.length === 0 ? "No similar name found in the Kantata book. " : ""}
-            Active clients can be set up from the <strong>Clients</strong> page — pick from the
-            live Kantata list there. If this client has no Kantata projects yet, keep working;
-            data attaches as soon as their first project exists.
-          </span>
-        </>
-      ) : (
-        <>
-          <strong>“{clientName}” is in the client book, but no Kantata work matched it.</strong>{" "}
-          {pulled} Matching uses (1) the Kantata client group this project belongs to, (2) the
-          client abbreviation as a title prefix (“ARMS: …”), or (3) the client’s name in the
-          project title. Refresh with the ⟳ pill; if it stays empty, the project titles may use a
-          different convention — tell us one project title and we tune the matcher.
-        </>
+      <strong>Couldn’t auto-match “{clientName}” to its Kantata projects.</strong> The matcher
+      knows {book.projects} live projects but none of their names line up with this workspace —
+      so find them yourself below: search, tick the ones that are this client’s, link once,
+      done forever.
+      {suggestions.length > 0 && (
+        <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+          <span style={{ fontWeight: 700 }}>Or is this them?</span>
+          {suggestions.map((s) => (
+            <button key={s} type="button" className="btn btn-primary btn-sm" onClick={() => onRelink?.(s)}>
+              Link to “{s}” →
+            </button>
+          ))}
+        </span>
+      )}
+      {onLinkProjects && context.searchable.length > 0 && (
+        <ProjectFinder projects={context.searchable} onLink={onLinkProjects} />
       )}
     </div>
   );
@@ -1298,6 +1354,7 @@ export function ClientWorkspace({
   liveDataOn = false,
   linkSuggestions = [],
   onRelink,
+  onLinkProjects,
   onArchive,
   onApplyTemplate,
 }: {
@@ -1319,6 +1376,8 @@ export function ClientWorkspace({
   linkSuggestions?: string[];
   /** One-click relink: rename this workspace to a real CRM client. */
   onRelink?: (name: string) => void;
+  /** Project Finder: hand-link picked Kantata project ids to this client. */
+  onLinkProjects?: (ids: string[]) => void;
   /** Archive: hide from the list, keep all history (auditability). */
   onArchive?: () => void;
   /** Apply a service-line template: dated task skeleton from a start date. */
@@ -1464,6 +1523,7 @@ export function ClientWorkspace({
           suggestions={linkSuggestions}
           hasImportedWork={account.campaigns.length > 0}
           onRelink={onRelink}
+          onLinkProjects={onLinkProjects}
         />
       )}
 

@@ -114,7 +114,15 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
     }
     // Client name before a separator: em/en dash, spaced hyphen, or pipe.
     const dash = title.split(/\s+[—–|]\s+|\s+-\s+/);
-    if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) add(dash[0]!.trim(), undefined, vertical);
+    if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) {
+      add(dash[0]!.trim(), undefined, vertical);
+      continue;
+    }
+    // ALL active clients, no project left behind: a title that follows no
+    // convention becomes its own entry, verbatim. Ugly beats invisible —
+    // every live project is reachable from the picker, and hand-linking
+    // (Project Finder) consolidates these under real clients over time.
+    if (title.trim().length >= 4) add(title.trim(), undefined, vertical);
   }
   return [...byKey.values()];
 }
