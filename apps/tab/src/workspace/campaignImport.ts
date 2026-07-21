@@ -81,12 +81,42 @@ function projectBelongsToClient(title: string, clientName: string, abbreviation?
 /** Loose equality for the group↔company join: case/punctuation-insensitive. */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/** "Syracuse University Athletics" → "SUA" (connector words skipped). */
+/**
+ * Legal-entity suffixes pollute a client name: a Kantata group's company
+ * field reads "American Water Works Company, Inc." while its project titles
+ * say "American Water Works" or "AWW:". Strip the suffix so the initialism
+ * and name comparisons run on the real name — otherwise the acronym comes
+ * out "AWWCI" (counting Company + Inc) and lines up with nothing.
+ */
+const CORP_SUFFIX = /[\s,]+(?:inc|incorporated|llc|llp|lp|ltd|limited|corp|corporation|co|company|plc|pllc)\.?$/i;
+export function stripCorpSuffix(name: string): string {
+  let n = name.trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = n.replace(CORP_SUFFIX, "").trim();
+    if (next === n || next.length === 0) break; // never strip to empty
+    n = next;
+  }
+  return n;
+}
+
+/** "Syracuse University Athletics" → "SUA"; "American Water Works Company,
+ * Inc." → "AWW" (legal suffix + connector words skipped). */
 const SMALL_WORDS = new Set(["of", "the", "at", "and", "a", "an", "for", "in"]);
 export function initialism(name: string): string {
-  const words = name.split(/[^A-Za-z0-9]+/).filter((w) => w.length > 0 && !SMALL_WORDS.has(w.toLowerCase()));
+  const words = stripCorpSuffix(name)
+    .split(/[^A-Za-z0-9]+/)
+    .filter((w) => w.length > 0 && !SMALL_WORDS.has(w.toLowerCase()));
   if (words.length < 2) return "";
   return words.map((w) => w[0]!.toUpperCase()).join("");
+}
+
+/** Auto-abbreviation for a Kantata client that carries no explicit one: its
+ * clean acronym, but ONLY when it's a distinctive 3–6 letters. Two letters
+ * ("GM") would over-match; this stays bounded (containsToken) at the match
+ * site, so it can't fire inside unrelated words. */
+export function autoAbbreviation(name: string): string | undefined {
+  const init = initialism(name);
+  return init.length >= 3 && init.length <= 6 ? init : undefined;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, isInBook, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
+import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -362,5 +362,33 @@ describe("quiet signals", () => {
     expect(taskColumn("active")).toBe("doing");
     expect(taskColumn("not started")).toBe("todo");
     expect(taskColumn("")).toBe("todo");
+  });
+
+  it("corporate legal suffixes don't poison the acronym (American Water Works case)", () => {
+    expect(stripCorpSuffix("American Water Works Company, Inc.")).toBe("American Water Works");
+    expect(stripCorpSuffix("Riverside Mission LLC")).toBe("Riverside Mission");
+    expect(stripCorpSuffix("Grace Health Foundation")).toBe("Grace Health Foundation"); // not a legal suffix — untouched
+    // The whole point: acronym is AWW, not AWWCI.
+    expect(initialism("American Water Works Company, Inc.")).toBe("AWW");
+    // Auto-abbreviation only for distinctive 3–6 letter acronyms.
+    expect(autoAbbreviation("American Water Works Company, Inc.")).toBe("AWW");
+    expect(autoAbbreviation("General Motors")).toBeUndefined(); // GM — 2 letters, too generic
+    expect(autoAbbreviation("Grace Health Foundation")).toBe("GHF");
+  });
+
+  it("a legal-name client auto-matches its abbreviation-titled projects (no hand-linking)", () => {
+    // The exact banner case: workspace named with the legal name, projects
+    // titled with the acronym. The auto-abbreviation must bridge them.
+    const m = mirror({
+      clients: [{ id: "k-aww", name: "American Water Works Company, Inc.", vertical: "", abbreviation: "AWW", lifecycleStage: "customer" }],
+      projects: [
+        { id: "ws-1", title: "AWW: Spring Acquisition Mail", serviceLine: "", vertical: "", model: "", dueDate: "2026-09-01" },
+        { id: "ws-2", title: "Unrelated — sign-ups microsite", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+    const imported = campaignsFromMirror(m, "American Water Works Company, Inc.", TODAY);
+    expect(imported.map((c) => c.name)).toEqual(["AWW: Spring Acquisition Mail"]);
+    // Bounded: the acronym must not fire inside an unrelated word.
+    expect(imported.some((c) => c.name.includes("sign-ups"))).toBe(false);
   });
 });

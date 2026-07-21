@@ -238,6 +238,16 @@ describe("mapLivePayload", () => {
     expect(wide.clients.map((c) => c.name).sort()).toEqual(["Grace Health Foundation", "Riverside Mission"]);
     const arms = mirror.clients.find((c) => c.name === "ARMS");
     expect(arms?.abbreviation).toBe("ARMS");
+    // A legal-name group client gets a clean auto-acronym so its
+    // abbreviation-titled projects auto-match (the American Water Works case).
+    const legal = mapLivePayload(
+      payload({
+        companies: [],
+        kantataProjects: [{ id: "20", title: "AWW: Spring Mail" }],
+        kantataGroups: [{ id: "g9", name: "AWW", company: "American Water Works Company, Inc.", email: "x@aww.com", workspace_ids: ["20"] }],
+      }),
+    );
+    expect(legal.clients.find((c) => c.name === "American Water Works Company, Inc.")?.abbreviation).toBe("AWW");
     // Grouped project prefers the CLIENT group over the category group.
     expect(mirror.projects.find((p) => p.id === "4")?.clientGroup).toBe("Church World Service");
     // Category-grouped project keeps the category as clientGroup fallback.

@@ -1,4 +1,5 @@
 import { setMirrorOverride, type AgpMirror, type MirrorClient } from "./agpKnowledge.js";
+import { autoAbbreviation } from "./campaignImport.js";
 
 /**
  * Live mirror: the browser-side half of /api/mirror. On boot the app asks
@@ -90,7 +91,10 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
     if (!isClientRecord) continue;
     const name = str(g.company) || str(g.name);
     const firstWs = Array.isArray(g.workspace_ids) ? String((g.workspace_ids as unknown[])[0] ?? "") : "";
-    add(name, undefined, firstWs ? verticalFor(firstWs) : "");
+    // A legal-name client ("American Water Works Company, Inc.") gets a clean
+    // acronym ("AWW") so projects titled "AWW: …" auto-match — otherwise it
+    // can only be linked by hand.
+    add(name, autoAbbreviation(name), firstWs ? verticalFor(firstWs) : "");
   }
 
   // SECONDARY: title conventions for projects no client group covers.
