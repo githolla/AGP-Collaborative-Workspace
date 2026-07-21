@@ -406,6 +406,7 @@ function ClientDirectory({
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("liveProjects");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const [copied, setCopied] = useState(false);
 
   const needle = q.trim().toLowerCase();
   const filtered = rows.filter(
@@ -485,13 +486,34 @@ function ClientDirectory({
             </div>
           )}
         </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Filter by name or vertical…"
-          className="input"
-          style={{ maxWidth: 260 }}
-        />
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            title="Copy the full client list (name · projects · workspace) — paste it to tune the matching"
+            onClick={() => {
+              const text = [
+                `Client directory — ${rows.length} clients${stats ? ` (${stats.colon} colon · ${stats.dash} dash · ${stats.verbatim} no-prefix uncounted)` : ""}`,
+                ...[...rows]
+                  .sort((a, b) => b.liveProjects - a.liveProjects || a.name.localeCompare(b.name))
+                  .map((r) => `${r.liveProjects}\t${r.name}${r.accountId ? "\t(workspace)" : ""}`),
+              ].join("\n");
+              void navigator.clipboard?.writeText(text).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+              });
+            }}
+          >
+            {copied ? "✓ Copied" : "⧉ Copy list"}
+          </button>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Filter by name or vertical…"
+            className="input"
+            style={{ maxWidth: 240 }}
+          />
+        </span>
       </div>
       <div style={{ overflowX: "auto", maxHeight: 620, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
