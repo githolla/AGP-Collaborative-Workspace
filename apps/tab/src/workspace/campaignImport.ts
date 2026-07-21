@@ -231,6 +231,8 @@ export interface LiveTask {
 }
 
 export interface LiveProject {
+  /** Kantata workspace id — the key the focus deepen pulls by. */
+  id: string;
   title: string;
   status?: string;
   startDate?: string;
@@ -300,6 +302,7 @@ export function accountLiveContext(
   const belongs = (p: (typeof mirror.projects)[number]): boolean => linked.has(p.id) || matcherBelongs(p);
 
   const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => ({
+    id: p.id,
     title: p.title,
     ...(p.status ? { status: p.status } : {}),
     ...(p.startDate ? { startDate: p.startDate } : {}),

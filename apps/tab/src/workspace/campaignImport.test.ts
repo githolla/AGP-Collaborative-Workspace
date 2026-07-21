@@ -339,7 +339,7 @@ describe("quiet signals", () => {
   });
 
   it("deliveryQuiet: hours pulled but zero in 30 days → quiet; no hours data → unknown, not quiet", () => {
-    const base = { title: "P", milestones: [], tasks: [] };
+    const base = { id: "p1", title: "P", milestones: [], tasks: [] };
     expect(deliveryQuiet([{ ...base, minutesRecent: 900, minutes30d: 0 }])).toBe(true);
     expect(deliveryQuiet([{ ...base, minutesRecent: 900, minutes30d: 120 }])).toBe(false);
     expect(deliveryQuiet([base])).toBe(false);

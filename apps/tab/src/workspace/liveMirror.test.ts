@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapLivePayload, type RawMirrorPayload } from "./liveMirror.js";
+import { mapLivePayload, mergeFocusPayload, type RawMirrorPayload } from "./liveMirror.js";
 
 /**
  * The raw /api/mirror payload → AgpMirror mapping, validated against the
@@ -249,5 +249,36 @@ describe("mapLivePayload", () => {
     expect(mirror.clients).toHaveLength(0);
     expect(mirror.projects).toHaveLength(0);
     expect(mirror.campaigns).toHaveLength(0);
+  });
+
+  it("FOCUS DEEPEN: replaces the sliced stories for focused workspaces, keeps the rest", () => {
+    // The tenant-wide boot pull is a recency slice — workspace 902 arrived
+    // with ONE task and no milestones. A focus pull returns its COMPLETE
+    // set; the merge must replace 902's rows (stale slice out) and keep
+    // every other workspace's rows untouched.
+    const base = payload({
+      kantataTasks: [
+        { id: "t1", title: "Old sliced task", workspace_id: "902", state: "completed" },
+        { id: "t9", title: "Other project task", workspace_id: "901", state: "started" },
+      ],
+      kantataMilestones: [{ id: "m9", title: "Other milestone", workspace_id: "901", due_date: "2026-08-01" }],
+    });
+    const merged = mergeFocusPayload(base, ["902"], {
+      kantataTasks: [
+        { id: "t2", title: "Audience segmentation refresh", workspace_id: "902", state: "started" },
+        { id: "t3", title: "Ask-string matrix", workspace_id: "902", state: "not started" },
+      ],
+      kantataMilestones: [{ id: "m2", title: "Fall drop in-home", workspace_id: "902", due_date: "2026-09-15" }],
+    });
+    const mirror = mapLivePayload(merged);
+    const tasks = mirror.tasks ?? [];
+    expect(tasks.filter((t) => t.projectId === "902").map((t) => t.title)).toEqual([
+      "Audience segmentation refresh",
+      "Ask-string matrix",
+    ]);
+    // 901's slice survives; 902's stale row is gone.
+    expect(tasks.find((t) => t.id === "t9")).toBeDefined();
+    expect(tasks.find((t) => t.id === "t1")).toBeUndefined();
+    expect(mirror.milestones.map((m) => m.id).sort()).toEqual(["m2", "m9"]);
   });
 });

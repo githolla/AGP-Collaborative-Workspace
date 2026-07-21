@@ -41,7 +41,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 6; // 6: Kantata-only — clients DERIVED from Kantata, HubSpot not pulled
+const CACHE_SCHEMA = 7; // 7: milestone pull windowed around today + focus deepen — pre-7 caches carry the wrong milestone slice
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -233,6 +233,62 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
   };
 }
 
+/** The most recent live payload applied (cache or fetch) — the base a
+ * focus deepen merges into. Null until the app has gone live once. */
+let lastPayload: RawMirrorPayload | null = null;
+
+/**
+ * Pure merge for a focus pull: the detail response carries the COMPLETE
+ * story set for `ids`, so existing rows for those workspaces are REPLACED
+ * (stale slices out), and every other workspace's rows are kept.
+ */
+export function mergeFocusPayload(
+  base: RawMirrorPayload,
+  ids: string[],
+  detail: { kantataMilestones?: Record<string, unknown>[]; kantataTasks?: Record<string, unknown>[] },
+): RawMirrorPayload {
+  const idSet = new Set(ids.map(String));
+  const others = (rows?: Record<string, unknown>[]) => (rows ?? []).filter((r) => !idSet.has(String(r.workspace_id)));
+  return {
+    ...base,
+    kantataMilestones: [...others(base.kantataMilestones), ...(detail.kantataMilestones ?? [])],
+    kantataTasks: [...others(base.kantataTasks), ...(detail.kantataTasks ?? [])],
+  };
+}
+
+/**
+ * Deepen: pull the complete task tree for specific workspaces and merge it
+ * into the live mirror. The tenant-wide boot pull is a recency slice
+ * (2,000 tasks of ~160k stories) — a workspace being populated deserves
+ * EVERYTHING its projects carry. Returns the number of stories fetched;
+ * 0 on any failure (never throws — populate flows proceed on the slice).
+ */
+export async function deepenWorkspaces(workspaceIds: string[]): Promise<number> {
+  const ids = [...new Set(workspaceIds.filter((i) => /^\d+$/.test(i)))].slice(0, 12);
+  if (ids.length === 0 || !lastPayload?.live) return 0;
+  try {
+    const res = await fetch(`/api/mirror?workspaces=${ids.join(",")}`);
+    if (!res.ok) return 0;
+    const detail = (await res.json()) as {
+      live: boolean;
+      kantataMilestones?: Record<string, unknown>[];
+      kantataTasks?: Record<string, unknown>[];
+    };
+    if (!detail.live) return 0;
+    const merged = mergeFocusPayload(lastPayload, ids, detail);
+    lastPayload = merged;
+    setMirrorOverride(mapLivePayload(merged));
+    try {
+      window.localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: CACHE_SCHEMA, payload: merged }));
+    } catch {
+      // storage full — merged mirror still applied in memory
+    }
+    return (detail.kantataMilestones?.length ?? 0) + (detail.kantataTasks?.length ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 function statusFrom(p: RawMirrorPayload, cached: boolean): LiveStatus {
   if (!p.live) {
     return {
@@ -268,6 +324,7 @@ export async function initLiveMirror(
       if (raw) {
         const wrapped = JSON.parse(raw) as { schema?: number; payload?: RawMirrorPayload };
         if (wrapped.schema === CACHE_SCHEMA && wrapped.payload?.live) {
+          lastPayload = wrapped.payload;
           setMirrorOverride(mapLivePayload(wrapped.payload));
           cachedStatus = statusFrom(wrapped.payload, true);
           onStatus(cachedStatus);
@@ -285,6 +342,7 @@ export async function initLiveMirror(
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = (await res.json()) as RawMirrorPayload;
     if (payload.live) {
+      lastPayload = payload;
       setMirrorOverride(mapLivePayload(payload));
       try {
         window.localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: CACHE_SCHEMA, payload }));

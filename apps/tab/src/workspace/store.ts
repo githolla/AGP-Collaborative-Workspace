@@ -6,6 +6,7 @@ import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
 import { accountLiveContext, campaignsFromMirror } from "./campaignImport.js";
+import { deepenWorkspaces } from "./liveMirror.js";
 import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
@@ -169,6 +170,17 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
     }
   }
   return { account: { ...a, campaigns, tasks }, campaignsAdded, tasksAdded };
+}
+
+/**
+ * The Kantata workspace ids this account's populate should cover: hand-linked
+ * projects plus every project the name-matcher attributes to this client.
+ * These are what the focus deepen (complete task tree, not the tenant-wide
+ * recency slice) pulls before importing.
+ */
+function kantataWorkspaceIdsFor(clientName: string, linkedIds?: string[]): string[] {
+  const ctx = accountLiveContext(loadMirror(), clientName, linkedIds);
+  return [...new Set([...(linkedIds ?? []), ...ctx.projects.map((p) => p.id)])];
 }
 
 export function useWorkspace() {
@@ -728,15 +740,36 @@ export function useWorkspace() {
               : account.activity,
         };
       });
+      // The boot mirror is a tenant-wide recency slice — most workspaces'
+      // full task trees aren't in it. Deepen those projects in the
+      // background and top the workspace up when the complete set lands.
+      void deepenWorkspaces(kantataWorkspaceIdsFor(clientName)).then((fetched) => {
+        if (fetched === 0) return;
+        mutateAccount(id, (cur) => {
+          const { account, campaignsAdded, tasksAdded } = populateFromKantata(cur);
+          if (campaignsAdded + tasksAdded === 0) return cur;
+          const text = `Full Kantata task tree pulled: +${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · +${tasksAdded} task${tasksAdded === 1 ? "" : "s"}.`;
+          return {
+            ...account,
+            notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
+            activity: [...account.activity, activityEvent(text, "workspace")],
+          };
+        });
+      });
       return id;
     },
     [createAccount, mutateAccount],
   );
 
   /** Pull EVERYTHING Kantata has for this client into the workspace —
-   * campaigns, milestones, open tasks — in one action. Idempotent. */
+   * campaigns, milestones, open tasks — in one action. Idempotent. Deepens
+   * first: the boot mirror only carries a recency slice of the task tree,
+   * so the client's workspaces get a complete per-project pull before the
+   * import runs. */
   const importAllFromKantata = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      const target = stateRef.current.accounts.find((x) => x.id === id);
+      if (target) await deepenWorkspaces(kantataWorkspaceIdsFor(target.clientName, target.kantataProjectIds));
       mutateAccount(id, (a) => {
         const { account, campaignsAdded, tasksAdded } = populateFromKantata(a);
         if (campaignsAdded + tasksAdded === 0) return a;
@@ -778,8 +811,11 @@ export function useWorkspace() {
    * Links are permanent (beat every name heuristic) and the picked
    * projects' campaigns import immediately — the pick IS the review. */
   const linkProjects = useCallback(
-    (id: string, projectIds: string[]) => {
+    async (id: string, projectIds: string[]) => {
       if (projectIds.length === 0) return;
+      // The picked ids ARE Kantata workspace ids — deepen them so the
+      // import that follows sees the complete task tree, not the slice.
+      await deepenWorkspaces(projectIds);
       mutateAccount(id, (a) => {
         const linked = [...new Set([...(a.kantataProjectIds ?? []), ...projectIds])];
         // Link, then populate EVERYTHING the linked projects carry —

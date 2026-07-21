@@ -133,11 +133,20 @@ async function pullKantata(token: string): Promise<{
       harvestUsers,
     ),
     // Caps sized from the tenant census (~160k stories, ~617k time entries
-    // lifetime): recency-ordered walks capture the live slice.
+    // lifetime): recency-ordered walks capture the live slice. Milestones
+    // window around today — an unfiltered due_date:asc walk at this scale
+    // spends the whole cap on ancient history. If the between-filter is
+    // rejected by the tenant, fall back to future-first (still beats asc).
     pullKantataPaged<KantataStory>(
-      "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc",
+      `https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc&due_date_between=${new Date(Date.now() - 180 * 86_400_000).toISOString().slice(0, 10)}:${new Date(Date.now() + 540 * 86_400_000).toISOString().slice(0, 10)}`,
       "stories",
       1200,
+    ).catch(() =>
+      pullKantataPaged<KantataStory>(
+        "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:desc",
+        "stories",
+        1200,
+      ),
     ),
     pullKantataPaged<KantataStory>(
       "https://api.mavenlink.com/api/v1/stories?story_type=task&per_page=200&order=updated_at:desc",
@@ -275,6 +284,52 @@ async function pullKantata(token: string): Promise<{
   return { projects, milestones, tasks, groups, customFields, hours, note: notes.join(" · ") };
 }
 
+/**
+ * Focus pull: the COMPLETE story set (tasks + milestones) for specific
+ * workspaces. The tenant-wide walks above are recency-sliced (2000 tasks of
+ * ~160k stories) — fine for a book-of-business overview, but a client
+ * workspace being populated needs EVERYTHING its projects carry. Filtering
+ * by workspace_id makes the pull exhaustive per project, not sampled.
+ */
+async function pullWorkspaceStories(
+  token: string,
+  workspaceIds: string[],
+): Promise<{ milestones: Record<string, unknown>[]; tasks: Record<string, unknown>[]; note: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+  type Story = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string };
+  const milestones: Record<string, unknown>[] = [];
+  const tasks: Record<string, unknown>[] = [];
+
+  const pullOne = async (wsId: string): Promise<void> => {
+    // 200/page, up to 4 pages = 800 stories per workspace — beyond any real
+    // single project. All story types come back; we bucket what we map.
+    for (let page = 1; page <= 4; page += 1) {
+      const res = await timedFetch(
+        `https://api.mavenlink.com/api/v1/stories?workspace_id=${wsId}&per_page=200&page=${page}`,
+        headers,
+      );
+      if (!res.ok) return; // partial results beat none; note carries totals
+      const json = (await res.json()) as { stories?: Record<string, Story> };
+      const batch = Object.values(json.stories ?? {});
+      for (const s of batch) {
+        const row = {
+          id: String(s.id),
+          title: s.title ?? "",
+          workspace_id: String(s.workspace_id ?? wsId),
+          due_date: s.due_date ?? "",
+          state: s.state ?? "",
+        };
+        if (s.story_type === "milestone") milestones.push(row);
+        else if (s.story_type === "task") tasks.push(row);
+      }
+      if (batch.length < 200) return;
+    }
+  };
+
+  await Promise.allSettled(workspaceIds.map(pullOne));
+  return { milestones, tasks, note: `focus: ${workspaceIds.length} workspaces · ${milestones.length} milestones · ${tasks.length} tasks` };
+}
+
 import { requireAuth } from "./_lib/entraAuth.js";
 
 export default async function handler(
@@ -287,6 +342,27 @@ export default async function handler(
   const auth = await requireAuth(typeof req.headers?.authorization === "string" ? req.headers.authorization : undefined);
   if (!auth.authorized) {
     res.status(auth.status).json(auth.body);
+    return;
+  }
+
+  // ?workspaces=id1,id2 — focus pull for specific workspaces (complete
+  // task tree, not the tenant-wide recency slice). Never cached: it's an
+  // on-demand deepen triggered by populate/link actions.
+  const wsMatch = /[?&]workspaces=([\d,]+)/.exec(req.url ?? "");
+  if (wsMatch) {
+    res.setHeader("Cache-Control", "no-store");
+    const focusToken = process.env.KANTATA_API_TOKEN;
+    const ids = [...new Set(wsMatch[1]!.split(",").filter((s) => /^\d+$/.test(s)))].slice(0, 12);
+    if (!focusToken || ids.length === 0) {
+      res.status(200).json({ live: false, note: focusToken ? "no valid workspace ids" : "KANTATA_API_TOKEN not set", kantataMilestones: [], kantataTasks: [] });
+      return;
+    }
+    try {
+      const focus = await pullWorkspaceStories(focusToken, ids);
+      res.status(200).json({ live: true, note: focus.note, workspaces: ids, kantataMilestones: focus.milestones, kantataTasks: focus.tasks });
+    } catch (e) {
+      res.status(200).json({ live: false, note: e instanceof Error ? e.message : "focus pull failed", kantataMilestones: [], kantataTasks: [] });
+    }
     return;
   }
 

@@ -377,9 +377,13 @@ export function App() {
                     type="button"
                     className="btn btn-primary"
                     onClick={() => {
-                      for (const a of ws.accounts) {
-                        if (!a.archived && (accountPulse[a.clientName]?.waiting ?? 0) > 0) ws.importAllFromKantata(a.id);
-                      }
+                      // Sequential on purpose: each import deepens its own
+                      // workspaces from Kantata first — don't stampede the API.
+                      void (async () => {
+                        for (const a of ws.accounts) {
+                          if (!a.archived && (accountPulse[a.clientName]?.waiting ?? 0) > 0) await ws.importAllFromKantata(a.id);
+                        }
+                      })();
                     }}
                   >
                     ⚡ Populate all workspaces from Kantata →
