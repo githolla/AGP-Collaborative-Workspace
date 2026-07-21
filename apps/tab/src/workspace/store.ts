@@ -740,6 +740,7 @@ export function useWorkspace() {
             : `No Kantata projects matched “${clientName}” yet — use the finder in the banner to link its work.`;
         return {
           ...account,
+          ...(campaignsAdded + tasksAdded > 0 ? { autoPopulated: true } : {}),
           notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
           activity:
             campaignsAdded + tasksAdded > 0
@@ -758,6 +759,7 @@ export function useWorkspace() {
           const text = `Full Kantata task tree pulled: +${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · +${tasksAdded} task${tasksAdded === 1 ? "" : "s"}.`;
           return {
             ...account,
+            autoPopulated: true,
             notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
             activity: [...account.activity, activityEvent(text, "workspace")],
           };
@@ -783,6 +785,40 @@ export function useWorkspace() {
         const text = `Everything imported from Kantata: ${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · ${tasksAdded} task${tasksAdded === 1 ? "" : "s"}.`;
         return {
           ...account,
+          autoPopulated: true,
+          notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
+          activity: [...account.activity, activityEvent(text, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * Fired when a live client workspace opens: fill it from Kantata's full
+   * task tree ONCE, automatically, no button. Deepens the client's projects
+   * (complete per-workspace pull), imports everything, and marks the
+   * workspace autoPopulated so it never re-adds work the user later removes.
+   * A workspace that matched nothing stays unmarked and retries on a future
+   * open (after a redeploy or a hand-link improves the match).
+   */
+  const ensureAutoPopulated = useCallback(
+    async (id: string) => {
+      const target = stateRef.current.accounts.find((x) => x.id === id);
+      if (!target || target.archived || target.autoPopulated) return;
+      const fetched = await deepenWorkspaces(kantataWorkspaceIdsFor(target.clientName, target.kantataProjectIds));
+      mutateAccount(id, (a) => {
+        if (a.autoPopulated) return a;
+        const { account, campaignsAdded, tasksAdded } = populateFromKantata(a);
+        if (campaignsAdded + tasksAdded === 0) {
+          // Nothing matched — leave unmarked so a later open can retry, but
+          // don't spam an empty notification.
+          return a;
+        }
+        const text = `Populated from Kantata: ${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · ${tasksAdded} task${tasksAdded === 1 ? "" : "s"} — milestones included${fetched > 0 ? ", full task tree" : ""}. Remove anything via “Review import”.`;
+        return {
+          ...account,
+          autoPopulated: true,
           notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
           activity: [...account.activity, activityEvent(text, "workspace")],
         };
@@ -1192,6 +1228,7 @@ export function useWorkspace() {
     importCampaigns,
     importTasks,
     importAllFromKantata,
+    ensureAutoPopulated,
     renameAccount,
     linkProjects,
     removeCampaign,

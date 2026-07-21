@@ -312,15 +312,20 @@ async function pullWorkspaceStories(
       const json = (await res.json()) as { stories?: Record<string, Story> };
       const batch = Object.values(json.stories ?? {});
       for (const s of batch) {
+        if (!s.title) continue;
         const row = {
           id: String(s.id),
-          title: s.title ?? "",
+          title: s.title,
           workspace_id: String(s.workspace_id ?? wsId),
           due_date: s.due_date ?? "",
           state: s.state ?? "",
         };
+        // Milestones are the only special type; EVERYTHING else with a title
+        // is work to surface — task, deliverable, sub-task, whatever the
+        // tenant calls it. The old `story_type === "task"` filter silently
+        // dropped every workspace that files work as "deliverable".
         if (s.story_type === "milestone") milestones.push(row);
-        else if (s.story_type === "task") tasks.push(row);
+        else tasks.push(row);
       }
       if (batch.length < 200) return;
     }

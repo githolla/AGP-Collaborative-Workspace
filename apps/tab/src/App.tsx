@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppHeader } from "./components/AppHeader.js";
 import { InitiativeWorkspace } from "./components/InitiativeWorkspace.js";
 import { Sandbox } from "./components/Sandbox.js";
@@ -192,6 +192,24 @@ export function App() {
   useEffect(() => {
     void initLiveMirror(setLiveStatus);
   }, []);
+
+  // Auto-populate on open: the moment a live client workspace is opened, fill
+  // it from Kantata's full task tree — no button, no "Import everything".
+  // ensureAutoPopulated runs the deepen + import once per workspace and marks
+  // it done; the ref guards against firing twice while that first call is in
+  // flight. This is what makes EVERY client populate, not just the ones the
+  // user happens to click through.
+  const autoTriedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!liveStatus.live || route.view !== "account") return;
+    const acct = ws.accounts.find((a) => a.id === route.id);
+    if (!acct || acct.archived || acct.autoPopulated) return;
+    if (autoTriedRef.current.has(acct.id)) return;
+    autoTriedRef.current.add(acct.id);
+    void ws.ensureAutoPopulated(acct.id);
+    // Keyed on the open account and the live flag — reopening after the live
+    // mirror arrives retries a workspace that had nothing to match before.
+  }, [route, liveStatus.live, ws.accounts, ws.ensureAutoPopulated]);
 
   // The book-of-business candidates: every mirror client without a workspace,
   // scored by what a one-click create would import. Memoized — at a full

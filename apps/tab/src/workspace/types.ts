@@ -140,6 +140,13 @@ export interface ClientAccount {
    * campaigns/milestones/tasks/hours follow this client permanently.
    */
   kantataProjectIds?: string[];
+  /**
+   * Set once the workspace has been auto-populated from Kantata's full task
+   * tree (deepen + import). Guards against re-adding work the user later
+   * removed: the automatic top-up runs once per workspace, then the human
+   * curates freely and new Kantata work arrives through "Review import".
+   */
+  autoPopulated?: boolean;
   archived?: boolean;
   createdAt: string;
 }
