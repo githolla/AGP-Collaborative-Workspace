@@ -940,6 +940,7 @@ function ImportReview({
   campaigns,
   onImport,
   onImportTasks,
+  onImportAll,
   onRemoveCampaign,
   onClearCampaigns,
   onClose,
@@ -949,6 +950,7 @@ function ImportReview({
   campaigns: ClientAccount["campaigns"];
   onImport: (selected: ImportCandidate[]) => void;
   onImportTasks?: ((selected: TaskCandidate[]) => void) | undefined;
+  onImportAll?: (() => void) | undefined;
   onRemoveCampaign: (campaignId: string) => void;
   onClearCampaigns: () => void;
   onClose: () => void;
@@ -980,6 +982,24 @@ function ImportReview({
           Close
         </button>
       </div>
+
+      {candidates.length + taskCandidates.length > 0 && onImportAll && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0 10px", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              onImportAll();
+              onClose();
+            }}
+          >
+            ⚡ Import everything ({candidates.length} campaign{candidates.length === 1 ? "" : "s"} · {taskCandidates.length} task{taskCandidates.length === 1 ? "" : "s"}) →
+          </button>
+          <span style={{ fontSize: 11, color: T.inkMuted }}>
+            All Kantata data for this client, one click — or pick selectively below. Remove is always one click away.
+          </span>
+        </div>
+      )}
 
       {candidates.length === 0 && taskCandidates.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "6px 0" }}>
@@ -1355,6 +1375,7 @@ export function ClientWorkspace({
   taskCandidates = [],
   onImportCampaigns,
   onImportTasks,
+  onImportAll,
   onRemoveCampaign,
   onClearCampaigns,
   liveContext,
@@ -1375,6 +1396,8 @@ export function ClientWorkspace({
   /** Open Kantata tasks not yet in the plan — user-gated, like campaigns. */
   taskCandidates?: TaskCandidate[];
   onImportTasks?: (selected: TaskCandidate[]) => void;
+  /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
+  onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
   liveContext?: AccountLiveContext;
   /** True when the mirror is the live pull, not demo data. */
@@ -1541,6 +1564,7 @@ export function ClientWorkspace({
           campaigns={account.campaigns}
           onImport={onImportCampaigns}
           onImportTasks={onImportTasks}
+          onImportAll={onImportAll}
           onRemoveCampaign={onRemoveCampaign}
           onClearCampaigns={onClearCampaigns}
           onClose={() => setReviewOpen(false)}

@@ -5,7 +5,7 @@ import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
 import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
-import { campaignsFromMirror } from "./campaignImport.js";
+import { accountLiveContext, campaignsFromMirror } from "./campaignImport.js";
 import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction } from "./agpKnowledge.js";
@@ -129,6 +129,46 @@ function newId(prefix: string): string {
 
 function humanMessage(body: string, author: string): ThreadMessage {
   return { id: newId("msg"), author, kind: "human", at: new Date().toISOString(), body };
+}
+
+/**
+ * EVERYTHING Kantata holds for this client, merged into the account:
+ * campaigns (with their milestones) + open tasks. Idempotent — merge by
+ * name/title, so re-running never duplicates. Removal stays one click away
+ * in Review import; that's the undo for "populate it all".
+ */
+function populateFromKantata(a: ClientAccount): { account: ClientAccount; campaignsAdded: number; tasksAdded: number } {
+  const mirror = loadMirror();
+  const today = AS_OF_TODAY();
+  const campaigns = [...a.campaigns];
+  let campaignsAdded = 0;
+  for (const imp of campaignsFromMirror(mirror, a.clientName, today, a.kantataProjectIds)) {
+    const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
+    if (idx === -1) {
+      campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
+      campaignsAdded += 1;
+    } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
+  }
+  const ctx = accountLiveContext(mirror, a.clientName, a.kantataProjectIds);
+  const tasks = [...a.tasks];
+  let tasksAdded = 0;
+  for (const p of ctx.projects) {
+    for (const t of p.tasks) {
+      if (t.state === "completed") continue;
+      if (tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase())) continue;
+      tasks.push({
+        id: newId("task"),
+        title: t.title,
+        status: t.state === "started" || t.state === "in_progress" ? ("doing" as const) : ("todo" as const),
+        ...(t.dueDate ? { due: t.dueDate } : {}),
+        label: "from Kantata",
+        source: "manual" as const,
+        createdAt: new Date().toISOString(),
+      });
+      tasksAdded += 1;
+    }
+  }
+  return { account: { ...a, campaigns, tasks }, campaignsAdded, tasksAdded };
 }
 
 export function useWorkspace() {
@@ -671,24 +711,44 @@ export function useWorkspace() {
   const createAccountFromMirror = useCallback(
     (clientName: string): string => {
       const id = createAccount(clientName);
-      const matched = campaignsFromMirror(loadMirror(), clientName, AS_OF_TODAY()).length;
-      mutateAccount(id, (a) => ({
-        ...a,
-        notifications: [
-          ...a.notifications,
-          {
-            id: newId("n"),
-            text:
-              matched > 0
-                ? `${matched} campaign${matched === 1 ? "" : "s"} matched in Kantata — open “Review import” (top right) to bring in the ones you want.`
-                : `No Kantata projects matched “${clientName}” yet — Kantata may use a different name/abbreviation, or the client has no active work.`,
-            at: new Date().toISOString(),
-          },
-        ],
-      }));
+      // Populate EVERYTHING at birth — the workspace opens full, not empty.
+      // Review import remains the undo (remove anything, or Remove all).
+      mutateAccount(id, (a) => {
+        const { account, campaignsAdded, tasksAdded } = populateFromKantata(a);
+        const text =
+          campaignsAdded + tasksAdded > 0
+            ? `Populated from Kantata: ${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · ${tasksAdded} task${tasksAdded === 1 ? "" : "s"} — milestones included. Remove anything via “Review import”.`
+            : `No Kantata projects matched “${clientName}” yet — use the finder in the banner to link its work.`;
+        return {
+          ...account,
+          notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
+          activity:
+            campaignsAdded + tasksAdded > 0
+              ? [...account.activity, activityEvent(text, "workspace")]
+              : account.activity,
+        };
+      });
       return id;
     },
     [createAccount, mutateAccount],
+  );
+
+  /** Pull EVERYTHING Kantata has for this client into the workspace —
+   * campaigns, milestones, open tasks — in one action. Idempotent. */
+  const importAllFromKantata = useCallback(
+    (id: string) => {
+      mutateAccount(id, (a) => {
+        const { account, campaignsAdded, tasksAdded } = populateFromKantata(a);
+        if (campaignsAdded + tasksAdded === 0) return a;
+        const text = `Everything imported from Kantata: ${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · ${tasksAdded} task${tasksAdded === 1 ? "" : "s"}.`;
+        return {
+          ...account,
+          notifications: [...account.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
+          activity: [...account.activity, activityEvent(text, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
   );
 
   /** Import exactly the campaigns the user selected in the review panel. */
@@ -722,23 +782,14 @@ export function useWorkspace() {
       if (projectIds.length === 0) return;
       mutateAccount(id, (a) => {
         const linked = [...new Set([...(a.kantataProjectIds ?? []), ...projectIds])];
-        const mirror = loadMirror();
-        const campaigns = [...a.campaigns];
-        let added = 0;
-        for (const imp of campaignsFromMirror(mirror, a.clientName, AS_OF_TODAY(), projectIds)) {
-          const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
-          if (idx === -1) {
-            campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
-            added += 1;
-          } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
-        }
-        const summary = `${projectIds.length} Kantata project${projectIds.length === 1 ? "" : "s"} linked to this client${added > 0 ? ` — ${added} campaign${added === 1 ? "" : "s"} imported` : ""}.`;
+        // Link, then populate EVERYTHING the linked projects carry —
+        // campaigns, milestones, open tasks.
+        const { account, campaignsAdded, tasksAdded } = populateFromKantata({ ...a, kantataProjectIds: linked });
+        const summary = `${projectIds.length} Kantata project${projectIds.length === 1 ? "" : "s"} linked — ${campaignsAdded} campaign${campaignsAdded === 1 ? "" : "s"} · ${tasksAdded} task${tasksAdded === 1 ? "" : "s"} imported.`;
         return {
-          ...a,
-          kantataProjectIds: linked,
-          campaigns,
-          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
-          activity: [...a.activity, activityEvent(summary, "workspace")],
+          ...account,
+          notifications: [...account.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
+          activity: [...account.activity, activityEvent(summary, "workspace")],
         };
       });
     },
@@ -1097,6 +1148,7 @@ export function useWorkspace() {
     createAccountFromMirror,
     importCampaigns,
     importTasks,
+    importAllFromKantata,
     renameAccount,
     linkProjects,
     removeCampaign,

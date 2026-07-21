@@ -364,6 +364,29 @@ export function App() {
               onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
               onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
             />
+            {(() => {
+              const waitingTotal = Object.values(accountPulse).reduce((s, p) => s + p.waiting, 0);
+              if (waitingTotal === 0) return null;
+              return (
+                <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", flexWrap: "wrap", borderColor: T.roi.navy }}>
+                  <span style={{ fontSize: 12.5, color: T.inkSecondary, flex: 1, minWidth: 260 }}>
+                    <strong style={{ color: T.ink }}>{waitingTotal} Kantata item{waitingTotal === 1 ? "" : "s"} waiting across your workspaces.</strong>{" "}
+                    Populate everything at once — campaigns, milestones, and open tasks land in every workspace. Remove stays one click away per workspace.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      for (const a of ws.accounts) {
+                        if (!a.archived && (accountPulse[a.clientName]?.waiting ?? 0) > 0) ws.importAllFromKantata(a.id);
+                      }
+                    }}
+                  >
+                    ⚡ Populate all workspaces from Kantata →
+                  </button>
+                </div>
+              );
+            })()}
             <DataInspector live={liveStatus.live} unlinkedCount={unlinkedNames.length} />
           </>
         )}
@@ -476,6 +499,7 @@ export function App() {
             onClearCampaigns={() => ws.clearCampaigns(selectedAccount.id)}
             taskCandidates={selectedTaskCandidates}
             onImportTasks={(selected) => ws.importTasks(selectedAccount.id, selected)}
+            onImportAll={() => ws.importAllFromKantata(selectedAccount.id)}
             {...(selectedLiveCtx ? { liveContext: selectedLiveCtx } : {})}
             liveDataOn={liveStatus.live}
             linkSuggestions={selectedLinkSuggestions}
