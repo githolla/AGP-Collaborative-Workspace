@@ -10,6 +10,45 @@ export interface MentionPerson {
 }
 
 /**
+ * Find the @mention being typed at the caret. Returns the '@' index and the
+ * query text after it, or null when the caret isn't inside a mention token.
+ * Pure + exported so the behaviour is unit-tested (see MentionTextarea.test).
+ */
+export function mentionQueryAt(text: string, caret: number): { anchor: number; query: string } | null {
+  const before = text.slice(0, Math.max(0, caret));
+  // '@' at the start or after whitespace, then letters/digits/’.- up to caret.
+  const m = /(?:^|\s)@([\p{L}\p{N}'.\-]*)$/u.exec(before);
+  if (!m) return null;
+  const query = m[1] ?? "";
+  return { anchor: caret - query.length - 1, query };
+}
+
+/** Rank roster people for a mention query: substring match (case-insensitive),
+ * on-account first, names whose start matches the query above mid-word hits. */
+export function matchMentions(roster: readonly MentionPerson[], query: string, limit = 7): MentionPerson[] {
+  const q = query.trim().toLowerCase();
+  const scored = roster
+    .map((p) => {
+      const name = p.name.toLowerCase();
+      const parts = name.split(/\s+/);
+      let score = -1;
+      if (!q) score = 0;
+      else if (name.startsWith(q)) score = 3;
+      else if (parts.some((w) => w.startsWith(q))) score = 2;
+      else if (name.includes(q)) score = 1;
+      return { p, score };
+    })
+    .filter((x) => x.score >= 0)
+    .sort(
+      (a, b) =>
+        Number(b.p.onAccount) - Number(a.p.onAccount) ||
+        b.score - a.score ||
+        a.p.name.localeCompare(b.p.name),
+    );
+  return scored.slice(0, limit).map((x) => x.p);
+}
+
+/**
  * A textarea with @mention autocomplete over the full AGP roster: type "@" and
  * a name suggester appears, filtered as you type; pick one and it inserts the
  * name (which notifies that person on post). People not yet on the account are
@@ -44,23 +83,14 @@ export function MentionTextarea({
   const [query, setQuery] = useState("");
   const [hi, setHi] = useState(0);
 
-  const suggestions =
-    anchor !== null
-      ? roster
-          .filter((p) => p.name.toLowerCase().includes(query.toLowerCase()))
-          // On-account people first, then the rest, alphabetical within each.
-          .sort((a, b) => Number(b.onAccount) - Number(a.onAccount) || a.name.localeCompare(b.name))
-          .slice(0, 7)
-      : [];
+  const suggestions = anchor !== null ? matchMentions(roster, query) : [];
   const showList = anchor !== null && suggestions.length > 0;
 
   const recompute = (text: string, caret: number) => {
-    const before = text.slice(0, caret);
-    const m = /(^|\s)@([\p{L}\p{N}'.-]*)$/u.exec(before);
-    if (m) {
-      const q = m[2] ?? "";
-      setAnchor(caret - q.length - 1);
-      setQuery(q);
+    const hit = mentionQueryAt(text, caret);
+    if (hit) {
+      setAnchor(hit.anchor);
+      setQuery(hit.query);
       setHi(0);
     } else {
       setAnchor(null);
@@ -102,6 +132,7 @@ export function MentionTextarea({
             recompute((e.target as HTMLTextAreaElement).value, (e.target as HTMLTextAreaElement).selectionStart);
           }
         }}
+        onClick={(e) => recompute((e.target as HTMLTextAreaElement).value, (e.target as HTMLTextAreaElement).selectionStart)}
         onBlur={() => setTimeout(() => setAnchor(null), 120)}
         onKeyDown={(e) => {
           if (showList) {
