@@ -8,6 +8,13 @@ export interface ThreadMessage {
   kind: "human" | "agent";
   at: string; // ISO
   body: string;
+  /**
+   * What the message is about — a project/campaign name, a task title, or a
+   * phase. Lets a client with ~20 projects keep discussion organized and
+   * searchable instead of one undifferentiated thread. Empty = "General".
+   * (Per the client call: scope by project, pilot at the task level.)
+   */
+  topic?: string;
 }
 
 /** Audit-trail snapshot (roi-calculator-spec §10) written on every factor change. */

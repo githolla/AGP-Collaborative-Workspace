@@ -1224,7 +1224,7 @@ function CollaborateHub({
   onAddMember?: (personId: string) => void;
   onAddNewMember?: (name: string, title: string) => void;
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
-  onPost: (body: string) => void;
+  onPost: (body: string, topic?: string) => void;
   onOpenAccess: () => void;
   onClose: () => void;
 }) {
@@ -1393,7 +1393,7 @@ function TaskDetail({
 }: {
   task: Task;
   onStatus: (taskId: string, status: TaskStatus) => void;
-  onPost: (body: string) => void;
+  onPost: (body: string, topic?: string) => void;
   goTo: (t: ClientTab) => void;
   onClose: () => void;
 }) {
@@ -1458,7 +1458,7 @@ function TaskDetail({
           style={{ marginTop: 6, alignSelf: "flex-start" }}
           disabled={!note.trim()}
           onClick={() => {
-            onPost(`**Re: ${task.title}** — ${note.trim()}`);
+            onPost(note.trim(), task.title);
             setNote("");
             onClose();
             goTo("discussions");
@@ -1467,7 +1467,7 @@ function TaskDetail({
           Post to Discussions
         </button>
         <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
-          The note lands in this account's Discussions with the task quoted — everyone on the account sees it.
+          The note lands in Discussions filed under this task — so the conversation stays with the work, and everyone on the account can find it.
         </div>
       </div>
     </>
@@ -1508,7 +1508,7 @@ function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) 
   );
 }
 
-function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; tasks: Task[]; onPost: (body: string) => void }) {
+function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; tasks: Task[]; onPost: (body: string, topic?: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
 
   if (draft === null) {
@@ -1541,7 +1541,7 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
           type="button"
           className="btn btn-primary"
           onClick={() => {
-            onPost(draft);
+            onPost(draft, "Weekly update");
             setDraft(null);
           }}
         >
@@ -1851,7 +1851,7 @@ export function ClientWorkspace({
   onClearCampaigns?: () => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
-  onPost: (body: string) => void;
+  onPost: (body: string, topic?: string) => void;
   onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
   onSetLinkUrl: (linkId: string, url: string) => void;
   onRemoveLink: (linkId: string) => void;
@@ -2089,7 +2089,7 @@ export function ClientWorkspace({
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
-          <Thread messages={account.thread} onPost={onPost} />
+          <Thread messages={account.thread} onPost={onPost} topics={account.campaigns.map((c) => c.name)} />
           {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
             Tip: “@FirstName” in a message notifies that person in Team Notifications on Home —

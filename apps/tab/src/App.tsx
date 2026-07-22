@@ -636,7 +636,7 @@ export function App() {
             onBack={() => setRoute({ view: "clients" })}
             onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
             onTaskStatus={(taskId, status) => ws.setSharedTaskStatus(selectedAccount.id, taskId, status)}
-            onPost={(body) => ws.postAccountMessage(selectedAccount.id, body, userName)}
+            onPost={(body, topic) => ws.postAccountMessage(selectedAccount.id, body, userName, topic)}
             onAddLink={(name, kind, url) => ws.addAccountLink(selectedAccount.id, name, kind, url)}
             onSetLinkUrl={(linkId, url) => ws.setAccountLinkUrl(selectedAccount.id, linkId, url)}
             onRemoveLink={(linkId) => ws.removeAccountLink(selectedAccount.id, linkId)}

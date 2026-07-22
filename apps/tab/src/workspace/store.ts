@@ -138,8 +138,8 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
 }
 
-function humanMessage(body: string, author: string): ThreadMessage {
-  return { id: newId("msg"), author, kind: "human", at: new Date().toISOString(), body };
+function humanMessage(body: string, author: string, topic?: string): ThreadMessage {
+  return { id: newId("msg"), author, kind: "human", at: new Date().toISOString(), body, ...(topic ? { topic } : {}) };
 }
 
 /**
@@ -1046,7 +1046,7 @@ export function useWorkspace() {
   );
 
   const postAccountMessage = useCallback(
-    (id: string, body: string, author = "You") => {
+    (id: string, body: string, author = "You", topic?: string) => {
       mutateAccount(id, (a) => {
         // @mentions (Collab Hub Must): "@FirstName" in a post raises a Home
         // notification for that person. Teams push notifications ride the
@@ -1058,7 +1058,7 @@ export function useWorkspace() {
         });
         return {
           ...a,
-          thread: [...a.thread, humanMessage(body, author)],
+          thread: [...a.thread, humanMessage(body, author, topic)],
           notifications:
             mentioned.length > 0
               ? [
