@@ -160,6 +160,8 @@ export interface DraftOverrides {
   serviceLine?: string;
   vertical?: string;
   clientName?: string;
+  /** People hand-picked at kickoff — seeded onto the team ahead of the Copilot's picks. */
+  team?: string[];
 }
 
 export interface IntakeChoices {
@@ -235,6 +237,17 @@ export function draftFromIdea(title: string, pitch: string, startDate?: string, 
     (f) => f,
   );
   let team = draftCast(functions);
+  // People the user hand-picked at kickoff lead the cast, ahead of the
+  // Copilot's suggestions (and never duplicated with them).
+  if (overrides?.team && overrides.team.length > 0) {
+    const picked = overrides.team.map((name) => {
+      const p = AGP_PEOPLE.find((x) => x.name === name);
+      return p
+        ? { personId: p.id, name: p.name, title: p.title, role: "Added by you", why: "Hand-picked at kickoff." }
+        : { personId: `x-${name.toLowerCase().replace(/\s+/g, "-")}`, name, title: "", role: "Added by you", why: "Hand-picked at kickoff." };
+    });
+    team = dedupeBy([...picked, ...team], (m) => m.name).slice(0, 6);
+  }
   // Fill in the department label when inference (not an override) found it.
   if (!classification.department) {
     const inferredDept = DEPARTMENTS.find((d) => d.fn === functions[0]);

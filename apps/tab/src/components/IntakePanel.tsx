@@ -1,8 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { T } from "../theme.js";
 import { intakeChoices, type DraftOverrides } from "../workspace/copilot.js";
 import { extractTitle } from "../workspace/planner.js";
 import type { AgpFunction } from "../workspace/agpKnowledge.js";
+
+/** A scenario seed applied to the intake — from a client's past project. */
+export interface IntakeSeed {
+  text: string;
+  serviceLine?: string;
+  vertical?: string;
+  /** Bump to re-apply the same seed (each click is a new nonce). */
+  nonce: number;
+}
 
 /**
  * The one intake for starting anything (Home + Sandbox). One box for the idea
@@ -15,17 +24,38 @@ export function IntakePanel({
   onCreate,
   placeholder,
   rows = 2,
+  roster = [],
+  defaultClientName,
+  seed,
 }: {
   onCreate: (title: string, pitch: string, aiMode: "copilot" | "observer", overrides: DraftOverrides) => void;
   placeholder?: string;
   rows?: number;
+  /** AGP roster to hand-pick a starting team from. */
+  roster?: readonly { id: string; name: string; title: string }[];
+  /** The client this intake is for — preselected. */
+  defaultClientName?: string;
+  /** A scenario seed applied when its nonce changes. */
+  seed?: IntakeSeed;
 }) {
   const choices = useMemo(intakeChoices, []);
   const [text, setText] = useState("");
   const [departmentFn, setDepartmentFn] = useState<AgpFunction | undefined>(undefined);
   const [serviceLine, setServiceLine] = useState<string | undefined>(undefined);
   const [vertical, setVertical] = useState<string | undefined>(undefined);
-  const [clientName, setClientName] = useState<string | undefined>(undefined);
+  const [clientName, setClientName] = useState<string | undefined>(defaultClientName);
+  const [team, setTeam] = useState<string[]>([]);
+
+  // Apply a scenario seed (from a past project) when the user picks one.
+  useEffect(() => {
+    if (!seed) return;
+    setText(seed.text);
+    if (seed.serviceLine) setServiceLine(seed.serviceLine);
+    if (seed.vertical) setVertical(seed.vertical);
+  }, [seed?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleTeam = (name: string) =>
+    setTeam((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
 
   const picks = [
     departmentFn && choices.departments.find((d) => d.fn === departmentFn)?.label,
@@ -43,13 +73,15 @@ export function IntakePanel({
       ...(serviceLine ? { serviceLine } : {}),
       ...(vertical ? { vertical } : {}),
       ...(clientName ? { clientName } : {}),
+      ...(team.length > 0 ? { team } : {}),
     };
     onCreate(extractTitle(text.trim()), text.trim(), aiMode, overrides);
     setText("");
     setDepartmentFn(undefined);
     setServiceLine(undefined);
     setVertical(undefined);
-    setClientName(undefined);
+    setClientName(defaultClientName);
+    setTeam([]);
   };
 
   const chipRow = <V extends string>(
@@ -149,6 +181,25 @@ export function IntakePanel({
           choices.clients.map((c) => ({ value: c, text: c })),
           clientName,
           setClientName,
+        )}
+        {roster.length > 0 && (
+          <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, width: 86, flexShrink: 0, paddingTop: 6 }}>Team</span>
+            <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {roster.slice(0, 12).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`chip-pick${team.includes(p.name) ? " active" : ""}`}
+                  aria-pressed={team.includes(p.name)}
+                  title={p.title}
+                  onClick={() => toggleTeam(p.name)}
+                >
+                  {team.includes(p.name) ? "✓ " : ""}{p.name}
+                </button>
+              ))}
+            </span>
+          </div>
         )}
       </div>
 

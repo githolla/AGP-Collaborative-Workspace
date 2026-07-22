@@ -678,6 +678,11 @@ export function App() {
                 ideas={selectedAccountIdeas}
                 clientName={selectedAccount.clientName}
                 unclaimed={unclaimedIdeas}
+                roster={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
+                pastProjects={(selectedLiveCtx?.projects ?? []).slice(0, 8).map((p) => ({
+                  title: p.title,
+                  ...(selectedLiveCtx?.crm?.vertical ? { vertical: selectedLiveCtx.crm.vertical } : {}),
+                }))}
                 onClaim={(ideaId) => ws.claimIdea(ideaId, selectedAccount.id)}
                 onOpen={(id) => setRoute({ view: "idea", id })}
                 onCreate={(title, pitch, aiMode, overrides) =>
