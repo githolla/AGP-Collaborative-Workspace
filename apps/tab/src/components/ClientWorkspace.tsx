@@ -1186,6 +1186,7 @@ function CollaborateHub({
   account,
   people,
   onAddMember,
+  onAddNewMember,
   onAddExternal,
   onPost,
   onOpenAccess,
@@ -1194,6 +1195,7 @@ function CollaborateHub({
   account: ClientAccount;
   people: { id: string; name: string; title: string }[];
   onAddMember?: (personId: string) => void;
+  onAddNewMember?: (name: string, title: string) => void;
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onPost: (body: string) => void;
   onOpenAccess: () => void;
@@ -1203,6 +1205,9 @@ function CollaborateHub({
   const [invName, setInvName] = useState("");
   const [invOrg, setInvOrg] = useState("");
   const [invRole, setInvRole] = useState<ExternalMember["role"]>("client");
+  const [newName, setNewName] = useState("");
+  const [newTitle, setNewTitle] = useState("");
+  const [addingNew, setAddingNew] = useState(false);
   const onAccount = new Set(account.members.map((m) => m.personId));
   const addable = people.filter((p) => !onAccount.has(p.id));
 
@@ -1237,25 +1242,54 @@ function CollaborateHub({
           ))}
         </div>
 
-        {onAddMember && addable.length > 0 && (
+        {(onAddMember || onAddNewMember) && (
           <>
-            <div style={label}>Add an AGP teammate</div>
-            <select
-              className="select"
-              defaultValue=""
-              style={{ width: "100%", fontSize: 12.5 }}
-              onChange={(e) => {
-                if (e.target.value) {
-                  onAddMember(e.target.value);
-                  e.target.value = "";
-                }
-              }}
-            >
-              <option value="" disabled>Choose a teammate…</option>
-              {addable.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} — {p.title}</option>
-              ))}
-            </select>
+            <div style={label}>Add a team member</div>
+            {onAddMember && addable.length > 0 && (
+              <select
+                className="select"
+                defaultValue=""
+                style={{ width: "100%", fontSize: 12.5 }}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onAddMember(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+              >
+                <option value="" disabled>Choose from the Kantata roster…</option>
+                {addable.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name} — {p.title}</option>
+                ))}
+              </select>
+            )}
+            {onAddNewMember && !addingNew && (
+              <button type="button" className="btn-link" style={{ fontSize: 11, marginTop: 5 }} onClick={() => setAddingNew(true)}>
+                + Add someone not in Kantata
+              </button>
+            )}
+            {onAddNewMember && addingNew && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                <input className="input" style={{ fontSize: 12.5 }} placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
+                <input className="input" style={{ fontSize: 12.5 }} placeholder="Role / title (e.g. Freelance Designer)" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!newName.trim()}
+                    onClick={() => {
+                      onAddNewMember(newName.trim(), newTitle.trim());
+                      setNewName("");
+                      setNewTitle("");
+                      setAddingNew(false);
+                    }}
+                  >
+                    Add to team
+                  </button>
+                  <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setAddingNew(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -1712,12 +1746,15 @@ export function ClientWorkspace({
   sandboxCount = 0,
   people = [],
   onAddMember,
+  onAddNewMember,
 }: {
   account: ClientAccount;
   /** AGP roster to add to the account (plain data — guest-safe). */
   people?: { id: string; name: string; title: string }[];
   /** Add an AGP teammate to this account from anywhere in the workspace. */
   onAddMember?: (personId: string) => void;
+  /** Add a teammate who isn't in the Kantata roster (name + role). */
+  onAddNewMember?: (name: string, title: string) => void;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
@@ -1841,6 +1878,7 @@ export function ClientWorkspace({
                 account={account}
                 people={people}
                 {...(onAddMember ? { onAddMember } : {})}
+                {...(onAddNewMember ? { onAddNewMember } : {})}
                 onAddExternal={onAddExternal}
                 onPost={onPost}
                 onOpenAccess={() => { setHubOpen(false); setTab("access"); }}

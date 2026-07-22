@@ -104,10 +104,37 @@ export interface AppHeaderProps {
   onSignOut?: () => void;
   /** Click the logo to return to the client list (home). */
   onHome?: () => void;
+  /** MS SSO identity state. */
+  signedIn?: boolean;
+  email?: string | null;
+  ssoConfigured?: boolean;
+  onSignIn?: () => void;
 }
 
-/** Click the avatar → the profile panel: see who you are, change your name. */
-function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeName: (name: string) => void }) {
+/** A little Microsoft logo — four coloured squares. */
+function MsLogo() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 21 21" aria-hidden style={{ flexShrink: 0 }}>
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+interface ProfileMenuProps {
+  userName: string;
+  onChangeName: (name: string) => void;
+  signedIn?: boolean;
+  email?: string | null;
+  ssoConfigured?: boolean;
+  onSignIn?: () => void;
+  onSignOut?: () => void;
+}
+
+/** Click the avatar → the profile panel: identity, Microsoft sign-in, name. */
+function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, onSignIn, onSignOut }: ProfileMenuProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(userName);
 
@@ -127,10 +154,47 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
         {initialsOf(userName)}
       </button>
       {open && (
-        <div style={styles.popover} role="dialog" aria-label="Your profile">
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 55 }} />
+        <div style={{ ...styles.popover, zIndex: 56 }} role="dialog" aria-label="Your profile">
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "#8a887f" }}>
             Your profile
           </div>
+
+          {/* Microsoft sign-in / signed-in state */}
+          <div style={{ margin: "10px 0", padding: "10px 11px", border: "1px solid #e1e0d9", borderRadius: 8, background: "#f8f8f6" }}>
+            {signedIn ? (
+              <>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Signed in with Microsoft</div>
+                {email && <div style={{ fontSize: 11, color: "#52514e", marginTop: 2, wordBreak: "break-all" }}>{email}</div>}
+                <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={onSignOut}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={ssoConfigured ? onSignIn : undefined}
+                  disabled={!ssoConfigured}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 9, width: "100%", justifyContent: "center",
+                    background: "#fff", border: "1px solid #8c8c8c", borderRadius: 6, padding: "8px 10px",
+                    fontSize: 12.5, fontWeight: 600, color: "#3c3c3c", cursor: ssoConfigured ? "pointer" : "not-allowed",
+                    opacity: ssoConfigured ? 1 : 0.6,
+                  }}
+                >
+                  <MsLogo /> Sign in with Microsoft
+                </button>
+                <div style={{ fontSize: 10, color: "#8a887f", marginTop: 6, lineHeight: 1.5 }}>
+                  {ssoConfigured
+                    ? "Single sign-on via your Allegiance Microsoft 365 account."
+                    : "Add the Azure app registration (VITE_ENTRA_TENANT_ID / VITE_ENTRA_CLIENT_ID) to enable single sign-on. Until then, set a display name below."}
+                </div>
+              </>
+            )}
+          </div>
+
           <label htmlFor="profile-name" style={{ display: "block", fontSize: 11.5, color: "#52514e", margin: "10px 0 4px" }}>
             Display name
           </label>
@@ -138,7 +202,6 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
             id="profile-name"
             className="input"
             value={draft}
-            autoFocus
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") save();
@@ -147,8 +210,7 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
             style={{ width: "100%", fontSize: 12.5 }}
           />
           <div style={{ fontSize: 10.5, color: "#8a887f", marginTop: 6, lineHeight: 1.5 }}>
-            Shown in greetings and on messages you post. Stored in this browser until Teams
-            sign-in takes over.
+            {signedIn ? "Overrides the name shown from your Microsoft profile." : "Shown in greetings and on messages you post."}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button type="button" className="btn btn-primary btn-sm" disabled={!draft.trim()} onClick={save}>
@@ -159,12 +221,13 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
             </button>
           </div>
         </div>
+        </>
       )}
     </div>
   );
 }
 
-export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut, onHome }: AppHeaderProps) {
+export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut, onHome, signedIn = false, email = null, ssoConfigured = false, onSignIn }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
@@ -205,10 +268,20 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
         <button type="button" style={styles.iconButton} aria-label="Settings" onClick={onSettings}>
           <GearIcon />
         </button>
-        <button type="button" style={styles.iconButton} aria-label="Sign out" onClick={onSignOut}>
-          <SignOutIcon />
-        </button>
-        <ProfileMenu userName={userName} onChangeName={onChangeName} />
+        {signedIn && (
+          <button type="button" style={styles.iconButton} aria-label="Sign out" onClick={onSignOut}>
+            <SignOutIcon />
+          </button>
+        )}
+        <ProfileMenu
+          userName={userName}
+          onChangeName={onChangeName}
+          signedIn={signedIn}
+          email={email}
+          ssoConfigured={ssoConfigured}
+          {...(onSignIn ? { onSignIn } : {})}
+          {...(onSignOut ? { onSignOut } : {})}
+        />
       </div>
     </header>
   );

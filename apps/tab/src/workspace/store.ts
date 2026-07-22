@@ -1172,6 +1172,25 @@ export function useWorkspace() {
     [mutateAccount, rosterById],
   );
 
+  /** Add a teammate who ISN'T in the Kantata roster yet — by name + title.
+   * For contractors/new hires not synced from Kantata. Idempotent by name. */
+  const addAccountMemberNamed = useCallback(
+    (id: string, name: string, title: string) => {
+      const clean = name.trim();
+      if (!clean) return;
+      mutateAccount(id, (a) => {
+        if (a.members.some((m) => m.name.toLowerCase() === clean.toLowerCase())) return a;
+        const role = title.trim() || "Team member";
+        return {
+          ...a,
+          members: [...a.members, { personId: `x-${clean.replace(/\s+/g, "-").toLowerCase()}`, name: clean, title: role }],
+          activity: [...a.activity, activityEvent(`${clean} (${role}) added to the account team`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   const addExternal = useCallback(
     (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
       mutateAccount(id, (a) => ({
@@ -1320,6 +1339,7 @@ export function useWorkspace() {
     clearCampaigns,
     addAccountTask,
     addAccountMember,
+    addAccountMemberNamed,
     setAccountTaskStatus,
     postAccountMessage,
     setAccountArchived,

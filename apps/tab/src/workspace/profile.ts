@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { currentIdentity, handleRedirect, signInWithMicrosoft, signOutOfMicrosoft, ssoConfigured } from "../auth/entra.js";
 
 /**
  * Local user profile. Stored under its own key — separate from the workspace
- * data — so "Reset demo data" keeps your name. When Teams SSO lands (M3) the
- * name comes from the signed-in identity and this becomes the display-name
- * override at most.
+ * data — so "Reset demo data" keeps your name. When MS SSO is configured, the
+ * name/email come from the signed-in Microsoft identity and this local name
+ * becomes a display-name override at most.
  */
 
 const PROFILE_KEY = "agp-collab-profile-v1";
@@ -19,7 +20,11 @@ export function initialsOf(name: string): string {
 }
 
 export function useProfile() {
+  const initialIdentity = currentIdentity();
+  const [ssoName, setSsoName] = useState<string | null>(initialIdentity?.name ?? null);
+  const [ssoEmail, setSsoEmail] = useState<string | null>(initialIdentity?.email ?? null);
   const [name, setNameState] = useState<string>(() => {
+    if (initialIdentity?.name) return initialIdentity.name;
     try {
       const raw = window.localStorage.getItem(PROFILE_KEY);
       if (raw) {
@@ -31,6 +36,21 @@ export function useProfile() {
     }
     return DEFAULT_NAME;
   });
+
+  // Complete a Microsoft redirect on load (no-op when SSO isn't configured).
+  useEffect(() => {
+    let live = true;
+    void handleRedirect().then((id) => {
+      if (live && id) {
+        setSsoName(id.name);
+        setSsoEmail(id.email);
+        setNameState(id.name);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -45,5 +65,22 @@ export function useProfile() {
     if (next.trim()) setNameState(next.trim());
   }, []);
 
-  return { name, setName };
+  const signIn = useCallback(() => void signInWithMicrosoft(), []);
+  const signOut = useCallback(() => {
+    signOutOfMicrosoft();
+    setSsoName(null);
+    setSsoEmail(null);
+  }, []);
+
+  return {
+    name,
+    setName,
+    /** True once a Microsoft identity is present. */
+    signedIn: ssoName != null,
+    email: ssoEmail,
+    /** Whether an Azure app registration is wired (env present). */
+    ssoConfigured: ssoConfigured(),
+    signIn,
+    signOut,
+  };
 }

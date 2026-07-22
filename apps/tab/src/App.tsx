@@ -152,7 +152,7 @@ function PageIntro({ title, children }: { title: string; children: React.ReactNo
 
 export function App() {
   const ws = useWorkspace();
-  const { name: userName, setName } = useProfile();
+  const { name: userName, setName, signedIn, email, ssoConfigured, signIn, signOut } = useProfile();
   // Auto-start the walkthrough on first visit; the nav button restarts it.
   const [tourStep, setTourStep] = useState<number | null>(() => {
     try {
@@ -434,6 +434,11 @@ export function App() {
         liveDetail={liveStatus.detail}
         onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
         onHome={() => setRoute({ view: "clients" })}
+        signedIn={signedIn}
+        email={email}
+        ssoConfigured={ssoConfigured}
+        onSignIn={signIn}
+        onSignOut={signOut}
       />
 
       {/* Persistent navigation — visible on every page, including workspaces. */}
@@ -632,6 +637,7 @@ export function App() {
             onApplyTemplate={(templateKey, startDate) => ws.applyTemplate(selectedAccount.id, templateKey, startDate)}
             people={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
             onAddMember={(personId) => ws.addAccountMember(selectedAccount.id, personId)}
+            onAddNewMember={(name, title) => ws.addAccountMemberNamed(selectedAccount.id, name, title)}
             sandboxCount={selectedAccountIdeas.length}
             sandboxContent={
               <Sandbox
