@@ -16,6 +16,10 @@ export interface DirectoryRow {
   nextMilestoneDate?: string;
   /** Present when a workspace already exists for this client. */
   accountId?: string;
+  /** The REAL Kantata delivery team on this client (participants), with role. */
+  collaborators?: { name: string; role: string }[];
+  /** Live campaigns in flight — what the team is collaborating on. */
+  areas?: string[];
 }
 
 /** A CRM client that doesn't have a workspace yet — passed in as plain data. */
@@ -423,30 +427,26 @@ function ClientDirectory({
   const [statusFilter, setStatusFilter] = useState<"" | "workspace" | "setup">("");
   const [copied, setCopied] = useState(false);
 
-  // Collaboration stats per client, read off its workspace (plain-data props).
+  // Collaboration stats per client. Collaborators & areas are LIVE from
+  // Kantata (row data — the delivery team on the client's projects). Open
+  // tasks / discussions / last-update come from the workspace itself.
   const byId = new Map(accounts.map((a) => [a.id, a]));
-  const namesOf = (a: ClientAccount) => [...a.members.map((m) => m.name), ...a.externals.map((e) => e.name)];
-  // Who's collaborating — AGP members (with their function) and external
-  // client/contractor people (with their org). Lead (first member) leads.
-  const collabOf = (a: ClientAccount): { name: string; role: string }[] => [
-    ...a.members.map((m) => ({ name: m.name, role: m.title })),
-    ...a.externals.map((e) => ({ name: e.name, role: e.org })),
-  ];
-  // What area they're collaborating in — the live/planned campaigns (the work
-  // in flight), completed ones dropped.
-  const areasOf = (a: ClientAccount): string[] => a.campaigns.filter((c) => c.status !== "complete").map((c) => c.name);
+  const collabOf = (r: DirectoryRow) => r.collaborators ?? [];
+  const areasOf = (r: DirectoryRow) => r.areas ?? [];
   const statOf = (r: DirectoryRow): CollabStat => {
+    const collab = collabOf(r);
+    const lead = collab[0]?.name ?? "";
     const a = r.accountId ? byId.get(r.accountId) : undefined;
-    if (!a) return { people: 0, open: 0, overdue: 0, discussions: 0, last: "", lead: "" };
+    if (!a) return { people: collab.length, open: 0, overdue: 0, discussions: 0, last: "", lead };
     const open = a.tasks.filter((t) => t.status !== "done");
     const times = [...a.activity.map((e) => e.at), ...a.thread.map((m) => m.at)].filter(Boolean).sort();
     return {
-      people: namesOf(a).length,
+      people: collab.length,
       open: open.length,
       overdue: open.filter((t) => t.due && t.due < today).length,
       discussions: a.thread.length,
       last: times[times.length - 1] ?? "",
-      lead: a.members[0]?.name ?? "",
+      lead,
     };
   };
   const st = new Map(rows.map((r) => [r.name, statOf(r)]));
@@ -648,36 +648,39 @@ function ClientDirectory({
                       {r.accountId ? s.open : "—"}
                     </span>
                   </td>
-                  {/* Who's collaborating — avatars + names/roles (lead first) */}
+                  {/* Who's collaborating — the LIVE Kantata delivery team */}
                   <td style={{ padding: "9px 12px", minWidth: 190 }}>
-                    {a && collabOf(a).length > 0 ? (
+                    {collabOf(r).length > 0 ? (
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <PeopleCluster names={collabOf(a).map((c) => c.name)} />
+                        <PeopleCluster names={collabOf(r).map((c) => c.name)} />
                         <span style={{ fontSize: 11, color: T.inkSecondary, lineHeight: 1.3, minWidth: 0 }}>
-                          {collabOf(a).slice(0, 2).map((c) => c.name).join(", ")}
-                          {collabOf(a).length > 2 ? ` +${collabOf(a).length - 2}` : ""}
-                          <span style={{ display: "block", fontSize: 10, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>
-                            {[...new Set(collabOf(a).map((c) => c.role).filter(Boolean))].slice(0, 3).join(" · ")}
-                          </span>
+                          {collabOf(r).slice(0, 2).map((c) => c.name).join(", ")}
+                          {collabOf(r).length > 2 ? ` +${collabOf(r).length - 2}` : ""}
+                          {(() => {
+                            const roles = [...new Set(collabOf(r).map((c) => c.role).filter(Boolean))].slice(0, 3).join(" · ");
+                            return roles ? (
+                              <span style={{ display: "block", fontSize: 10, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{roles}</span>
+                            ) : null;
+                          })()}
                         </span>
                       </span>
                     ) : (
-                      <span style={{ fontSize: 11, color: T.inkMuted }}>{r.accountId ? "No one added yet" : "—"}</span>
+                      <span style={{ fontSize: 11, color: T.inkMuted }}>—</span>
                     )}
                   </td>
-                  {/* Working on — the active collaboration areas (campaigns) */}
+                  {/* Working on — the live Kantata campaigns in flight */}
                   <td style={{ padding: "9px 12px", minWidth: 170, maxWidth: 260 }}>
-                    {a && areasOf(a).length > 0 ? (
+                    {areasOf(r).length > 0 ? (
                       <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {areasOf(a).slice(0, 2).map((name, i) => (
+                        {areasOf(r).slice(0, 2).map((name, i) => (
                           <span key={i} style={{ fontSize: 10.5, fontWeight: 600, color: T.roi.navy, background: "#eef2fb", borderRadius: 5, padding: "2px 7px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {name}
                           </span>
                         ))}
-                        {areasOf(a).length > 2 && <span style={{ fontSize: 10.5, color: T.inkMuted, alignSelf: "center" }}>+{areasOf(a).length - 2}</span>}
+                        {areasOf(r).length > 2 && <span style={{ fontSize: 10.5, color: T.inkMuted, alignSelf: "center" }}>+{areasOf(r).length - 2}</span>}
                       </span>
                     ) : (
-                      <span style={{ fontSize: 11, color: T.inkMuted }}>{r.accountId ? "No active work" : "—"}</span>
+                      <span style={{ fontSize: 11, color: T.inkMuted }}>—</span>
                     )}
                   </td>
                   {/* Activity bar — open tasks scaled to the busiest client */}

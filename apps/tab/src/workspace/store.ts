@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./types.js";
-import { seedAccounts, seedIdeas, seedInitiatives } from "./seed.js";
 import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
@@ -63,20 +62,29 @@ function migrateInitiative(i: Initiative): Initiative {
  * HubSpot era get their wording scrubbed on load — stored text shouldn't
  * contradict the product. */
 const scrubHubSpot = (t: string) => t.replace(/Kantata\s*&\s*HubSpot|HubSpot\s*&\s*Kantata/g, "Kantata");
+/** Ids of the demo seed content — purged on load so only live data remains. */
+const DEMO_SEED_IDS = new Set(["acct-abc-foodbank", "idea-grant-report"]);
+/** A member auto-seeded from the bundled AGP_PEOPLE roster has a "u-###" id;
+ * real collaborators come from Kantata. Strip the bundled ones — live only. */
+const isSeededMember = (personId: string) => /^u-\d/.test(personId);
 function migrateAccount(a: ClientAccount): ClientAccount {
   return {
     ...a,
+    // Drop any hardcoded/demo teammate — the account team is repopulated from
+    // Kantata participants. No dummy people on a live workspace.
+    members: (a.members ?? []).filter((m) => !isSeededMember(m.personId)),
     notifications: (a.notifications ?? []).map((n) => ({ ...n, text: scrubHubSpot(n.text) })),
     activity: (a.activity ?? []).map((ev) => ({ ...ev, text: scrubHubSpot(ev.text) })),
   };
 }
 
-/** Apply per-field migrations to any state document (local or shared). */
+/** Apply per-field migrations to any state document (local or shared).
+ * Live-only: demo seed content is dropped, never re-seeded. */
 function migrateState(parsed: Partial<PersistedState>): PersistedState {
   return {
-    initiatives: (Array.isArray(parsed.initiatives) ? parsed.initiatives : []).map(migrateInitiative),
-    ideas: Array.isArray(parsed.ideas) ? parsed.ideas.map(migrateIdea) : seedIdeas(),
-    accounts: (Array.isArray(parsed.accounts) ? parsed.accounts : seedAccounts()).map(migrateAccount),
+    initiatives: (Array.isArray(parsed.initiatives) ? parsed.initiatives : []).filter((i) => !DEMO_SEED_IDS.has(i.id)).map(migrateInitiative),
+    ideas: (Array.isArray(parsed.ideas) ? parsed.ideas : []).filter((i) => !DEMO_SEED_IDS.has(i.id)).map(migrateIdea),
+    accounts: (Array.isArray(parsed.accounts) ? parsed.accounts : []).filter((a) => !DEMO_SEED_IDS.has(a.id)).map(migrateAccount),
   };
 }
 
@@ -85,14 +93,12 @@ function load(): PersistedState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
-      if (Array.isArray(parsed.initiatives) && parsed.initiatives.length > 0) {
-        return migrateState(parsed);
-      }
+      return migrateState(parsed);
     }
   } catch {
-    // corrupted storage falls through to seed
+    // corrupted storage falls through to an empty (live-only) state
   }
-  return { initiatives: seedInitiatives().map(migrateInitiative), ideas: seedIdeas(), accounts: seedAccounts() };
+  return { initiatives: [], ideas: [], accounts: [] };
 }
 
 /** Shared-persistence status, surfaced in the footer so the truth is visible. */
@@ -151,6 +157,15 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
     } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
   }
   const ctx = accountLiveContext(mirror, a.clientName, a.kantataProjectIds);
+  // The account team = the REAL Kantata delivery participants on this client's
+  // projects. Titles from the live staff roster. Merges with anyone already
+  // added; no hardcoded people.
+  const staffTitle = new Map((mirror.staff ?? []).map((s) => [s.name, s.title] as const));
+  const members = [...a.members];
+  for (const person of [...new Set(ctx.projects.flatMap((p) => p.team ?? []))]) {
+    if (members.some((m) => m.name === person)) continue;
+    members.push({ personId: `k-${person.replace(/\s+/g, "-").toLowerCase()}`, name: person, title: staffTitle.get(person) ?? "AGP team" });
+  }
   const tasks = [...a.tasks];
   let tasksAdded = 0;
   for (const p of ctx.projects) {
@@ -170,7 +185,7 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
       tasksAdded += 1;
     }
   }
-  return { account: { ...a, campaigns, tasks }, campaignsAdded, tasksAdded };
+  return { account: { ...a, campaigns, tasks, members }, campaignsAdded, tasksAdded };
 }
 
 /**
@@ -738,11 +753,12 @@ export function useWorkspace() {
     const id = newId("acct");
     const now = new Date().toISOString();
     const coreDoc = (name: string): ClientFileLink => ({ id: newId("doc"), name, kind: "doc", addedAt: now });
-    const pm = AGP_PEOPLE.find((p) => p.fn === "project_management");
     const account: ClientAccount = {
       id,
       clientName,
-      members: pm ? [{ personId: pm.id, name: pm.name, title: pm.title }] : [],
+      // No default teammate — the account team comes from Kantata (the real
+      // delivery participants), added when the workspace populates. Live only.
+      members: [],
       externals: [],
       clientContacts: 0,
       campaigns: [],
@@ -1280,12 +1296,12 @@ export function useWorkspace() {
   const resetDemo = useCallback(() => {
     if (
       syncStatus.mode === "shared" &&
-      !window.confirm("This resets the SHARED workspace for everyone on the team. Continue?")
+      !window.confirm("This clears the SHARED workspace for everyone on the team, back to an empty (live-only) state. Continue?")
     ) {
       return;
     }
     window.localStorage.removeItem(STORAGE_KEY);
-    setState({ initiatives: seedInitiatives(), ideas: seedIdeas(), accounts: seedAccounts() });
+    setState({ initiatives: [], ideas: [], accounts: [] });
   }, [syncStatus.mode]);
 
   return {

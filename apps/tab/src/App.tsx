@@ -290,6 +290,9 @@ export function App() {
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const activeAccounts = ws.accounts.filter((a) => !a.archived);
     const accountByName = new Map(activeAccounts.map((a) => [norm(a.clientName), a] as const));
+    // Live AGP roster (Kantata staff) → name→title, so collaborators carry a
+    // real role. No hardcoded people.
+    const staffTitle = new Map((mirror.staff ?? []).map((s) => [s.name, s.title] as const));
     const rows: {
       name: string;
       vertical?: string;
@@ -297,6 +300,8 @@ export function App() {
       nextMilestone?: string;
       nextMilestoneDate?: string;
       accountId?: string;
+      collaborators?: { name: string; role: string }[];
+      areas?: string[];
     }[] = [];
     const usedAccounts = new Set<string>();
     const emit = (name: string, vertical: string | undefined, account?: ClientAccount) => {
@@ -311,6 +316,18 @@ export function App() {
           }
         }
       }
+      // Who's collaborating — the REAL Kantata delivery team on this client's
+      // projects (participants), deduped. Role from the live staff roster.
+      const teamNames = [...new Set(ctx.projects.flatMap((p) => p.team ?? []))];
+      const collaborators = teamNames.map((n) => ({ name: n, role: staffTitle.get(n) ?? "" }));
+      // What they're working on — the live campaigns in flight for this client.
+      const areas = [
+        ...new Set(
+          campaignsFromMirror(mirror, name, today, account?.kantataProjectIds)
+            .filter((c) => c.status !== "complete")
+            .map((c) => c.name),
+        ),
+      ];
       rows.push({
         name,
         ...(vertical ? { vertical } : {}),
@@ -318,6 +335,8 @@ export function App() {
         ...(nextMilestone ? { nextMilestone } : {}),
         ...(nextMilestoneDate ? { nextMilestoneDate } : {}),
         ...(account ? { accountId: account.id } : {}),
+        ...(collaborators.length > 0 ? { collaborators } : {}),
+        ...(areas.length > 0 ? { areas } : {}),
       });
     };
     for (const c of mirror.clients) {
