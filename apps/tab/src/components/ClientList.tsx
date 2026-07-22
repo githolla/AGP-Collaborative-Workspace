@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { T } from "../theme.js";
-import { KantataChip, SectionTitle } from "./bits.js";
+import { SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import type { ClientAccount } from "../workspace/types.js";
 
@@ -244,7 +244,6 @@ export function ClientList({
   candidatesLive = false,
   directory = [],
   directoryStats,
-  pulse = {},
   onOpen,
   onCreate,
   onCreateFromClient,
@@ -273,93 +272,35 @@ export function ClientList({
   onCreateFromClient?: (clientName: string) => void;
 }) {
   const [name, setName] = useState("");
-  const [mode, setMode] = useState<"cards" | "list">("cards");
   const today = AS_OF_TODAY();
-
-  // Heroes first: the 10 busiest client workspaces as rich cards — the
-  // accounts Cara actually lives in. Everything past 10 collapses to
-  // compact rows; the searchable, categorized book of business follows.
-  const weight = (a: ClientAccount) => a.campaigns.length + a.tasks.length + a.thread.length + a.externals.length;
-  const sorted = [...accounts].sort((a, b) => weight(b) - weight(a) || a.clientName.localeCompare(b.clientName));
-  const heroes = sorted.slice(0, 10);
-  const rest = sorted.slice(10);
-
-  const modeChip = (key: "cards" | "list", label: string) => (
-    <button
-      type="button"
-      className={`chip-pick${mode === key ? " active" : ""}`}
-      aria-pressed={mode === key}
-      onClick={() => setMode(key)}
-    >
-      {label}
-    </button>
-  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Cards (the busy-client heroes) vs a sortable directory of everyone. */}
-      {(directory.length > 0 || accounts.length > 0) && (
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {directory.length > 0 && modeChip("cards", "Cards")}
-          {directory.length > 0 && modeChip("list", `All clients — list (${directory.length})`)}
-          {onClearAll && accounts.length > 0 && (
-            <button
-              type="button"
-              className="btn-link"
-              style={{ marginLeft: "auto", fontSize: 11.5, color: T.status.critical }}
-              title="Archive every workspace to start clean — history is retained and each is restorable from Archived."
-              onClick={() => {
-                if (window.confirm(`Archive all ${accounts.length} workspace${accounts.length === 1 ? "" : "s"} to start clean? They move to Archived (restorable). This affects the shared team workspace.`)) {
-                  onClearAll();
-                }
-              }}
-            >
-              Clear all workspaces
-            </button>
-          )}
+      {/* One surface: the client directory, focused on how the team works
+          together. Clear-all lives here (no Cards toggle any more). */}
+      {onClearAll && accounts.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <button
+            type="button"
+            className="btn-link"
+            style={{ marginLeft: "auto", fontSize: 11.5, color: T.status.critical }}
+            title="Archive every workspace to start clean — history is retained and each is restorable from Archived."
+            onClick={() => {
+              if (window.confirm(`Archive all ${accounts.length} workspace${accounts.length === 1 ? "" : "s"} to start clean? They move to Archived (restorable). This affects the shared team workspace.`)) {
+                onClearAll();
+              }
+            }}
+          >
+            Clear all workspaces
+          </button>
         </div>
       )}
 
-      {mode === "list" && directory.length > 0 && (
+      {directory.length > 0 ? (
         <ClientDirectory rows={directory} accounts={accounts} today={today} live={candidatesLive} {...(directoryStats ? { stats: directoryStats } : {})} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
-      )}
-
-      {mode === "cards" && heroes.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-          {heroes.map((a) => (
-            <HeroCard key={a.id} account={a} today={today} pulse={pulse[a.clientName]} onOpen={() => onOpen(a.id)} />
-          ))}
-        </div>
-      )}
-
-      {mode === "cards" && rest.length > 0 && (
-        <div className="card" style={{ padding: "4px 18px" }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 4px 4px" }}>
-            More workspaces ({rest.length})
-          </div>
-          {rest.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => onOpen(a.id)}
-              className="table-row-hover"
-              style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${T.grid}`, padding: "9px 4px", cursor: "pointer", borderRadius: 6 }}
-            >
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.roi.navy }}>{a.clientName}</span>
-              {(pulse[a.clientName]?.waiting ?? 0) > 0 && (
-                <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700, whiteSpace: "nowrap" }}>
-                  ⚡ {pulse[a.clientName]!.waiting} matched
-                </span>
-              )}
-              <span aria-hidden style={{ fontSize: 12, color: T.roi.navy, fontWeight: 700, whiteSpace: "nowrap" }}>Open ›</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Manual creation lives in the book-of-business footer when the CRM
-          list is present; this card is the fallback without one. */}
-      {mode === "cards" && (candidates.length === 0 || !onCreateFromClient) && (
+      ) : (
+        // No directory yet (offline/empty) — a minimal manual create so the
+        // page is never a dead end.
         <div className="card card-dashed" style={{ display: "flex", flexDirection: "column", gap: 8, justifyContent: "center", maxWidth: 460 }}>
           <SectionTitle>New client workspace</SectionTitle>
           <input
@@ -379,14 +320,12 @@ export function ClientList({
           >
             Create from the standard template
           </button>
-          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
-            Every client workspace starts identical: Home, plan & tasks, client dashboard, files with
-            the four core documents, discussions, and access control. Consistency is the template.
-          </div>
         </div>
       )}
 
-      {mode === "cards" && candidates.length > 0 && onCreateFromClient && (
+      {/* Add a client workspace — the searchable book of business, kept below
+          the directory (a list, not stat cards). */}
+      {candidates.length > 0 && onCreateFromClient && (
         <BookOfBusiness candidates={candidates} live={candidatesLive} onCreate={onCreateFromClient} onCreateBlank={onCreate} />
       )}
 
@@ -397,9 +336,6 @@ export function ClientList({
   );
 }
 
-/** "2026-09-14" → "Sep 14". */
-const shortDay = (iso: string) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 type SortKey = "active" | "open" | "people" | "projects" | "name" | "vertical";
 
@@ -490,6 +426,15 @@ function ClientDirectory({
   // Collaboration stats per client, read off its workspace (plain-data props).
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const namesOf = (a: ClientAccount) => [...a.members.map((m) => m.name), ...a.externals.map((e) => e.name)];
+  // Who's collaborating — AGP members (with their function) and external
+  // client/contractor people (with their org). Lead (first member) leads.
+  const collabOf = (a: ClientAccount): { name: string; role: string }[] => [
+    ...a.members.map((m) => ({ name: m.name, role: m.title })),
+    ...a.externals.map((e) => ({ name: e.name, role: e.org })),
+  ];
+  // What area they're collaborating in — the live/planned campaigns (the work
+  // in flight), completed ones dropped.
+  const areasOf = (a: ClientAccount): string[] => a.campaigns.filter((c) => c.status !== "complete").map((c) => c.name);
   const statOf = (r: DirectoryRow): CollabStat => {
     const a = r.accountId ? byId.get(r.accountId) : undefined;
     if (!a) return { people: 0, open: 0, overdue: 0, discussions: 0, last: "", lead: "" };
@@ -665,9 +610,8 @@ function ClientDirectory({
             <tr>
               {th("Client")}
               {th("Open", "center")}
-              {th("Lead")}
-              {th("Vertical")}
-              {th("People")}
+              {th("Who's collaborating")}
+              {th("Working on")}
               {th("Activity")}
               {th("Last update", "right")}
               {th("Proj", "right")}
@@ -687,7 +631,7 @@ function ClientDirectory({
                   onClick={go}
                   style={{ borderTop: `1px solid ${T.grid}`, cursor: "pointer" }}
                 >
-                  {/* Client — colored activity rail + name + TOP tag */}
+                  {/* Client — colored activity rail + name + TOP tag + vertical */}
                   <td style={{ padding: "9px 12px 9px 14px", position: "relative" }}>
                     <span aria-hidden style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: r.accountId ? (s.last && ago(s.last, today).endsWith("d") ? "#3aa66f" : T.roi.navy) : T.grid }} />
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -696,6 +640,7 @@ function ClientDirectory({
                         <span style={{ fontSize: 9, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 4, padding: "1px 6px", letterSpacing: 0.4 }}>TOP</span>
                       )}
                     </span>
+                    <span style={{ display: "block", fontSize: 10.5, color: T.inkMuted, marginTop: 1 }}>{r.vertical ? pretty(r.vertical) : (r.accountId ? "Client workspace" : "Not set up")}</span>
                   </td>
                   {/* Open tasks — the numeric chip */}
                   <td style={{ padding: "9px 12px", textAlign: "center" }}>
@@ -703,15 +648,37 @@ function ClientDirectory({
                       {r.accountId ? s.open : "—"}
                     </span>
                   </td>
-                  {/* Lead */}
-                  <td style={{ padding: "9px 12px", color: s.lead ? T.inkSecondary : T.inkMuted, whiteSpace: "nowrap", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {s.lead || (r.accountId ? "Unassigned" : "—")}
+                  {/* Who's collaborating — avatars + names/roles (lead first) */}
+                  <td style={{ padding: "9px 12px", minWidth: 190 }}>
+                    {a && collabOf(a).length > 0 ? (
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <PeopleCluster names={collabOf(a).map((c) => c.name)} />
+                        <span style={{ fontSize: 11, color: T.inkSecondary, lineHeight: 1.3, minWidth: 0 }}>
+                          {collabOf(a).slice(0, 2).map((c) => c.name).join(", ")}
+                          {collabOf(a).length > 2 ? ` +${collabOf(a).length - 2}` : ""}
+                          <span style={{ display: "block", fontSize: 10, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>
+                            {[...new Set(collabOf(a).map((c) => c.role).filter(Boolean))].slice(0, 3).join(" · ")}
+                          </span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: T.inkMuted }}>{r.accountId ? "No one added yet" : "—"}</span>
+                    )}
                   </td>
-                  {/* Vertical */}
-                  <td style={{ padding: "9px 12px", color: T.inkSecondary, whiteSpace: "nowrap" }}>{r.vertical ? pretty(r.vertical) : "—"}</td>
-                  {/* People cluster */}
-                  <td style={{ padding: "9px 12px" }}>
-                    <PeopleCluster names={a ? namesOf(a) : []} />
+                  {/* Working on — the active collaboration areas (campaigns) */}
+                  <td style={{ padding: "9px 12px", minWidth: 170, maxWidth: 260 }}>
+                    {a && areasOf(a).length > 0 ? (
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {areasOf(a).slice(0, 2).map((name, i) => (
+                          <span key={i} style={{ fontSize: 10.5, fontWeight: 600, color: T.roi.navy, background: "#eef2fb", borderRadius: 5, padding: "2px 7px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {name}
+                          </span>
+                        ))}
+                        {areasOf(a).length > 2 && <span style={{ fontSize: 10.5, color: T.inkMuted, alignSelf: "center" }}>+{areasOf(a).length - 2}</span>}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: T.inkMuted }}>{r.accountId ? "No active work" : "—"}</span>
+                    )}
                   </td>
                   {/* Activity bar — open tasks scaled to the busiest client */}
                   <td style={{ padding: "9px 12px", minWidth: 130 }}>
@@ -739,7 +706,7 @@ function ClientDirectory({
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: "18px 12px", color: T.inkMuted, textAlign: "center" }}>
+                <td colSpan={7} style={{ padding: "18px 12px", color: T.inkMuted, textAlign: "center" }}>
                   No clients match these filters.
                 </td>
               </tr>
@@ -748,90 +715,6 @@ function ClientDirectory({
         </table>
       </div>
     </div>
-  );
-}
-
-/**
- * Hero card — one busy client workspace at a glance: the counters that
- * matter, the next real date, and one obvious action. Empty workspaces say
- * the next step instead of parading zeros.
- */
-function HeroCard({
-  account: a,
-  today,
-  pulse,
-  onOpen,
-}: {
-  account: ClientAccount;
-  today: string;
-  pulse?: AccountPulse | undefined;
-  onOpen: () => void;
-}) {
-  const open = a.tasks.filter((t) => t.status !== "done");
-  const overdue = open.filter((t) => t.due && t.due < today).length;
-  const active = a.campaigns.filter((c) => c.status === "active").length;
-  const nextMs = a.campaigns
-    .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
-    .sort((x, y) => (x.nextMilestoneDate ?? "").localeCompare(y.nextMilestoneDate ?? ""))[0];
-  const empty = active + open.length + a.thread.length + a.externals.length === 0;
-  const waiting = pulse?.waiting ?? 0;
-
-  const stat = (n: number, label: string, alert = false) => (
-    <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      <span style={{ fontSize: 21, fontWeight: 800, color: alert ? T.status.critical : T.roi.navy, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{n}</span>
-      <span style={{ fontSize: 10, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
-    </span>
-  );
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="card card-hover"
-      style={{ display: "flex", flexDirection: "column", gap: 9, textAlign: "left", padding: 16, minHeight: 128 }}
-    >
-      <span style={{ fontSize: 15, fontWeight: 800, color: T.roi.navy, lineHeight: 1.25 }}>{a.clientName}</span>
-
-      {empty ? (
-        waiting > 0 ? (
-          <span style={{ fontSize: 12, color: "#8a6d1a", lineHeight: 1.5 }}>
-            <strong>⚡ {waiting} campaign{waiting === 1 ? "" : "s"} matched in Kantata</strong> — waiting
-            for your review.
-            {pulse?.nextMilestone && pulse.nextMilestoneDate && (
-              <span style={{ display: "block", color: T.inkSecondary, marginTop: 2 }}>
-                Next: <strong style={{ color: T.ink }}>{pulse.nextMilestone}</strong> — {shortDay(pulse.nextMilestoneDate)}
-              </span>
-            )}
-          </span>
-        ) : (
-          <span style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
-            No Kantata work matched yet — open it to check, or link it to the right client.
-          </span>
-        )
-      ) : (
-        <>
-          <span style={{ display: "flex", gap: 22 }}>
-            {stat(active, "active campaigns")}
-            {stat(open.length, overdue > 0 ? `open tasks · ${overdue} overdue` : "open tasks", overdue > 0)}
-            {stat(a.externals.length, "external")}
-          </span>
-          {nextMs && (
-            <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: T.inkSecondary, overflow: "hidden" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                Next: <strong style={{ color: T.ink }}>{nextMs.nextMilestone}</strong> — {nextMs.nextMilestoneDate ? shortDay(nextMs.nextMilestoneDate) : ""}
-              </span>
-              {nextMs.source === "kantata" && <KantataChip compact />}
-            </span>
-          )}
-          {waiting > 0 && (
-            <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700 }}>⚡ +{waiting} new matched in Kantata</span>
-          )}
-        </>
-      )}
-      <span aria-hidden style={{ marginTop: "auto", alignSelf: "flex-end", fontSize: 12, color: T.roi.navy, fontWeight: 700 }}>
-        {empty && waiting > 0 ? "Review & import ›" : "Open ›"}
-      </span>
-    </button>
   );
 }
 
