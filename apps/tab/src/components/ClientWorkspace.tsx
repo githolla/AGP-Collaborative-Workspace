@@ -1523,6 +1523,7 @@ function TaskDetail({
   task,
   messages = [],
   clientName = "the client",
+  mentionRoster = [],
   onStatus,
   onPost,
   goTo,
@@ -1533,6 +1534,8 @@ function TaskDetail({
   messages?: ThreadMessage[];
   /** The client — personalizes the handoff templates surfaced on this task. */
   clientName?: string;
+  /** Roster for @mention autocomplete + the "add people" chips. */
+  mentionRoster?: readonly MentionPerson[];
   onStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string, topic?: string) => void;
   goTo: (t: ClientTab) => void;
@@ -1540,6 +1543,8 @@ function TaskDetail({
 }) {
   const [note, setNote] = useState("");
   const suggested = suggestHandoff(task.title);
+  // Append "@Name" so a person is on the handoff/note (add one or several).
+  const addPerson = (name: string) => setNote((n) => (new RegExp(`@${name.split(" ")[0]}\\b`, "i").test(n) ? n : `${n}${n && !n.endsWith(" ") ? " " : ""}@${name} `));
   // This task's own conversation — tied back by topic, oldest first.
   const history = messages.filter((m) => m.topic === task.title);
   const fromKantata = task.label === "from Kantata";
@@ -1645,15 +1650,27 @@ function TaskDetail({
           <div style={{ fontSize: 11.5, color: T.inkMuted, marginBottom: 8 }}>No discussion yet — start one below. It stays tied to this task.</div>
         )}
 
-        <textarea
-          className="textarea"
-          rows={3}
-          style={{ width: "100%", fontSize: 12.5 }}
-          placeholder={`Ask a question or flag a blocker on “${task.title.slice(0, 40)}”…`}
+        <MentionTextarea
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={setNote}
+          roster={mentionRoster}
+          rows={3}
+          placeholder={`Ask a question, flag a blocker, or send a handoff on “${task.title.slice(0, 34)}”… (@ to mention)`}
         />
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+        {mentionRoster.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Add people</span>
+            {mentionRoster.slice(0, 8).map((p) => {
+              const on = new RegExp(`@${(p.name.split(" ")[0] ?? p.name)}\\b`, "i").test(note);
+              return (
+                <button key={p.name} type="button" onClick={() => addPerson(p.name)} title={p.sub} className="btn btn-secondary btn-sm" style={on ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700 } : { padding: "3px 9px", fontSize: 11 }}>
+                  {on ? "✓ " : "+ "}{p.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -1665,7 +1682,7 @@ function TaskDetail({
           >
             Post to this task's discussion
           </button>
-          <span style={{ fontSize: 10.5, color: T.inkMuted }}>Filed under “{task.title.slice(0, 24)}{task.title.length > 24 ? "…" : ""}” — tied here for good.</span>
+          <span style={{ fontSize: 10.5, color: T.inkMuted }}>Filed under this task — @mentioned people are notified.</span>
         </div>
       </div>
     </>
@@ -1711,11 +1728,12 @@ function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) 
  * with the links that always go with them, so a handoff is one consistent
  * post to the project thread instead of a hand-built email every time.
  */
-function HandoffComposer({ account, topics, onPost }: { account: ClientAccount; topics: string[]; onPost: (body: string, topic?: string) => void }) {
+function HandoffComposer({ account, topics, mentionRoster = [], onPost }: { account: ClientAccount; topics: string[]; mentionRoster?: readonly MentionPerson[]; onPost: (body: string, topic?: string) => void }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [topic, setTopic] = useState("");
   const active = HANDOFFS.find((h) => h.key === openKey);
+  const addPerson = (name: string) => setDraft((n) => (new RegExp(`@${name.split(" ")[0]}\\b`, "i").test(n) ? n : `${n}${n && !n.endsWith(" ") ? " " : ""}@${name} `));
 
   return (
     <div style={card}>
@@ -1745,7 +1763,20 @@ function HandoffComposer({ account, topics, onPost }: { account: ClientAccount; 
               <span key={i} style={{ fontSize: 10.5, fontWeight: 700, color: "#8a6d1a", background: "#faf3dc", borderRadius: 999, padding: "3px 10px" }}>{i}</span>
             ))}
           </div>
-          <textarea className="textarea" rows={9} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ width: "100%", fontSize: 12.5, lineHeight: 1.5 }} />
+          {mentionRoster.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Send to</span>
+              {mentionRoster.slice(0, 10).map((p) => {
+                const on = new RegExp(`@${(p.name.split(" ")[0] ?? p.name)}\\b`, "i").test(draft);
+                return (
+                  <button key={p.name} type="button" onClick={() => addPerson(p.name)} title={p.sub} className="btn btn-secondary btn-sm" style={on ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700 } : { padding: "3px 9px", fontSize: 11 }}>
+                    {on ? "✓ " : "+ "}{p.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <MentionTextarea value={draft} onChange={setDraft} roster={mentionRoster} rows={9} style={{ fontSize: 12.5, lineHeight: 1.5 }} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {topics.length > 0 && (
               <select className="select" value={topic} onChange={(e) => { const v = e.target.value; setTopic(v); if (active) setDraft(personalizeHandoff(active, { clientName: account.clientName, ...(v ? { project: v } : {}) })); }} title="Which project is this handoff for?" style={{ fontSize: 11.5, padding: "5px 8px" }}>
@@ -2404,7 +2435,7 @@ export function ClientWorkspace({
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
-          <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} onPost={onPost} />
+          <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} mentionRoster={buildMentionRoster(account, people)} onPost={onPost} />
           <Thread
             messages={account.thread}
             onPost={onPost}
@@ -2439,6 +2470,7 @@ export function ClientWorkspace({
           task={openTask}
           messages={account.thread}
           clientName={account.clientName}
+          mentionRoster={buildMentionRoster(account, people)}
           onStatus={(id, s) => { onTaskStatus(id, s); setOpenTask((t) => (t && t.id === id ? { ...t, status: s } : t)); }}
           onPost={onPost}
           goTo={setTab}
