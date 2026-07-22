@@ -8,6 +8,7 @@ import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
+import { HANDOFFS, fillHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
@@ -823,10 +824,16 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
 
-function ClientDashboard({ account, tasks, liveContext }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext }) {
+function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; goTo?: (tab: ClientTab) => void }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const today = AS_OF_TODAY();
+  // The curated client view (client call — Kellie): clients see only the
+  // deliverables flagged for them, not every internal step. Sorted by date so
+  // it reads as "when copy comes, when feedback's due, when designs land".
+  const deliverables = tasks
+    .filter((t) => t.clientVisible)
+    .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"));
   // Client-safe by content: milestone titles and dates only — the full
   // schedule Kantata holds, not just each campaign's next milestone.
   const schedule = (liveContext?.projects ?? [])
@@ -853,6 +860,46 @@ function ClientDashboard({ account, tasks, liveContext }: { account: ClientAccou
           workspaces — by rule, not by discipline.
         </span>
       </div>
+
+      {/* Curated deliverables — the limited status view the client sees. */}
+      <div style={card}>
+        <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{deliverables.length} shared with the client</span>}>
+          Deliverables — what the client sees
+        </SectionTitle>
+        {deliverables.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.55 }}>
+            Nothing is shared with the client yet. On the <button type="button" className="btn-link" style={{ fontSize: 12 }} onClick={() => goTo?.("plan")}>Project Plan</button>, mark a task
+            “→ client” to flag it as a deliverable — so the client sees when copy comes, when their feedback is due, and when designs land, without the full peek behind the curtain.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {deliverables.map((t) => {
+              const overdue = t.status !== "done" && !!t.due && t.due < today;
+              return (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
+                  <span aria-hidden style={{ fontSize: 12, color: t.status === "done" ? "#1f9457" : overdue ? T.status.critical : T.inkMuted }}>{t.status === "done" ? "✓" : "○"}</span>
+                  <span style={{ flex: 1, fontSize: 12.5, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none" }}>{t.title}</span>
+                  {t.due && (
+                    <span style={{ fontSize: 11, fontWeight: overdue ? 700 : 400, color: overdue ? T.status.critical : T.inkSecondary, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                      {overdue ? "⚠ " : ""}{fmtDay(t.due)}
+                    </span>
+                  )}
+                  {onRemindDeliverable && t.status !== "done" && t.due && (
+                    <button type="button" className="btn btn-secondary btn-sm" title="Send the client a reminder about this deliverable" onClick={() => onRemindDeliverable(t.id)}>⏰ Remind</button>
+                  )}
+                  {onToggleClientVisible && (
+                    <button type="button" className="btn-link" style={{ fontSize: 11 }} title="Stop sharing this with the client" onClick={() => onToggleClientVisible(t.id)}>Hide</button>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8, lineHeight: 1.5 }}>
+              This is the client-facing subset — flag deliverables on the Project Plan with “→ client”. Auto-reminders when a client hasn't opened a document arrive with the M365 layer.
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={card}>
         <SectionTitle>Campaigns</SectionTitle>
         <div style={{ overflowX: "auto" }}>
@@ -1508,6 +1555,67 @@ function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) 
   );
 }
 
+/**
+ * Handoff composer (client call — Kellie): standard phase-transition messages
+ * with the links that always go with them, so a handoff is one consistent
+ * post to the project thread instead of a hand-built email every time.
+ */
+function HandoffComposer({ account, topics, onPost }: { account: ClientAccount; topics: string[]; onPost: (body: string, topic?: string) => void }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [topic, setTopic] = useState("");
+  const active = HANDOFFS.find((h) => h.key === openKey);
+
+  return (
+    <div style={card}>
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>consistent handoffs, every time</span>}>
+        Send a handoff
+      </SectionTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {HANDOFFS.map((h) => (
+          <button
+            key={h.key}
+            type="button"
+            onClick={() => { setOpenKey(h.key); setDraft(fillHandoff(h, account.clientName)); }}
+            aria-pressed={openKey === h.key}
+            style={{ textAlign: "left", cursor: "pointer", borderRadius: 9, padding: "9px 12px", minWidth: 180, flex: "1 1 200px", background: openKey === h.key ? "#eef2fb" : "#fff", border: `1.5px solid ${openKey === h.key ? T.roi.navy : T.grid}` }}
+          >
+            <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{h.name}</span>
+            <span style={{ display: "block", fontSize: 10.5, color: T.inkMuted, marginTop: 2 }}>{h.when}</span>
+          </button>
+        ))}
+      </div>
+
+      {active && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.inkSecondary }}>Attach these:</span>
+            {active.include.map((i) => (
+              <span key={i} style={{ fontSize: 10.5, fontWeight: 700, color: "#8a6d1a", background: "#faf3dc", borderRadius: 999, padding: "3px 10px" }}>{i}</span>
+            ))}
+          </div>
+          <textarea className="textarea" rows={9} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ width: "100%", fontSize: 12.5, lineHeight: 1.5 }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {topics.length > 0 && (
+              <select className="select" value={topic} onChange={(e) => setTopic(e.target.value)} title="Which project is this handoff for?" style={{ fontSize: 11.5, padding: "5px 8px" }}>
+                <option value="">General</option>
+                {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            <button type="button" className="btn btn-primary btn-sm" disabled={!draft.trim()} onClick={() => { onPost(draft.trim(), topic || undefined); setOpenKey(null); setDraft(""); setTopic(""); }}>
+              Post handoff to Discussions →
+            </button>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setOpenKey(null); setDraft(""); }}>Cancel</button>
+          </div>
+          <div style={{ fontSize: 10.5, color: T.inkMuted }}>
+            Paste the real links in place of the placeholders before posting. The message files under the project you choose.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; tasks: Task[]; onPost: (body: string, topic?: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -1651,16 +1759,36 @@ function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink }: { account:
   );
 }
 
+/** Per-person notification channel (client call: some want Teams, some email,
+ * some both). The channel is honoured once M365 is connected; in-app always. */
+function NotifyPref({ person, pref, onSet }: { person: string; pref: "teams" | "email" | "both" | undefined; onSet: (person: string, pref: "teams" | "email" | "both") => void }) {
+  return (
+    <select
+      value={pref ?? "both"}
+      onChange={(e) => onSet(person, e.target.value as "teams" | "email" | "both")}
+      title="How this person is notified — applied via Teams/email once M365 is connected"
+      className="select"
+      style={{ fontSize: 10.5, padding: "3px 7px" }}
+    >
+      <option value="both">🔔 Teams + email</option>
+      <option value="teams">Teams only</option>
+      <option value="email">Email only</option>
+    </select>
+  );
+}
+
 function AccessTab({
   account,
   onAdd,
   onRemove,
   onOffboardEverywhere,
+  onSetNotifyPref,
 }: {
   account: ClientAccount;
   onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemove: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
+  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
 }) {
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
@@ -1674,14 +1802,16 @@ function AccessTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={card}>
-        <SectionTitle>AGP team</SectionTitle>
+        <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>notify: each person's choice</span>}>AGP team</SectionTitle>
         {account.members.map((m) => (
           <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.grid}` }}>
             <Avatar name={m.name} />
             <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{m.name}</span>
             <span style={{ fontSize: 11.5, color: T.inkMuted }}>{m.title}</span>
+            <span style={{ marginLeft: "auto" }}><NotifyPref person={m.name} pref={account.notifyPrefs?.[m.name]} onSet={onSetNotifyPref} /></span>
           </div>
         ))}
+        {account.members.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No AGP members yet — the team arrives from Kantata, or add someone from the People hub.</div>}
       </div>
 
       <div style={card}>
@@ -1704,7 +1834,8 @@ function AccessTab({
                 ⚠ review access
               </span>
             )}
-            <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              <NotifyPref person={e.name} pref={account.notifyPrefs?.[e.name]} onSet={onSetNotifyPref} />
               <button
                 type="button"
                 onClick={() => onRemove(e.id)}
@@ -1788,6 +1919,9 @@ export function ClientWorkspace({
   onAddExternal,
   onRemoveExternal,
   onOffboardEverywhere,
+  onToggleClientVisible,
+  onRemindDeliverable,
+  onSetNotifyPref,
   importCandidates = [],
   taskCandidates = [],
   onImportCampaigns,
@@ -1858,6 +1992,12 @@ export function ClientWorkspace({
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemoveExternal: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
+  /** Flag a task as a client-facing deliverable (curated client view). */
+  onToggleClientVisible: (taskId: string) => void;
+  /** Nudge the client about a deliverable that's due. */
+  onRemindDeliverable: (taskId: string) => void;
+  /** Set a person's notification channel (Teams/email/both). */
+  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
   // Collaborate hub: add people / post an update from ANY tab (the navy band
@@ -2051,7 +2191,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
               type="button"
@@ -2084,11 +2224,12 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} {...(liveContext ? { liveContext } : {})} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
+          <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} onPost={onPost} />
           <Thread messages={account.thread} onPost={onPost} topics={account.campaigns.map((c) => c.name)} />
           {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
@@ -2099,7 +2240,7 @@ export function ClientWorkspace({
       )}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
-        <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} />
+        <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} onSetNotifyPref={onSetNotifyPref} />
       )}
       {openTask && (
         <TaskDetail

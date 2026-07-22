@@ -1196,6 +1196,54 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Flag a task as a client-facing deliverable (or hide it again). Only
+   * flagged tasks show on the client's dashboard — the "limited view" Kellie
+   * asked for, so clients see deliverables, not every internal step. */
+  const toggleAccountTaskClientVisible = useCallback(
+    (id: string, taskId: string) => {
+      mutateAccount(id, (a) => {
+        let note = "";
+        const tasks = a.tasks.map((t) => {
+          if (t.id !== taskId) return t;
+          const next = !t.clientVisible;
+          note = `“${t.title}” ${next ? "shown to the client" : "hidden from the client"}`;
+          return { ...t, clientVisible: next };
+        });
+        return { ...a, tasks, activity: note ? [...a.activity, activityEvent(`Client view — ${note}`, "task")] : a.activity };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Nudge the client about a deliverable — queues a reminder now. Auto-nudge
+   * on "not opened yet" arrives with the M365 read-receipt layer; the manual
+   * reminder works today (in-app; Teams/email once connected). */
+  const remindClientDeliverable = useCallback(
+    (id: string, taskId: string, author = "You") => {
+      mutateAccount(id, (a) => {
+        const t = a.tasks.find((x) => x.id === taskId);
+        if (!t) return a;
+        const due = t.due ? ` (due ${t.due})` : "";
+        const text = `Reminder queued for the client — “${t.title}”${due}. Sent via their preferred channel once M365 is connected.`;
+        return {
+          ...a,
+          thread: [...a.thread, humanMessage(`⏰ Reminder sent to the client: “${t.title}”${due}.`, author, t.title)],
+          notifications: [...a.notifications, { id: newId("n"), text, at: new Date().toISOString() }],
+          activity: [...a.activity, activityEvent(`Client reminder — ${t.title}`, "task")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Set how a person on the account prefers to be notified (Teams/email/both). */
+  const setNotifyPref = useCallback(
+    (id: string, personName: string, pref: "teams" | "email" | "both") => {
+      mutateAccount(id, (a) => ({ ...a, notifyPrefs: { ...(a.notifyPrefs ?? {}), [personName]: pref } }));
+    },
+    [mutateAccount],
+  );
+
   /** Add an AGP teammate to the account — collaborate from anywhere in the
    * client, not just the Contractor Access tab. Idempotent by person. */
   const addAccountMember = useCallback(
@@ -1416,6 +1464,9 @@ export function useWorkspace() {
     addAccountLink,
     setAccountLinkUrl,
     removeAccountLink,
+    toggleAccountTaskClientVisible,
+    remindClientDeliverable,
+    setNotifyPref,
     addExternal,
     removeExternal,
     offboardEverywhere,

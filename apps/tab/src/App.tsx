@@ -643,6 +643,9 @@ export function App() {
             onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
+            onToggleClientVisible={(taskId) => ws.toggleAccountTaskClientVisible(selectedAccount.id, taskId)}
+            onRemindDeliverable={(taskId) => ws.remindClientDeliverable(selectedAccount.id, taskId, userName)}
+            onSetNotifyPref={(person, pref) => ws.setNotifyPref(selectedAccount.id, person, pref)}
             importCandidates={campaignsFromMirror(
               loadMirror(),
               selectedAccount.clientName,

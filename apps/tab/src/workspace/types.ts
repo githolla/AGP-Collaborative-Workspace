@@ -155,6 +155,13 @@ export interface ClientAccount {
    */
   autoPopulated?: boolean;
   archived?: boolean;
+  /**
+   * How each person on the account prefers to be notified (client call: some
+   * want Teams, some email, some both). Keyed by person name. The channel is
+   * honoured once the M365 layer is connected; the in-app notification always
+   * fires. Absent = the account default (both).
+   */
+  notifyPrefs?: Record<string, "teams" | "email" | "both">;
   createdAt: string;
 }
 
