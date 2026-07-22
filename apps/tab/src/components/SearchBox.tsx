@@ -1,24 +1,41 @@
 import { useMemo, useState } from "react";
 import { T } from "../theme.js";
-import type { Initiative, SandboxIdea } from "../workspace/types.js";
+import type { ClientAccount, Initiative, SandboxIdea } from "../workspace/types.js";
 
 /**
- * Search across the workspace (Collab Hub Must): workspaces, discussions,
- * tasks, and team parts — jump straight to the result.
+ * Search across the workspace (Collab Hub Must): client accounts, builds,
+ * ideas — their discussions, tasks, files, and team parts. Jump straight to
+ * the result. Client accounts are the primary surface, so they lead.
  */
+
+type Target = { view: "initiative" | "idea" | "account"; id: string };
 
 interface Hit {
   key: string;
-  kind: "Build" | "Idea" | "Message" | "Task" | "Part";
+  kind: "Client" | "Build" | "Idea" | "Message" | "Task" | "File";
   label: string;
   context: string;
-  target: { view: "initiative" | "idea"; id: string };
+  target: Target;
 }
 
-function collectHits(query: string, initiatives: Initiative[], ideas: SandboxIdea[]): Hit[] {
+function collectHits(query: string, accounts: ClientAccount[], initiatives: Initiative[], ideas: SandboxIdea[]): Hit[] {
   const q = query.toLowerCase();
   const hits: Hit[] = [];
   const match = (s?: string | null) => !!s && s.toLowerCase().includes(q);
+
+  // Client accounts first — the primary collaboration surface. Search the
+  // account itself, its shared tasks, its discussion thread, and its files.
+  for (const a of accounts) {
+    if (a.archived) continue;
+    const target = { view: "account" as const, id: a.id };
+    if (match(a.clientName)) hits.push({ key: `a-${a.id}`, kind: "Client", label: a.clientName, context: `${a.campaigns.length} campaigns · ${a.tasks.length} tasks`, target });
+    for (const t of a.tasks)
+      if (match(t.title) || match(t.ownerName)) hits.push({ key: `at-${a.id}-${t.id}`, kind: "Task", label: t.title.slice(0, 60), context: `${a.clientName}${t.ownerName ? ` · ${t.ownerName}` : ""}`, target });
+    for (const m of a.thread)
+      if (match(m.body)) hits.push({ key: `am-${a.id}-${m.id}`, kind: "Message", label: `${m.author} in ${a.clientName}`, context: m.body.slice(0, 90), target });
+    for (const f of [...a.files, ...a.docs])
+      if (match(f.name)) hits.push({ key: `af-${a.id}-${f.id}`, kind: "File", label: f.name.slice(0, 60), context: a.clientName, target });
+  }
 
   for (const i of initiatives) {
     const target = { view: "initiative" as const, id: i.id };
@@ -27,41 +44,40 @@ function collectHits(query: string, initiatives: Initiative[], ideas: SandboxIde
       if (match(m.body)) hits.push({ key: `im-${i.id}-${m.id}`, kind: "Message", label: `${m.author} in ${i.name}`, context: m.body.slice(0, 90), target });
     for (const t of i.tasks)
       if (match(t.title) || match(t.ownerName)) hits.push({ key: `it-${t.id}`, kind: "Task", label: t.title.slice(0, 60), context: `${i.name}${t.ownerName ? ` · ${t.ownerName}` : ""}`, target });
-    for (const p of i.plan?.packages ?? [])
-      if (match(p.name) || match(p.part)) hits.push({ key: `ip-${i.id}-${p.personId}`, kind: "Part", label: `${p.name} — ${i.name}`, context: p.part.slice(0, 80), target });
   }
   for (const idea of ideas) {
     const target = { view: "idea" as const, id: idea.id };
     if (match(idea.title) || match(idea.pitch)) hits.push({ key: `s-${idea.id}`, kind: "Idea", label: idea.title, context: idea.pitch.slice(0, 80), target });
     for (const m of idea.thread)
       if (match(m.body)) hits.push({ key: `sm-${idea.id}-${m.id}`, kind: "Message", label: `${m.author} in ${idea.title}`, context: m.body.slice(0, 90), target });
-    for (const p of idea.plan?.packages ?? [])
-      if (match(p.name) || match(p.part)) hits.push({ key: `sp-${idea.id}-${p.personId}`, kind: "Part", label: `${p.name} — ${idea.title}`, context: p.part.slice(0, 80), target });
   }
-  return hits.slice(0, 8);
+  return hits.slice(0, 10);
 }
 
 const KIND_COLOR: Record<Hit["kind"], string> = {
-  Build: T.roi.navy,
+  Client: T.roi.navy,
+  Build: "#3a4a86",
   Idea: "#8a6d1a",
   Message: "#16708f",
   Task: "#116a43",
-  Part: T.inkSecondary,
+  File: T.inkSecondary,
 };
 
 export function SearchBox({
+  accounts,
   initiatives,
   ideas,
   onNavigate,
 }: {
+  accounts: ClientAccount[];
   initiatives: Initiative[];
   ideas: SandboxIdea[];
-  onNavigate: (target: { view: "initiative" | "idea"; id: string }) => void;
+  onNavigate: (target: Target) => void;
 }) {
   const [query, setQuery] = useState("");
   const hits = useMemo(
-    () => (query.trim().length >= 2 ? collectHits(query.trim(), initiatives, ideas) : []),
-    [query, initiatives, ideas],
+    () => (query.trim().length >= 2 ? collectHits(query.trim(), accounts, initiatives, ideas) : []),
+    [query, accounts, initiatives, ideas],
   );
 
   return (
