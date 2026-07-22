@@ -20,6 +20,10 @@ export interface DirectoryRow {
   collaborators?: { name: string; role: string }[];
   /** Live campaigns in flight — what the team is collaborating on. */
   areas?: string[];
+  /** Most-recent collaboration on this client (live Kantata + local), ISO. */
+  lastCollab?: string;
+  /** Most-recent collaboration by the CURRENT user on this client, ISO. */
+  myLastCollab?: string;
 }
 
 /** A CRM client that doesn't have a workspace yet — passed in as plain data. */
@@ -437,15 +441,16 @@ function ClientDirectory({
     const collab = collabOf(r);
     const lead = collab[0]?.name ?? "";
     const a = r.accountId ? byId.get(r.accountId) : undefined;
-    if (!a) return { people: collab.length, open: 0, overdue: 0, discussions: 0, last: "", lead };
+    // "last" = most-recent collaboration (live Kantata + local), computed
+    // upstream so live clients get a real recency, not a tie.
+    if (!a) return { people: collab.length, open: 0, overdue: 0, discussions: 0, last: r.lastCollab ?? "", lead };
     const open = a.tasks.filter((t) => t.status !== "done");
-    const times = [...a.activity.map((e) => e.at), ...a.thread.map((m) => m.at)].filter(Boolean).sort();
     return {
       people: collab.length,
       open: open.length,
       overdue: open.filter((t) => t.due && t.due < today).length,
       discussions: a.thread.length,
-      last: times[times.length - 1] ?? "",
+      last: r.lastCollab ?? "",
       lead,
     };
   };
@@ -471,7 +476,13 @@ function ClientDirectory({
     const sb = st.get(b.name)!;
     let d = 0;
     switch (sortKey) {
-      case "active": d = (sa.last || "").localeCompare(sb.last || ""); break; // most-recent first
+      case "active": {
+        // Most-recent collaboration — YOURS first (clients you touched most
+        // recently), then overall recency across the team.
+        const mine = (a.myLastCollab || "").localeCompare(b.myLastCollab || "");
+        d = mine !== 0 ? mine : (sa.last || "").localeCompare(sb.last || "");
+        break;
+      }
       case "open": d = sa.open - sb.open; break;
       case "people": d = sa.people - sb.people; break;
       case "projects": d = a.liveProjects - b.liveProjects; break;
@@ -491,7 +502,7 @@ function ClientDirectory({
   const withWorkspace = rows.filter((r) => r.accountId).length;
 
   const SORTS: { key: SortKey; label: string }[] = [
-    { key: "active", label: "Active" },
+    { key: "active", label: "Recent collab" },
     { key: "open", label: "Open tasks" },
     { key: "people", label: "People" },
     { key: "projects", label: "Projects" },
@@ -548,7 +559,7 @@ function ClientDirectory({
           </div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
             {withWorkspace} with a workspace · {rows.length - withWorkspace} not set up yet.
-            {live ? " Live from Kantata." : " Demo data."} Sort & filter by how the team collaborates.
+            {live ? " Live from Kantata." : " Demo data."} Sorted by your most recent collaboration.
           </div>
           {stats && (
             <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 3 }}>

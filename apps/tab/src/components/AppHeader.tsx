@@ -102,6 +102,8 @@ export interface AppHeaderProps {
   onRefreshData?: () => void;
   onSettings?: () => void;
   onSignOut?: () => void;
+  /** Click the logo to return to the client list (home). */
+  onHome?: () => void;
 }
 
 /** Click the avatar → the profile panel: see who you are, change your name. */
@@ -162,15 +164,20 @@ function ProfileMenu({ userName, onChangeName }: { userName: string; onChangeNam
   );
 }
 
-export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut }: AppHeaderProps) {
+export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut, onHome }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
-        <div style={styles.logo}>
+        <button
+          type="button"
+          onClick={onHome}
+          title="Back to the client list"
+          style={{ ...styles.logo, background: "none", border: "none", padding: 0, cursor: onHome ? "pointer" : "default", color: "inherit" }}
+        >
           <span style={styles.logoMark}>AGP</span>
           <span style={styles.logoDivider} />
           <span style={styles.logoSub}>{"Allegiance Group &\nPursuant"}</span>
-        </div>
+        </button>
         <div style={styles.title}>
           <span style={styles.titlePrimary}>{APP_TITLE.primary}</span>
           <span style={styles.titleSecondary}>— {APP_TITLE.secondary}</span>

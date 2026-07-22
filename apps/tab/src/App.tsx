@@ -301,6 +301,8 @@ export function App() {
       accountId?: string;
       collaborators?: { name: string; role: string }[];
       areas?: string[];
+      lastCollab?: string;
+      myLastCollab?: string;
     }[] = [];
     const usedAccounts = new Set<string>();
     const emit = (name: string, vertical: string | undefined, account?: ClientAccount) => {
@@ -327,6 +329,22 @@ export function App() {
             .map((c) => c.name),
         ),
       ];
+      // Most-recent collaboration on this client — LIVE (Kantata posts + last
+      // time entry) and local (the workspace thread/activity), so the list can
+      // float the freshest work to the top.
+      const max = (arr: (string | undefined)[]) => arr.filter((x): x is string => !!x).sort().pop();
+      const lastCollab = max([
+        ...ctx.posts.map((p) => p.createdAt),
+        ...ctx.projects.map((p) => p.lastEntryDate),
+        ...(account?.thread ?? []).map((m) => m.at),
+        ...(account?.activity ?? []).map((e) => e.at),
+      ]);
+      // …and the freshest collaboration by THIS person specifically (their own
+      // posts here, or a Kantata post/entry under their name).
+      const myLastCollab = max([
+        ...(account?.thread ?? []).filter((m) => m.author === userName).map((m) => m.at),
+        ...ctx.posts.filter((p) => p.author === userName).map((p) => p.createdAt),
+      ]);
       rows.push({
         name,
         ...(vertical ? { vertical } : {}),
@@ -336,6 +354,8 @@ export function App() {
         ...(account ? { accountId: account.id } : {}),
         ...(collaborators.length > 0 ? { collaborators } : {}),
         ...(areas.length > 0 ? { areas } : {}),
+        ...(lastCollab ? { lastCollab } : {}),
+        ...(myLastCollab ? { myLastCollab } : {}),
       });
     };
     for (const c of mirror.clients) {
@@ -349,7 +369,7 @@ export function App() {
       emit(a.clientName, undefined, a);
     }
     return rows;
-  }, [ws.accounts, liveStatus]);
+  }, [ws.accounts, liveStatus, userName]);
 
   // How the client count breaks down by title convention — shown in the
   // directory header so the number explains itself (colon-prefix clients vs
@@ -413,6 +433,7 @@ export function App() {
         liveLabel={liveStatus.label}
         liveDetail={liveStatus.detail}
         onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
+        onHome={() => setRoute({ view: "clients" })}
       />
 
       {/* Persistent navigation — visible on every page, including workspaces. */}
