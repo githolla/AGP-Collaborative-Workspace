@@ -721,8 +721,10 @@ export function App() {
           accounts={ws.accounts}
           userName={userName}
           currentAccountId={selectedAccount?.id}
+          roster={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
           onPost={(accountId, body, topic) => ws.postAccountMessage(accountId, body, userName, topic)}
           onOpenAccount={(id) => setRoute({ view: "account", id })}
+          onAddMember={(accountId, personId) => ws.addAccountMember(accountId, personId)}
         />
       )}
     </div>

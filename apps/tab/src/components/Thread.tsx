@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { card, T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
 import { timeAgoLabel } from "../workspace/format.js";
-import { MentionTextarea } from "./MentionTextarea.js";
+import { MentionTextarea, type MentionPerson } from "./MentionTextarea.js";
 import type { ThreadMessage } from "../workspace/types.js";
 
 export interface AgentRosterEntry {
@@ -30,7 +30,8 @@ export function Thread({
   onAskAnalyst,
   roster,
   topics = [],
-  people = [],
+  mentionRoster = [],
+  onQuickAdd,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string, topic?: string) => void;
@@ -43,8 +44,10 @@ export function Thread({
   roster?: readonly AgentRosterEntry[];
   /** Project/topic options to scope a post to (client workspaces pass these). */
   topics?: readonly string[];
-  /** People on the account — powers @mention autocomplete. */
-  people?: readonly string[];
+  /** Full AGP roster for @mention autocomplete (on- and off-account). */
+  mentionRoster?: readonly MentionPerson[];
+  /** Quick-add an off-account person to the account when they're mentioned. */
+  onQuickAdd?: (name: string) => void;
 }) {
   const showAgents = !!roster && roster.length > 0;
   const [draft, setDraft] = useState("");
@@ -53,6 +56,7 @@ export function Thread({
   const [authorFilter, setAuthorFilter] = useState<string>("");
   const [timeFilter, setTimeFilter] = useState<"" | "7" | "30" | "90">("");
   const [search, setSearch] = useState("");
+  const [pendingAdd, setPendingAdd] = useState<string | null>(null);
 
   // How many messages sit under each topic — drives the filter chips.
   const topicCounts = useMemo(() => {
@@ -240,11 +244,21 @@ export function Thread({
           <MentionTextarea
             value={draft}
             onChange={setDraft}
-            people={people}
+            roster={mentionRoster}
+            onPick={(p) => { if (!p.onAccount && onQuickAdd) setPendingAdd(p.name); }}
             onSubmit={post}
             rows={2}
             placeholder={showAgents ? "Write to the team and agents… (@ to mention, Ctrl+Enter to post)" : "Write to the team… (@ to mention, Ctrl+Enter to post)"}
           />
+          {pendingAdd && onQuickAdd && (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 11.5, color: "#7a5c12", flex: 1, minWidth: 160 }}>
+                <b>{pendingAdd}</b> isn't on this account yet — add them so they get notified and can take part?
+              </span>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => { onQuickAdd(pendingAdd); setPendingAdd(null); }}>Add &amp; invite</button>
+              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setPendingAdd(null)}>Not now</button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140 }}>
           {canScope && (

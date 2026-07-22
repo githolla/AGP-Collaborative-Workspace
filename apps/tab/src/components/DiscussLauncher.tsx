@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { T } from "../theme.js";
-import { MentionTextarea } from "./MentionTextarea.js";
+import { MentionTextarea, type MentionPerson } from "./MentionTextarea.js";
 import type { ClientAccount } from "../workspace/types.js";
 
 /**
@@ -17,14 +17,20 @@ export function DiscussLauncher({
   accounts,
   userName,
   currentAccountId,
+  roster = [],
   onPost,
   onOpenAccount,
+  onAddMember,
 }: {
   accounts: ClientAccount[];
   userName: string;
   currentAccountId?: string | undefined;
+  /** Full live AGP roster — powers @mention autocomplete + quick-add. */
+  roster?: { id: string; name: string; title: string }[];
   onPost: (accountId: string, body: string, topic?: string) => void;
   onOpenAccount: (id: string) => void;
+  /** Add an AGP person to an account (quick-add on mention). */
+  onAddMember?: (accountId: string, personId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const live = accounts.filter((a) => !a.archived);
@@ -33,6 +39,7 @@ export function DiscussLauncher({
   const [include, setInclude] = useState<string[]>([]);
   const [body, setBody] = useState("");
   const [posted, setPosted] = useState<string | null>(null);
+  const [pendingAdd, setPendingAdd] = useState<string | null>(null);
 
   // Reset the form to the current context each time it's opened.
   const openModal = () => {
@@ -41,6 +48,7 @@ export function DiscussLauncher({
     setInclude([]);
     setBody("");
     setPosted(null);
+    setPendingAdd(null);
     setOpen(true);
   };
 
@@ -52,6 +60,23 @@ export function DiscussLauncher({
       ...account.externals.map((e) => ({ name: e.name, sub: `${e.role} · ${e.org}` })),
     ];
   }, [account]);
+
+  // Mention roster: account people first, then the rest of the AGP roster.
+  const mentionRoster = useMemo<MentionPerson[]>(() => {
+    const onAcct = new Set(people.map((p) => p.name));
+    const list: MentionPerson[] = people.map((p) => ({ name: p.name, onAccount: true, ...(p.sub ? { sub: p.sub } : {}) }));
+    for (const r of roster) {
+      if (onAcct.has(r.name)) continue;
+      list.push({ name: r.name, onAccount: false, ...(r.title ? { sub: r.title } : {}) });
+    }
+    return list;
+  }, [people, roster]);
+
+  const quickAdd = (name: string) => {
+    const person = roster.find((r) => r.name === name);
+    if (person && account && onAddMember) onAddMember(account.id, person.id);
+    setPendingAdd(null);
+  };
 
   const toggle = (name: string) =>
     setInclude((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
@@ -163,13 +188,23 @@ export function DiscussLauncher({
                       <MentionTextarea
                         value={body}
                         onChange={setBody}
-                        people={people.map((p) => p.name)}
+                        roster={mentionRoster}
+                        onPick={(p) => { if (!p.onAccount && onAddMember) setPendingAdd(p.name); }}
                         onSubmit={submit}
                         rows={4}
                         autoFocus
                         placeholder={`What do you want to discuss${account ? ` with ${account.clientName}'s team` : ""}? (@ to mention, Ctrl+Enter to post)`}
                         style={{ fontSize: 12.5 }}
                       />
+                      {pendingAdd && onAddMember && (
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px" }}>
+                          <span style={{ fontSize: 11.5, color: "#7a5c12", flex: 1, minWidth: 150 }}>
+                            <b>{pendingAdd}</b> isn't on {account?.clientName ?? "this account"} yet — add them?
+                          </span>
+                          <button type="button" className="btn btn-primary btn-sm" onClick={() => quickAdd(pendingAdd)}>Add &amp; invite</button>
+                          <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setPendingAdd(null)}>Not now</button>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>

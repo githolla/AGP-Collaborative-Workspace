@@ -3,6 +3,7 @@ import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
+import type { MentionPerson } from "./MentionTextarea.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
@@ -40,6 +41,23 @@ const navy = T.roi.navy;
 
 function fmtDay(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** The @mention roster: people already on the account first (onAccount), then
+ * the rest of the live AGP roster (off-account — quick-addable on mention). */
+function buildMentionRoster(
+  account: ClientAccount,
+  roster: { id: string; name: string; title: string }[],
+): MentionPerson[] {
+  const onAccount = new Map<string, string>();
+  for (const m of account.members) onAccount.set(m.name, m.title);
+  for (const e of account.externals) onAccount.set(e.name, `${e.role} · ${e.org}`);
+  const list: MentionPerson[] = [...onAccount].map(([name, sub]) => ({ name, onAccount: true, ...(sub ? { sub } : {}) }));
+  for (const p of roster) {
+    if (onAccount.has(p.name)) continue;
+    list.push({ name: p.name, onAccount: false, ...(p.title ? { sub: p.title } : {}) });
+  }
+  return list;
 }
 
 function timeAgo(iso: string): string {
@@ -2230,7 +2248,17 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
           <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} onPost={onPost} />
-          <Thread messages={account.thread} onPost={onPost} topics={account.campaigns.map((c) => c.name)} people={[...account.members.map((m) => m.name), ...account.externals.map((e) => e.name)]} />
+          <Thread
+            messages={account.thread}
+            onPost={onPost}
+            topics={account.campaigns.map((c) => c.name)}
+            mentionRoster={buildMentionRoster(account, people)}
+            onQuickAdd={(name) => {
+              const person = people.find((p) => p.name === name);
+              if (person) onAddMember?.(person.id);
+              else onAddNewMember?.(name, "");
+            }}
+          />
           {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
             Tip: “@FirstName” in a message notifies that person in Team Notifications on Home —

@@ -1,29 +1,42 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { T } from "../theme.js";
 
+export interface MentionPerson {
+  name: string;
+  /** Already on this account? Off-account people can be quick-added on mention. */
+  onAccount: boolean;
+  /** Optional subtitle shown in the suggester (role/title). */
+  sub?: string;
+}
+
 /**
- * A textarea with @mention autocomplete: type "@" and a name suggester appears,
- * filtered as you type; pick one and it inserts the name (which notifies that
- * person on post). Keyboard: ↑/↓ to move, Enter/Tab to accept, Esc to dismiss.
- * Ctrl/Cmd+Enter fires onSubmit. Pure presentation — safe on guest surfaces.
+ * A textarea with @mention autocomplete over the full AGP roster: type "@" and
+ * a name suggester appears, filtered as you type; pick one and it inserts the
+ * name (which notifies that person on post). People not yet on the account are
+ * marked, and `onPick` fires so the parent can offer a quick "add them" window.
+ * Keyboard: ↑/↓ move, Enter/Tab accept, Esc dismiss. Ctrl/Cmd+Enter → onSubmit.
+ * Pure presentation — safe on guest surfaces.
  */
 export function MentionTextarea({
   value,
   onChange,
-  people,
+  roster,
   placeholder,
   rows = 3,
   autoFocus,
   onSubmit,
+  onPick,
   style,
 }: {
   value: string;
   onChange: (v: string) => void;
-  people: readonly string[];
+  roster: readonly MentionPerson[];
   placeholder?: string;
   rows?: number;
   autoFocus?: boolean;
   onSubmit?: () => void;
+  /** Called when a name is accepted — parent can quick-add off-account people. */
+  onPick?: (person: MentionPerson) => void;
   style?: CSSProperties;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -33,13 +46,16 @@ export function MentionTextarea({
 
   const suggestions =
     anchor !== null
-      ? people.filter((p) => p.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
+      ? roster
+          .filter((p) => p.name.toLowerCase().includes(query.toLowerCase()))
+          // On-account people first, then the rest, alphabetical within each.
+          .sort((a, b) => Number(b.onAccount) - Number(a.onAccount) || a.name.localeCompare(b.name))
+          .slice(0, 7)
       : [];
   const showList = anchor !== null && suggestions.length > 0;
 
   const recompute = (text: string, caret: number) => {
     const before = text.slice(0, caret);
-    // "@word" sitting at a word boundary, right up to the caret.
     const m = /(^|\s)@([\p{L}\p{N}'.-]*)$/u.exec(before);
     if (m) {
       const q = m[2] ?? "";
@@ -52,15 +68,16 @@ export function MentionTextarea({
     }
   };
 
-  const accept = (name: string) => {
+  const accept = (person: MentionPerson) => {
     const el = ref.current;
     if (anchor === null || !el) return;
     const caret = el.selectionStart;
-    const next = `${value.slice(0, anchor)}@${name} ${value.slice(caret)}`;
+    const next = `${value.slice(0, anchor)}@${person.name} ${value.slice(caret)}`;
     onChange(next);
     setAnchor(null);
     setQuery("");
-    const pos = anchor + name.length + 2; // past "@name "
+    onPick?.(person);
+    const pos = anchor + person.name.length + 2; // past "@name "
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(pos, pos);
@@ -81,7 +98,6 @@ export function MentionTextarea({
           recompute(e.target.value, e.target.selectionStart);
         }}
         onKeyUp={(e) => {
-          // Arrow keys / clicks move the caret without changing text.
           if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
             recompute((e.target as HTMLTextAreaElement).value, (e.target as HTMLTextAreaElement).selectionStart);
           }
@@ -101,7 +117,7 @@ export function MentionTextarea({
       {showList && (
         <div
           style={{
-            position: "absolute", left: 6, top: "calc(100% - 2px)", zIndex: 30, minWidth: 190,
+            position: "absolute", left: 6, top: "calc(100% - 2px)", zIndex: 30, minWidth: 210,
             background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8,
             boxShadow: "0 10px 26px rgba(11,33,63,0.18)", overflow: "hidden", padding: 4,
           }}
@@ -111,17 +127,23 @@ export function MentionTextarea({
           </div>
           {suggestions.map((p, i) => (
             <button
-              key={p}
+              key={p.name}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); accept(p); }}
               onMouseEnter={() => setHi(i)}
               style={{
-                display: "block", width: "100%", textAlign: "left", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",
                 fontSize: 12.5, fontWeight: 600, padding: "6px 9px", borderRadius: 6, border: "none",
                 background: i === hi ? "#eef2fb" : "transparent", color: T.ink,
               }}
             >
-              {p}
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.name}
+                {p.sub && <span style={{ fontSize: 10, color: T.inkMuted, fontWeight: 400 }}> · {p.sub}</span>}
+              </span>
+              {!p.onAccount && (
+                <span style={{ fontSize: 8.5, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", borderRadius: 999, padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0 }}>+ ADD</span>
+              )}
             </button>
           ))}
         </div>
