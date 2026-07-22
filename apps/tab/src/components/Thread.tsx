@@ -13,6 +13,14 @@ export interface AgentRosterEntry {
 
 const GENERAL = "General";
 
+type Kind = "project" | "task" | "file" | "general";
+const KIND_META: Record<Kind, { icon: string; label: string }> = {
+  project: { icon: "🗂", label: "Projects" },
+  task: { icon: "✅", label: "Tasks" },
+  file: { icon: "📄", label: "Files" },
+  general: { icon: "💬", label: "General" },
+};
+
 /**
  * The collaboration thread: people and AI agents working the initiative
  * together. ROI Analyst is live (engine-backed); LLM agents activate with the
@@ -30,6 +38,8 @@ export function Thread({
   onAskAnalyst,
   roster,
   topics = [],
+  taskTitles = [],
+  fileNames = [],
   mentionRoster = [],
   onQuickAdd,
 }: {
@@ -44,6 +54,10 @@ export function Thread({
   roster?: readonly AgentRosterEntry[];
   /** Project/topic options to scope a post to (client workspaces pass these). */
   topics?: readonly string[];
+  /** Task titles — so a discussion tied to a task is classified/filtered as one. */
+  taskTitles?: readonly string[];
+  /** File/doc names — so a discussion about a document is classified as a file. */
+  fileNames?: readonly string[];
   /** Full AGP roster for @mention autocomplete (on- and off-account). */
   mentionRoster?: readonly MentionPerson[];
   /** Quick-add an off-account person to the account when they're mentioned. */
@@ -53,10 +67,27 @@ export function Thread({
   const [draft, setDraft] = useState("");
   const [postTopic, setPostTopic] = useState<string>("");
   const [filter, setFilter] = useState<string>("");
+  const [kindFilter, setKindFilter] = useState<"" | Kind>("");
   const [authorFilter, setAuthorFilter] = useState<string>("");
   const [timeFilter, setTimeFilter] = useState<"" | "7" | "30" | "90">("");
   const [search, setSearch] = useState("");
   const [pendingAdd, setPendingAdd] = useState<string | null>(null);
+
+  // Classify a topic into the kind of collaboration it is, so history can be
+  // sliced by project / task / file / general (Kellie: "here's around task
+  // conversations, here's around file conversations…"). Pure name-matching —
+  // no data migration needed.
+  const taskSet = useMemo(() => new Set(taskTitles.map((t) => t.toLowerCase())), [taskTitles]);
+  const fileSet = useMemo(() => new Set(fileNames.map((f) => f.toLowerCase())), [fileNames]);
+  const projSet = useMemo(() => new Set(topics.map((t) => t.toLowerCase())), [topics]);
+  const kindOf = (topic: string | undefined): Kind => {
+    if (!topic) return "general";
+    const t = topic.toLowerCase();
+    if (fileSet.has(t)) return "file";
+    if (taskSet.has(t)) return "task";
+    if (projSet.has(t)) return "project";
+    return "general";
+  };
 
   // How many messages sit under each topic — drives the filter chips.
   const topicCounts = useMemo(() => {
@@ -82,13 +113,14 @@ export function Thread({
   const needle = search.trim().toLowerCase();
   const scoped = messages.filter((m) => {
     if (filter && (m.topic ?? GENERAL) !== filter) return false;
+    if (kindFilter && kindOf(m.topic) !== kindFilter) return false;
     if (authorFilter && m.author !== authorFilter) return false;
     if (cutoff && Date.parse(m.at) < cutoff) return false;
     if (needle && !m.body.toLowerCase().includes(needle) && !(m.topic ?? "").toLowerCase().includes(needle) && !m.author.toLowerCase().includes(needle)) return false;
     return true;
   });
   const canScope = topics.length > 0 || allTopics.length > 0;
-  const anyFilter = !!(filter || authorFilter || timeFilter || needle);
+  const anyFilter = !!(filter || kindFilter || authorFilter || timeFilter || needle);
   const selStyle: CSSProperties = { fontSize: 11, padding: "4px 7px" };
 
   const post = () => {
@@ -168,6 +200,13 @@ export function Thread({
             className="input"
             style={{ fontSize: 11.5, padding: "5px 9px", flex: 1, minWidth: 150 }}
           />
+          <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as "" | Kind)} className="select" style={selStyle} title="Filter by kind of conversation">
+            <option value="">All kinds</option>
+            <option value="project">🗂 Projects</option>
+            <option value="task">✅ Tasks</option>
+            <option value="file">📄 Files</option>
+            <option value="general">💬 General</option>
+          </select>
           <select value={authorFilter} onChange={(e) => setAuthorFilter(e.target.value)} className="select" style={selStyle} title="Filter by who posted">
             <option value="">Anyone</option>
             {authors.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -179,7 +218,7 @@ export function Thread({
             <option value="90">Last 90 days</option>
           </select>
           {anyFilter && (
-            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setFilter(""); setAuthorFilter(""); setTimeFilter(""); setSearch(""); }}>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setFilter(""); setKindFilter(""); setAuthorFilter(""); setTimeFilter(""); setSearch(""); }}>
               Clear filters
             </button>
           )}
@@ -214,10 +253,10 @@ export function Thread({
                   <button
                     type="button"
                     onClick={() => { setFilter(m.topic ?? ""); setPostTopic(m.topic ?? ""); }}
-                    title={`Show only “${m.topic}”`}
+                    title={`${KIND_META[kindOf(m.topic)].label.replace(/s$/, "")} · show only “${m.topic}”`}
                     style={{ fontSize: 9, fontWeight: 800, color: T.roi.navy, background: "#eef2fb", border: "none", borderRadius: 4, padding: "1px 7px", cursor: "pointer", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   >
-                    {m.topic}
+                    <span aria-hidden style={{ marginRight: 3 }}>{KIND_META[kindOf(m.topic)].icon}</span>{m.topic}
                   </button>
                 )}
                 <span style={{ fontSize: 10, color: T.inkMuted }}>{timeAgoLabel(m.at)}</span>

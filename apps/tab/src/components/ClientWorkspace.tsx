@@ -1688,11 +1688,15 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
-function FileRow({ f, onSetLinkUrl, onRemoveLink }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void }) {
+function FileRow({ f, onSetLinkUrl, onRemoveLink, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
   const [linking, setLinking] = useState(false);
   const [draft, setDraft] = useState("");
+  const [discussing, setDiscussing] = useState(false);
+  const [note, setNote] = useState("");
+  const [posted, setPosted] = useState(false);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+    <div style={{ borderBottom: `1px solid ${T.grid}` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
       <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
       {f.url ? (
         <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
@@ -1718,16 +1722,36 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink }: { f: ClientFileLink; onSetLi
         </button>
       )}
       {!linking && (
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
+          {onDiscuss && (
+            <button type="button" onClick={() => { setDiscussing((d) => !d); setPosted(false); }} title={`Discuss “${f.name}” — files it under this document in Discussions`} className="btn-link" style={{ fontSize: 11, fontWeight: 700 }}>💬 Discuss</button>
+          )}
           <button type="button" onClick={() => onRemoveLink(f.id)} title={`Remove “${f.name}” (the file in SharePoint is untouched)`} aria-label={`Remove ${f.name}`} style={{ background: "none", border: "none", cursor: "pointer", color: T.inkMuted, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
         </span>
       )}
     </div>
+    {discussing && onDiscuss && (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 0 10px 22px" }}>
+        {posted ? (
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Filed under “{f.name}” in Discussions</span>
+        ) : (
+          <>
+            <textarea className="textarea" rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Start a discussion about “${f.name}”…`} style={{ width: "100%", fontSize: 12 }} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button type="button" className="btn btn-primary btn-sm" disabled={!note.trim()} onClick={() => { onDiscuss(f.name, note.trim()); setNote(""); setPosted(true); }}>Post to Discussions</button>
+              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setDiscussing(false); setNote(""); }}>Cancel</button>
+              <span style={{ fontSize: 10, color: T.inkMuted }}>Everyone on the account sees it, filed under this document.</span>
+            </div>
+          </>
+        )}
+      </div>
+    )}
+    </div>
   );
 }
 
-function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void }) {
+function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
@@ -1735,7 +1759,7 @@ function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink }: { account:
     <div style={card}>
       <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{items.length} {items.length === 1 ? "item" : "items"}</span>}>{title}</SectionTitle>
       {items.map((f) => (
-        <FileRow key={f.id} f={f} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} />
+        <FileRow key={f.id} f={f} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} onDiscuss={onDiscussFile} />
       ))}
       {items.length === 0 && <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>{emptyHint}</div>}
     </div>
@@ -2243,7 +2267,7 @@ export function ClientWorkspace({
         </div>
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
@@ -2252,6 +2276,8 @@ export function ClientWorkspace({
             messages={account.thread}
             onPost={onPost}
             topics={account.campaigns.map((c) => c.name)}
+            taskTitles={tasks.map((t) => t.title)}
+            fileNames={[...account.files, ...account.docs].map((f) => f.name)}
             mentionRoster={buildMentionRoster(account, people)}
             onQuickAdd={(name) => {
               const person = people.find((p) => p.name === name);
