@@ -456,6 +456,7 @@ export function App() {
         liveDetail={liveStatus.detail}
         onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
         onHome={() => setRoute({ view: "clients" })}
+        onSettings={() => setTeamOpen(true)}
         signedIn={signedIn}
         email={email}
         ssoConfigured={ssoConfigured}
@@ -480,6 +481,9 @@ export function App() {
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
             ✦ Take the tour
+          </button>
+          <button type="button" className="nav-pill" onClick={() => setTeamOpen(true)} title="Add team members and set sign-in passwords">
+            Team{ws.team.length > 0 ? ` (${ws.team.length})` : ""}
           </button>
           <SearchBox accounts={ws.accounts} initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />
         </div>
