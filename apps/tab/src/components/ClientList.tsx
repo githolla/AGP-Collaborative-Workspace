@@ -539,7 +539,7 @@ function ClientDirectory({
   );
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+    <div className="card" data-tour="directory" style={{ padding: 0, overflow: "hidden" }}>
       {/* Title + provenance + copy/search */}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "14px 16px 10px" }}>
         <div>
@@ -588,7 +588,7 @@ function ClientDirectory({
       </div>
 
       {/* Sort tab strip + collaboration filter dropdowns — the Client-Health control bar. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 12px", borderBottom: `1px solid ${T.grid}` }}>
+      <div data-tour="sort" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 12px", borderBottom: `1px solid ${T.grid}` }}>
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Sort</span>
         <span style={{ display: "inline-flex", gap: 2, background: T.grid, borderRadius: 9, padding: 3 }}>
           {SORTS.map((s) => sortTab(s.key, s.label))}

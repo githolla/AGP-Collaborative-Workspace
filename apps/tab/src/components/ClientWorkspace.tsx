@@ -491,42 +491,88 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
  * up"): AGP's service-line playbooks as dated task skeletons. Pick, set a
  * start date, see the shape, apply — re-applying never duplicates.
  */
+const templateWeeks = (t: (typeof TEMPLATES)[number]) => Math.max(1, Math.round((t.tasks[t.tasks.length - 1]?.offsetDays ?? 0) / 7));
+
 function TemplatePicker({ onApply }: { onApply: (templateKey: string, startDate: string) => void }) {
   const [key, setKey] = useState(TEMPLATES[0]?.key ?? "");
   const [start, setStart] = useState(AS_OF_TODAY());
+  const [applied, setApplied] = useState(false);
   const tpl = TEMPLATES.find((t) => t.key === key);
   if (!tpl) return null;
   const preview = instantiateTemplate(tpl, start);
-  const weeks = Math.max(1, Math.round((tpl.tasks[tpl.tasks.length - 1]?.offsetDays ?? 0) / 7));
+  const weeks = templateWeeks(tpl);
 
   return (
     <div style={card}>
-      <SectionTitle
-        right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>consistent set up — the same playbook every time</span>}
-      >
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>the same playbook every time — consistent set up</span>}>
         Start from a template
       </SectionTitle>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <select className="select" value={key} onChange={(e) => setKey(e.target.value)} aria-label="Template">
-          {TEMPLATES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.name} ({t.tasks.length} tasks · ~{Math.max(1, Math.round((t.tasks[t.tasks.length - 1]?.offsetDays ?? 0) / 7))} wks)
-            </option>
-          ))}
-        </select>
-        <label style={{ fontSize: 11.5, color: T.inkSecondary, display: "flex", alignItems: "center", gap: 6 }}>
-          starting
-          <input type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} style={{ padding: "7px 10px", fontSize: 12 }} />
-        </label>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => onApply(tpl.key, start)}>
-          Apply — add {tpl.tasks.length} dated tasks →
-        </button>
+
+      {/* Pick a playbook — tiles, not a dropdown, so the choice is visual. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+        {TEMPLATES.map((t) => {
+          const on = t.key === key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => { setKey(t.key); setApplied(false); }}
+              aria-pressed={on}
+              style={{
+                textAlign: "left",
+                cursor: "pointer",
+                borderRadius: 10,
+                padding: "10px 12px",
+                background: on ? "#eef2fb" : "#fff",
+                border: `1.5px solid ${on ? T.roi.navy : T.grid}`,
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span aria-hidden style={{ width: 13, height: 13, borderRadius: "50%", flexShrink: 0, border: `2px solid ${on ? T.roi.navy : T.border}`, background: on ? T.roi.navy : "transparent", boxShadow: on ? "inset 0 0 0 2px #fff" : "none" }} />
+                <span style={{ fontSize: 13, fontWeight: 800, color: T.roi.navy }}>{t.name}</span>
+              </span>
+              <span style={{ fontSize: 10.5, color: T.inkMuted }}>{t.tasks.length} tasks · ~{templateWeeks(t)} weeks · {t.serviceLine}</span>
+              <span style={{ fontSize: 11, color: T.inkSecondary, lineHeight: 1.4 }}>{t.description}</span>
+            </button>
+          );
+        })}
       </div>
-      <div style={{ fontSize: 11.5, color: T.inkSecondary, marginTop: 8, lineHeight: 1.5 }}>
-        {tpl.description} Over ~{weeks} weeks:{" "}
-        {preview.slice(0, 3).map((t) => `${t.title} (${fmtDay(t.due)})`).join(" · ")}
-        {preview.length > 3 ? ` · +${preview.length - 3} more` : ""}. Tasks land labeled “{tpl.name}” —
-        assign owners as the team firms up; already-existing titles are never duplicated.
+
+      {/* Start date + a mini timeline preview of what will land. */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+        <label style={{ fontSize: 11.5, color: T.inkSecondary, display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
+          Start date
+          <input type="date" className="input" value={start} onChange={(e) => { setStart(e.target.value); setApplied(false); }} style={{ padding: "7px 10px", fontSize: 12 }} />
+        </label>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>
+          {tpl.tasks.length} dated tasks over ~{weeks} weeks · ends {fmtDay(preview[preview.length - 1]?.due ?? start)}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+        {preview.slice(0, 5).map((t, i) => (
+          <span key={i} style={{ display: "inline-flex", alignItems: "baseline", gap: 5, fontSize: 10.5, background: "#f4f6fa", borderRadius: 6, padding: "3px 8px", color: T.ink }}>
+            <span style={{ fontWeight: 700, color: T.roi.navy, fontVariantNumeric: "tabular-nums" }}>{fmtDay(t.due).split(",")[0]}</span>
+            <span style={{ color: T.inkSecondary }}>{t.title}</span>
+          </span>
+        ))}
+        {preview.length > 5 && <span style={{ fontSize: 10.5, color: T.inkMuted, alignSelf: "center" }}>+{preview.length - 5} more</span>}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => { onApply(tpl.key, start); setApplied(true); }}
+        >
+          Apply “{tpl.name}” — add {tpl.tasks.length} tasks →
+        </button>
+        {applied && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Added to the plan — assign owners on the Project Plan tab</span>}
+      </div>
+      <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
+        Tasks land labeled “{tpl.name}”. Owners are added as the team firms up; already-existing titles are never duplicated, so you can apply more than one playbook safely.
       </div>
     </div>
   );
@@ -558,8 +604,10 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   const open = tasks.filter((t) => t.status !== "done");
+  // Actually THIS week: due from today through the next 7 days. (Past-due
+  // tasks are overdue, not "due this week" — they surface on the plan, not here.)
   const dueThisWeek = open
-    .filter((t) => t.due && t.due <= weekOut)
+    .filter((t) => t.due && t.due >= today && t.due <= weekOut)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
   const byStatus = (s: TaskStatus) => tasks.filter((t) => t.status === s);
   const milestones = account.campaigns
