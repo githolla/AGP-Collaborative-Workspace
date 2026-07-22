@@ -4,6 +4,15 @@ import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 
+/** "2026-04-13" → "Apr 13" (UTC, no weekday) for compact due labels. */
+function shortDay(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+/** Whole days from `today` to `iso` (positive = future, negative = past). */
+function daysUntil(iso: string, today: string): number {
+  return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+}
+
 /**
  * Shared tasks (Collab Hub Must): owners, due dates, status; list + board
  * views with owner/status filters; quick-add. Plan-seeded tasks carry a phase
@@ -44,10 +53,26 @@ function StatusChip({ task, onAdvance }: { task: Task; onAdvance: () => void }) 
 
 function DueBadge({ due, status }: { due?: string; status: TaskStatus }) {
   if (!due) return null;
-  const overdue = status !== "done" && due < AS_OF_TODAY();
+  const today = AS_OF_TODAY();
+  const overdue = status !== "done" && due < today;
+  // Say HOW overdue, not a bare past date — so "due 04-13" on Jul 22 reads as
+  // a stale carryover ("3 mo overdue"), not a deadline that makes no sense.
+  let text: string;
+  if (overdue) {
+    const late = -daysUntil(due, today); // whole days past due
+    text =
+      late >= 60 ? `${Math.round(late / 30)} mo overdue`
+      : late >= 14 ? `${Math.round(late / 7)} wk overdue`
+      : late <= 1 ? "1 day overdue"
+      : `${late} days overdue`;
+  } else if (due === today) {
+    text = "due today";
+  } else {
+    text = `due ${shortDay(due)}`;
+  }
   return (
-    <span style={{ fontSize: 10.5, color: overdue ? T.status.critical : T.inkMuted, fontVariantNumeric: "tabular-nums", fontWeight: overdue ? 700 : 400 }}>
-      {overdue ? "⚠ " : ""}due {due.slice(5)}
+    <span title={`Due ${shortDay(due)}, ${due.slice(0, 4)}`} style={{ fontSize: 10.5, color: overdue ? T.status.critical : T.inkMuted, fontVariantNumeric: "tabular-nums", fontWeight: overdue ? 700 : 400, whiteSpace: "nowrap" }}>
+      {overdue ? "⚠ " : ""}{text}
     </span>
   );
 }
@@ -93,6 +118,26 @@ export function TasksCard({
         (dueFilter === "week" && !!t.due && t.due >= today && t.due <= weekOut)),
   );
   const done = tasks.filter((t) => t.status === "done").length;
+  const overdueCount = tasks.filter((t) => t.status !== "done" && !!t.due && t.due < today).length;
+
+  // Read top-to-bottom in the order a person cares about: what's past due
+  // first (most overdue first), then what's coming up by date, then undated,
+  // then done at the bottom. Import order is meaningless; this isn't.
+  const rank = (t: Task): number => {
+    if (t.status === "done") return 3;
+    if (t.due && t.due < today) return 0; // overdue, needs attention
+    if (t.due) return 1; // scheduled ahead
+    return 2; // no date
+  };
+  const ordered = [...filtered].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (a.due && b.due) return a.due.localeCompare(b.due); // oldest/soonest first
+    if (a.due) return -1;
+    if (b.due) return 1;
+    return 0;
+  });
 
   const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
@@ -218,7 +263,7 @@ export function TasksCard({
       )}
 
       {view === "list" ? (
-        <div>{filtered.map((t) => taskLine(t))}</div>
+        <div>{ordered.map((t) => taskLine(t))}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           {(Object.keys(STATUS_LABEL) as TaskStatus[]).map((status) => (
@@ -238,6 +283,12 @@ export function TasksCard({
           <div style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.5 }}>
             Add the first one below — or promote an idea from the Sandbox and its plan arrives here as tasks.
           </div>
+        </div>
+      )}
+      {view === "list" && overdueCount > 0 && (
+        <div style={{ fontSize: 11, color: T.inkMuted, padding: "10px 2px 0", lineHeight: 1.5 }}>
+          {overdueCount} past-due {overdueCount === 1 ? "item is" : "items are"} open in Kantata with a due date that has passed —
+          mark {overdueCount === 1 ? "it" : "them"} Done here (or close in Kantata) and {overdueCount === 1 ? "it" : "they"} clear.
         </div>
       )}
       {tasks.length > 0 && filtered.length === 0 && (

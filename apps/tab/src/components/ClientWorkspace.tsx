@@ -493,18 +493,45 @@ function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveCo
  */
 const templateWeeks = (t: (typeof TEMPLATES)[number]) => Math.max(1, Math.round((t.tasks[t.tasks.length - 1]?.offsetDays ?? 0) / 7));
 
-function TemplatePicker({ onApply }: { onApply: (templateKey: string, startDate: string) => void }) {
+function TemplatePicker({ onApply, startCollapsed = false }: { onApply: (templateKey: string, startDate: string) => void; startCollapsed?: boolean }) {
   const [key, setKey] = useState(TEMPLATES[0]?.key ?? "");
   const [start, setStart] = useState(AS_OF_TODAY());
   const [applied, setApplied] = useState(false);
+  // On a plan that already has tasks, don't dominate the page with a fresh
+  // "kickoff" playbook — collapse to a quiet bar the AM opens on purpose.
+  const [open, setOpen] = useState(!startCollapsed);
   const tpl = TEMPLATES.find((t) => t.key === key);
   if (!tpl) return null;
   const preview = instantiateTemplate(tpl, start);
   const weeks = templateWeeks(tpl);
 
+  if (!open) {
+    return (
+      <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "12px 16px" }}>
+        <span style={{ fontSize: 12, color: T.inkSecondary }}>
+          <b style={{ color: T.roi.navy }}>Add a service-line playbook</b> — a dated task skeleton for how AGP runs Direct Mail, Digital Fundraising, GivingDNA, or a Mid-Major sprint.
+        </span>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
+          ＋ Choose a template
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={card}>
-      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>the same playbook every time — consistent set up</span>}>
+      <SectionTitle
+        right={
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 10.5, color: T.inkMuted }}>the same playbook every time — consistent set up</span>
+            {startCollapsed && (
+              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>
+                Close
+              </button>
+            )}
+          </span>
+        }
+      >
         Start from a template
       </SectionTitle>
 
@@ -569,7 +596,7 @@ function TemplatePicker({ onApply }: { onApply: (templateKey: string, startDate:
         >
           Apply “{tpl.name}” — add {tpl.tasks.length} tasks →
         </button>
-        {applied && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Added to the plan — assign owners on the Project Plan tab</span>}
+        {applied && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Added below — set owners and dates in the task list</span>}
       </div>
       <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
         Tasks land labeled “{tpl.name}”. Owners are added as the team firms up; already-existing titles are never duplicated, so you can apply more than one playbook safely.
@@ -1988,7 +2015,7 @@ export function ClientWorkspace({
       )}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} />}
+          {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
