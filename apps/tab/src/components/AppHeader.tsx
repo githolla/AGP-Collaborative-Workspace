@@ -109,6 +109,10 @@ export interface AppHeaderProps {
   email?: string | null;
   ssoConfigured?: boolean;
   onSignIn?: () => void;
+  /** Interim email+password sign-in; returns true on success. */
+  onSignInPassword?: (email: string, password: string) => Promise<boolean>;
+  /** Open the team-members admin. */
+  onManageTeam?: () => void;
 }
 
 /** A little Microsoft logo — four coloured squares. */
@@ -131,12 +135,35 @@ interface ProfileMenuProps {
   ssoConfigured?: boolean;
   onSignIn?: () => void;
   onSignOut?: () => void;
+  /** Interim email+password sign-in; returns true on success. */
+  onSignInPassword?: (email: string, password: string) => Promise<boolean>;
+  /** Open the team-members admin (add people + passwords). */
+  onManageTeam?: () => void;
 }
 
-/** Click the avatar → the profile panel: identity, Microsoft sign-in, name. */
-function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, onSignIn, onSignOut }: ProfileMenuProps) {
+/** Click the avatar → the profile panel: identity, sign-in, name. */
+function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, onSignIn, onSignOut, onSignInPassword, onManageTeam }: ProfileMenuProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(userName);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+  const [loginErr, setLoginErr] = useState<string | null>(null);
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  const doLogin = async () => {
+    if (!onSignInPassword || !loginEmail.trim() || !loginPw) return;
+    setLoggingIn(true);
+    setLoginErr(null);
+    const ok = await onSignInPassword(loginEmail.trim(), loginPw);
+    setLoggingIn(false);
+    if (ok) {
+      setLoginEmail("");
+      setLoginPw("");
+      setOpen(false);
+    } else {
+      setLoginErr("Email or password is incorrect.");
+    }
+  };
 
   const toggle = () => {
     setDraft(userName);
@@ -173,12 +200,32 @@ function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, o
               </>
             ) : (
               <>
+                {/* Interim email + password sign-in */}
+                {onSignInPassword && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "#52514e" }}>Sign in</div>
+                    <input className="input" style={{ fontSize: 12.5 }} placeholder="Email" type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} />
+                    <input
+                      className="input"
+                      style={{ fontSize: 12.5 }}
+                      placeholder="Password"
+                      type="password"
+                      value={loginPw}
+                      onChange={(e) => setLoginPw(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void doLogin(); }}
+                    />
+                    {loginErr && <div style={{ fontSize: 11, color: "#c0392b" }}>{loginErr}</div>}
+                    <button type="button" className="btn btn-primary btn-sm" disabled={loggingIn} onClick={() => void doLogin()}>
+                      {loggingIn ? "Signing in…" : "Sign in"}
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={ssoConfigured ? onSignIn : undefined}
                   disabled={!ssoConfigured}
                   style={{
-                    display: "flex", alignItems: "center", gap: 9, width: "100%", justifyContent: "center",
+                    display: "flex", alignItems: "center", gap: 9, width: "100%", justifyContent: "center", marginTop: 8,
                     background: "#fff", border: "1px solid #8c8c8c", borderRadius: 6, padding: "8px 10px",
                     fontSize: 12.5, fontWeight: 600, color: "#3c3c3c", cursor: ssoConfigured ? "pointer" : "not-allowed",
                     opacity: ssoConfigured ? 1 : 0.6,
@@ -189,9 +236,14 @@ function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, o
                 <div style={{ fontSize: 10, color: "#8a887f", marginTop: 6, lineHeight: 1.5 }}>
                   {ssoConfigured
                     ? "Single sign-on via your Allegiance Microsoft 365 account."
-                    : "Add the Azure app registration (VITE_ENTRA_TENANT_ID / VITE_ENTRA_CLIENT_ID) to enable single sign-on. Until then, set a display name below."}
+                    : "Microsoft SSO turns on once Azure is wired — email + password is the interim sign-in."}
                 </div>
               </>
+            )}
+            {onManageTeam && (
+              <button type="button" className="btn-link" style={{ fontSize: 11, marginTop: 10 }} onClick={() => { setOpen(false); onManageTeam(); }}>
+                Manage team members →
+              </button>
             )}
           </div>
 
@@ -227,7 +279,7 @@ function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, o
   );
 }
 
-export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut, onHome, signedIn = false, email = null, ssoConfigured = false, onSignIn }: AppHeaderProps) {
+export function AppHeader({ userName, onChangeName, live = false, liveLabel, liveDetail, onRefreshData, onSettings, onSignOut, onHome, signedIn = false, email = null, ssoConfigured = false, onSignIn, onSignInPassword, onManageTeam }: AppHeaderProps) {
   return (
     <header style={styles.bar}>
       <div style={styles.left}>
@@ -281,6 +333,8 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
           ssoConfigured={ssoConfigured}
           {...(onSignIn ? { onSignIn } : {})}
           {...(onSignOut ? { onSignOut } : {})}
+          {...(onSignInPassword ? { onSignInPassword } : {})}
+          {...(onManageTeam ? { onManageTeam } : {})}
         />
       </div>
     </header>

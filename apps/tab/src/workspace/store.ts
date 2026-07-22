@@ -9,6 +9,7 @@ import { deepenWorkspaces } from "./liveMirror.js";
 import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, type AgpPerson, type MirrorStaff } from "./agpKnowledge.js";
+import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
@@ -28,6 +29,8 @@ interface PersistedState {
   initiatives: Initiative[];
   ideas: SandboxIdea[];
   accounts: ClientAccount[];
+  /** Interim sign-in accounts (email + hashed password) until Entra SSO. */
+  team: TeamAccount[];
 }
 
 /** Older stored ideas predate newer fields — backfill them by re-drafting. */
@@ -85,6 +88,7 @@ function migrateState(parsed: Partial<PersistedState>): PersistedState {
     initiatives: (Array.isArray(parsed.initiatives) ? parsed.initiatives : []).filter((i) => !DEMO_SEED_IDS.has(i.id)).map(migrateInitiative),
     ideas: (Array.isArray(parsed.ideas) ? parsed.ideas : []).filter((i) => !DEMO_SEED_IDS.has(i.id)).map(migrateIdea),
     accounts: (Array.isArray(parsed.accounts) ? parsed.accounts : []).filter((a) => !DEMO_SEED_IDS.has(a.id)).map(migrateAccount),
+    team: Array.isArray(parsed.team) ? parsed.team : [],
   };
 }
 
@@ -98,7 +102,7 @@ function load(): PersistedState {
   } catch {
     // corrupted storage falls through to an empty (live-only) state
   }
-  return { initiatives: [], ideas: [], accounts: [] };
+  return { initiatives: [], ideas: [], accounts: [], team: [] };
 }
 
 /** Shared-persistence status, surfaced in the footer so the truth is visible. */
@@ -232,7 +236,7 @@ function buildRoster(staff?: MirrorStaff[]): AgpPerson[] {
 
 export function useWorkspace() {
   const [state, setState] = useState<PersistedState>(load);
-  const { initiatives, ideas, accounts } = state;
+  const { initiatives, ideas, accounts, team } = state;
   // The live AGP team from Kantata (mirror.staff), falling back to the bundled
   // roster. Recomputed when the live mirror's staff array changes identity.
   const roster = useMemo(() => buildRoster(loadMirror().staff), [loadMirror().staff]);
@@ -1312,6 +1316,32 @@ export function useWorkspace() {
     [accounts, initiatives, setAccountTaskStatus, setTaskStatus],
   );
 
+  // ---- interim team sign-in accounts (email + password) ------------------
+  /** Create a sign-in account for a team member. Async: hashes the password.
+   * Returns an error string, or null on success. Idempotent by email. */
+  const addSignInAccount = useCallback(
+    async (name: string, email: string, title: string, password: string): Promise<string | null> => {
+      const clean = email.trim().toLowerCase();
+      if (!name.trim() || !clean || !password) return "Name, email, and password are required.";
+      if (password.length < 6) return "Password must be at least 6 characters.";
+      if (stateRef.current.team.some((t) => t.email === clean)) return "That email already has an account.";
+      const acct = await makeTeamAccount(newId("user"), name, clean, title, password, new Date().toISOString());
+      setState((s) => (s.team.some((t) => t.email === clean) ? s : { ...s, team: [...s.team, acct] }));
+      return null;
+    },
+    [],
+  );
+
+  const removeSignInAccount = useCallback((id: string) => {
+    setState((s) => ({ ...s, team: s.team.filter((t) => t.id !== id) }));
+  }, []);
+
+  /** Verify an email+password against the team accounts. */
+  const signInWithPassword = useCallback(
+    (email: string, password: string): Promise<LocalIdentity | null> => authenticate(email, password, stateRef.current.team),
+    [],
+  );
+
   const resetDemo = useCallback(() => {
     if (
       syncStatus.mode === "shared" &&
@@ -1320,7 +1350,7 @@ export function useWorkspace() {
       return;
     }
     window.localStorage.removeItem(STORAGE_KEY);
-    setState({ initiatives: [], ideas: [], accounts: [] });
+    setState((s) => ({ initiatives: [], ideas: [], accounts: [], team: s.team }));
   }, [syncStatus.mode]);
 
   return {
@@ -1374,6 +1404,10 @@ export function useWorkspace() {
     setTaskStatus,
     setArchived,
     availablePeople: roster,
+    team,
+    addSignInAccount,
+    removeSignInAccount,
+    signInWithPassword,
     resetDemo,
     syncStatus,
   };

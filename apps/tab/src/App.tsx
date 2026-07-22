@@ -9,8 +9,10 @@ import { DataInspector } from "./components/DataInspector.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
+import { TeamManager } from "./components/TeamManager.js";
 import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
+import { clearIdentity, loadIdentity, saveIdentity, type LocalIdentity } from "./auth/localAuth.js";
 import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
@@ -152,7 +154,27 @@ function PageIntro({ title, children }: { title: string; children: React.ReactNo
 
 export function App() {
   const ws = useWorkspace();
-  const { name: userName, setName, signedIn, email, ssoConfigured, signIn, signOut } = useProfile();
+  const { name: userName, setName, signedIn: ssoSignedIn, email: ssoEmail, ssoConfigured, signIn, signOut: ssoSignOut } = useProfile();
+  // Interim email+password identity (until Entra SSO). Persisted per-browser.
+  const [localId, setLocalId] = useState<LocalIdentity | null>(() => loadIdentity());
+  const [teamOpen, setTeamOpen] = useState(false);
+  const signedIn = ssoSignedIn || localId != null;
+  const email = localId?.email ?? ssoEmail;
+  const handlePasswordSignIn = async (em: string, pw: string): Promise<boolean> => {
+    const id = await ws.signInWithPassword(em, pw);
+    if (!id) return false;
+    saveIdentity(id);
+    setLocalId(id);
+    setName(id.name);
+    return true;
+  };
+  const handleSignOut = () => {
+    if (localId) {
+      clearIdentity();
+      setLocalId(null);
+    }
+    if (ssoSignedIn) ssoSignOut();
+  };
   // Auto-start the walkthrough on first visit; the nav button restarts it.
   const [tourStep, setTourStep] = useState<number | null>(() => {
     try {
@@ -438,7 +460,9 @@ export function App() {
         email={email}
         ssoConfigured={ssoConfigured}
         onSignIn={signIn}
-        onSignOut={signOut}
+        onSignOut={handleSignOut}
+        onSignInPassword={handlePasswordSignIn}
+        onManageTeam={() => setTeamOpen(true)}
       />
 
       {/* Persistent navigation — visible on every page, including workspaces. */}
@@ -681,6 +705,7 @@ export function App() {
       </div>
 
       {tourStep !== null && <Tour steps={TOUR_STEPS} step={tourStep} onStep={setTourStep} onClose={closeTour} />}
+      <TeamManager open={teamOpen} team={ws.team} onAdd={ws.addSignInAccount} onRemove={ws.removeSignInAccount} onClose={() => setTeamOpen(false)} />
     </div>
   );
 }
