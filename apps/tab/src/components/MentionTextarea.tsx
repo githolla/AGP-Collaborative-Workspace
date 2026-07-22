@@ -23,29 +23,35 @@ export function mentionQueryAt(text: string, caret: number): { anchor: number; q
   return { anchor: caret - query.length - 1, query };
 }
 
-/** Rank roster people for a mention query: substring match (case-insensitive),
- * on-account first, names whose start matches the query above mid-word hits. */
+/**
+ * Rank roster people for a mention query. Matching is PREFIX-based (like Slack
+ * / Teams): the query must start the full name or one of its words — so typing
+ * letters visibly narrows the list. A plain substring ("a") is NOT a match, or
+ * every name with an "a" would show and it'd look like nothing filtered. As a
+ * last resort, if nothing prefix-matches, fall back to substring so a rare
+ * mid-word search still finds someone. On-account people rank first.
+ */
 export function matchMentions(roster: readonly MentionPerson[], query: string, limit = 7): MentionPerson[] {
   const q = query.trim().toLowerCase();
-  const scored = roster
-    .map((p) => {
-      const name = p.name.toLowerCase();
-      const parts = name.split(/\s+/);
-      let score = -1;
-      if (!q) score = 0;
-      else if (name.startsWith(q)) score = 3;
-      else if (parts.some((w) => w.startsWith(q))) score = 2;
-      else if (name.includes(q)) score = 1;
-      return { p, score };
-    })
-    .filter((x) => x.score >= 0)
-    .sort(
-      (a, b) =>
-        Number(b.p.onAccount) - Number(a.p.onAccount) ||
-        b.score - a.score ||
-        a.p.name.localeCompare(b.p.name),
-    );
-  return scored.slice(0, limit).map((x) => x.p);
+  const score = (name: string): number => {
+    if (!q) return 0;
+    const parts = name.split(/\s+/);
+    if (name.startsWith(q)) return 3; // whole name starts with query
+    if (parts.some((w) => w.startsWith(q))) return 2; // a word starts with query
+    return -1; // not a prefix match
+  };
+  const rank = (list: { p: MentionPerson; s: number }[]) =>
+    list
+      .sort((a, b) => Number(b.p.onAccount) - Number(a.p.onAccount) || b.s - a.s || a.p.name.localeCompare(b.p.name))
+      .slice(0, limit)
+      .map((x) => x.p);
+
+  const prefix = roster.map((p) => ({ p, s: score(p.name.toLowerCase()) })).filter((x) => x.s >= 0);
+  if (prefix.length > 0 || !q) return rank(prefix);
+
+  // Fallback: no prefix hits — allow substring so a mid-word query still works.
+  const sub = roster.filter((p) => p.name.toLowerCase().includes(q)).map((p) => ({ p, s: 0 }));
+  return rank(sub);
 }
 
 /**

@@ -24,19 +24,25 @@ describe("mentionQueryAt", () => {
 });
 
 describe("matchMentions", () => {
-  it("narrows as letters are typed (case-insensitive)", () => {
+  it("narrows by prefix as letters are typed (case-insensitive)", () => {
     expect(matchMentions(ROSTER, "").length).toBe(5);
-    expect(matchMentions(ROSTER, "a").map((p) => p.name)).toEqual(
-      expect.arrayContaining(["Amy Warren", "Aubrey Ranas", "Janine Penner", "Madison Olson"]),
-    );
+    // "a" matches names whose first OR last name starts with "a" — Amy, Aubrey,
+    // and Dom *Spinosa*? no. Not everyone-with-an-a (that's the bug we fixed).
+    expect(matchMentions(ROSTER, "a").map((p) => p.name).sort()).toEqual(["Amy Warren", "Aubrey Ranas"]);
+    expect(matchMentions(ROSTER, "au").map((p) => p.name)).toEqual(["Aubrey Ranas"]);
     expect(matchMentions(ROSTER, "am").map((p) => p.name)).toEqual(["Amy Warren"]);
-    expect(matchMentions(ROSTER, "spin").map((p) => p.name)).toEqual(["Dom Spinosa"]);
+    expect(matchMentions(ROSTER, "spin").map((p) => p.name)).toEqual(["Dom Spinosa"]); // word-prefix
     expect(matchMentions(ROSTER, "zzz")).toEqual([]);
   });
 
-  it("puts on-account people first, then start-of-name matches", () => {
-    // 'do' matches Dom (on-account, starts) and Madison (mid-word 'do'n't).
-    const names = matchMentions(ROSTER, "d").map((p) => p.name);
-    expect(names[0]).toBe("Dom Spinosa"); // on-account wins
+  it("does not treat a mid-word letter as a match", () => {
+    // "o" appears in Dom, Spinosa, Olson, etc. — but starts only "Olson".
+    // No name/word starts with "o" except Madison *Olson*.
+    expect(matchMentions(ROSTER, "o").map((p) => p.name)).toEqual(["Madison Olson"]);
+  });
+
+  it("puts on-account people first", () => {
+    // "d" starts Dom (on-account). No fallback substring noise.
+    expect(matchMentions(ROSTER, "d").map((p) => p.name)).toEqual(["Dom Spinosa"]);
   });
 });
