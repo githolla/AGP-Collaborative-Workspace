@@ -106,6 +106,19 @@ motion) so identity, files, and audit all stay inside their tenant. IT provision
 the Azure target and gives us the **final URL** — which becomes the redirect URI
 in #1.
 
+**Division of responsibility once on Azure:** the Nine-67 side **just pushes
+code**. The **Azure owner (Ren) manages the environment** — the environment
+variables and backend config live in Azure, not in the code. So the flow is:
+AGP/IT hands over the **values** (tenant ID, client ID, Kantata token, any mail
+key), Ren **sets them as env vars in Azure** and runs the backend, and we push
+code that reads them. The env keys the Azure config needs:
+- **Build-time (baked into the web app):** `VITE_ENTRA_TENANT_ID`,
+  `VITE_ENTRA_CLIENT_ID` — must be present when the Azure pipeline **builds**.
+- **Runtime (backend / serverless):** `AUTH_REQUIRED=true`, `ENTRA_TENANT_ID`,
+  `ENTRA_CLIENT_ID`, the Kantata token, and any notification key.
+
+Ren owns setting these in Azure; we own the code that consumes them.
+
 ---
 
 ## 5. Kantata — the live data pull
@@ -116,13 +129,53 @@ in #1.
 
 ---
 
+## 6. Teams tab — embed the whole workspace inside Teams  *(optional, higher adoption)*
+
+Josh's "put this in Teams" idea: open the entire Nine-67 workspace as a **tab
+inside a Teams channel or chat**, so people never leave the tools they already
+use. This reuses the **same Entra app registration** from #1 — it is additive.
+
+**What the Nine-67 team builds (us):**
+- A **Teams app package** — a `manifest.json` plus two icons (color + outline).
+  Declares the app, the tab (a configurable channel/chat tab and/or a personal
+  tab), the content URL, and `validDomains`.
+- **Teams JS SDK** wiring — `microsoftTeams.app.initialize()`, and the tab
+  config page for configurable tabs.
+- Make the app **iframe-embeddable inside Teams** — the host must send
+  `Content-Security-Policy: frame-ancestors teams.microsoft.com *.teams.microsoft.com`
+  (and serve over HTTPS). Hosting/config change on our side.
+- **Teams SSO (silent sign-in)** so people are signed in automatically inside
+  Teams (this is the "Teams SSO later / M3" in ADR 0007).
+
+**What AGP's Microsoft / Teams admin does:**
+- On the **same Entra app**, enable **"Expose an API"**:
+  - Set the **Application ID URI** to `api://<app-domain>/<client-id>`.
+  - Add a delegated scope **`access_as_user`** (admin-consentable).
+  - **Pre-authorize the Teams client apps** for that scope (Microsoft's Teams
+    client IDs for desktop/mobile and web) so sign-in is silent — **and grant
+    admin consent.**
+- **Teams admin center:** either **allow custom app upload/sideloading** (for
+  the pilot — simplest), or **approve/publish** our app to the organization's
+  **app catalog** (a one-time admin step) so anyone can add the tab.
+
+**Minimum to pilot the Teams tab:** the same two IDs from #1, the "Expose an
+API" `access_as_user` scope + pre-authorized Teams clients + admin consent, and
+**custom app upload allowed** in Teams admin. Then a channel owner adds the tab.
+
+> Note: the Teams tab is a *packaging/embedding* layer on top of the running web
+> app — everything the app does (files, discussions, dashboard) works the same
+> whether opened in a browser or as a Teams tab. Sign-in and files still depend
+> on #1 and #2; the Teams tab does not replace them.
+
+---
+
 ## Who does what
 
 | Owner | Tasks |
 |---|---|
-| **AGP Microsoft / IT admin** | App registration + permissions + **admin consent**; turn on external sharing for the client sites; guest (B2B) policy; grant `Sites.Selected` to the specific sites; enable the Purview audit log; approve the Teams webhook. |
+| **AGP Microsoft / IT admin** | App registration + permissions + **admin consent**; turn on external sharing for the client sites; guest (B2B) policy; grant `Sites.Selected` to the specific sites; enable the Purview audit log; approve the Teams webhook. **For the Teams tab:** add the "Expose an API" `access_as_user` scope + pre-authorize the Teams clients (admin consent), and allow custom app upload or publish our app to the org app catalog. |
 | **AGP (Cara / Kellie)** | Confirm which docs are client-shareable and the file structure; pick the notification default; provide the Kantata token. |
-| **Nine-67 team (us)** | Wire the IDs; build the Graph per-document sharing + version/audit read + notifications; host on Azure. |
+| **Nine-67 team (us)** | Wire the IDs; build the Graph per-document sharing + version/audit read + notifications; host on Azure. **For the Teams tab:** build the Teams app package (manifest + icons), wire the Teams JS SDK + silent SSO, and make the app iframe-embeddable in Teams. |
 
 ## Minimum to pilot
 
