@@ -169,6 +169,31 @@ API" `access_as_user` scope + pre-authorized Teams clients + admin consent, and
 
 ---
 
+## How people access it
+
+**It's a normal web app at a normal URL** (e.g. `https://nine67.agp.com`, hosted
+on Azure). Everyone opens the same URL in any browser — the Teams tab is an
+**optional wrapper around that same URL**, never a replacement.
+
+- **AGP staff** — open the URL and sign in with **Microsoft SSO** (their AGP
+  account). They see their book of business / the workspaces they're on. If they
+  prefer Teams, they add the tab; if not, they just use the URL. **Both work at
+  once — same app, same data.**
+- **Clients** — open the same app (typically a direct link to *their* workspace)
+  and sign in. They see **only their own account** — no cross-visibility, no
+  internal financials — by rule.
+- **Contractors** — same as clients: a link + sign-in, scoped to what they're
+  granted (e.g. files-only or the tasks/docs they need).
+
+**Sign-in for clients & contractors** (two options, both supported):
+- **Microsoft guest (Entra B2B / email one-time-passcode)** — recommended once
+  M365 is connected; they use their own email, no AGP account needed.
+- **Email + password** — the interim sign-in already built, so external people
+  can get in before the Entra guest setup lands.
+
+So: no one is forced into Teams. Teams is there for people who live in it; the
+URL is there for everyone else — and it's the **same workspace** either way.
+
 ## Who does what
 
 | Owner | Tasks |
