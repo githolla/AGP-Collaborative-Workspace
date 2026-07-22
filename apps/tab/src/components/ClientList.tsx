@@ -370,6 +370,26 @@ function ago(iso: string, today: string): string {
   return `${Math.round(days / 30)}mo`;
 }
 
+/** Whole days between a date and today (Infinity if missing/unparseable). */
+function daysBetween(iso: string, today: string): number {
+  if (!iso) return Infinity;
+  const then = Date.parse(iso.length <= 10 ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(then)) return Infinity;
+  return Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - then) / 86_400_000));
+}
+
+/** The working state of a client, in a word — the meaning behind the row.
+ * Distinct from the Open-tasks count: this is health, not volume. */
+function activityStatus(
+  s: CollabStat,
+  today: string,
+): { label: string; fg: string; bg: string } {
+  if (s.overdue > 0) return { label: `${s.overdue} overdue`, fg: T.status.critical, bg: "#fbe4e4" };
+  if (s.open === 0) return { label: "All clear", fg: "#116a43", bg: "#e3f4ec" };
+  if (daysBetween(s.last, today) <= 14) return { label: "Active", fg: "#116a43", bg: "#e3f4ec" };
+  return { label: `Quiet · ${ago(s.last, today)}`, fg: "#8a6d1a", bg: "#faf3dc" };
+}
+
 /** Deterministic pastel for an initials chip — no data, just a stable hue. */
 function hue(name: string): number {
   let h = 0;
@@ -455,7 +475,6 @@ function ClientDirectory({
     };
   };
   const st = new Map(rows.map((r) => [r.name, statOf(r)]));
-  const maxOpen = Math.max(1, ...rows.map((r) => st.get(r.name)!.open));
 
   // Distinct filter values (collaboration lenses).
   const verticals = [...new Set(rows.map((r) => (r.vertical ? pretty(r.vertical) : "")).filter(Boolean))].sort();
@@ -543,8 +562,8 @@ function ClientDirectory({
     </label>
   );
 
-  const th = (label: string, align: "left" | "right" | "center" = "left") => (
-    <th style={{ textAlign: align, padding: "8px 12px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: T.inkMuted, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface, borderBottom: `1px solid ${T.grid}` }}>
+  const th = (label: string, align: "left" | "right" | "center" = "left", hint?: string) => (
+    <th title={hint} style={{ textAlign: align, padding: "8px 12px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: T.inkMuted, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface, borderBottom: `1px solid ${T.grid}`, cursor: hint ? "help" : undefined }}>
       {label}
     </th>
   );
@@ -620,12 +639,12 @@ function ClientDirectory({
           <thead>
             <tr>
               {th("Client")}
-              {th("Open", "center")}
+              {th("Open tasks", "center", "Tasks not yet done in this workspace — live from Kantata. Amber = some open, red = one or more past due.")}
               {th("Who's collaborating")}
               {th("Working on")}
-              {th("Activity")}
-              {th("Last update", "right")}
-              {th("Proj", "right")}
+              {th("Status", "left", "The working state at a glance: overdue (needs attention), Active (moved in the last 2 weeks), Quiet (no recent movement), or All clear (nothing open).")}
+              {th("Last update", "right", "How long since the most recent collaboration on this account.")}
+              {th("Proj", "right", "Live Kantata projects for this client.")}
             </tr>
           </thead>
           <tbody>
@@ -644,7 +663,7 @@ function ClientDirectory({
                 >
                   {/* Client — colored activity rail + name + TOP tag + vertical */}
                   <td style={{ padding: "9px 12px 9px 14px", position: "relative" }}>
-                    <span aria-hidden style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: r.accountId ? (s.last && ago(s.last, today).endsWith("d") ? "#3aa66f" : T.roi.navy) : T.grid }} />
+                    <span aria-hidden style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: r.accountId ? (daysBetween(s.last, today) <= 14 ? "#3aa66f" : T.roi.navy) : T.grid }} />
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontWeight: 800, color: T.roi.navy }}>{r.name}</span>
                       {r.name === topName && (
@@ -694,15 +713,22 @@ function ClientDirectory({
                       <span style={{ fontSize: 11, color: T.inkMuted }}>—</span>
                     )}
                   </td>
-                  {/* Activity bar — open tasks scaled to the busiest client */}
-                  <td style={{ padding: "9px 12px", minWidth: 130 }}>
+                  {/* Status — the working state in a word, from live signals */}
+                  <td style={{ padding: "9px 12px", minWidth: 120 }}>
                     {r.accountId ? (
-                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, height: 6, background: T.grid, borderRadius: 999, overflow: "hidden", minWidth: 54 }}>
-                          <span style={{ display: "block", height: "100%", width: `${Math.round((s.open / maxOpen) * 100)}%`, background: s.overdue > 0 ? T.status.critical : T.roi.navy, borderRadius: 999 }} />
-                        </span>
-                        <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{s.discussions} msg</span>
-                      </span>
+                      (() => {
+                        const st2 = activityStatus(s, today);
+                        return (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 800, color: st2.fg, background: st2.bg, borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                              {st2.label}
+                            </span>
+                            {s.discussions > 0 && (
+                              <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{s.discussions} msg</span>
+                            )}
+                          </span>
+                        );
+                      })()
                     ) : (
                       <span style={{ fontSize: 11, color: T.inkMuted }}>not set up</span>
                     )}
