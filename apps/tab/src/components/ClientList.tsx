@@ -321,7 +321,7 @@ export function ClientList({
       )}
 
       {mode === "list" && directory.length > 0 && (
-        <ClientDirectory rows={directory} live={candidatesLive} {...(directoryStats ? { stats: directoryStats } : {})} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
+        <ClientDirectory rows={directory} accounts={accounts} today={today} live={candidatesLive} {...(directoryStats ? { stats: directoryStats } : {})} onOpen={onOpen} onCreate={onCreateFromClient ?? onCreate} />
       )}
 
       {mode === "cards" && heroes.length > 0 && (
@@ -401,101 +401,209 @@ export function ClientList({
 const shortDay = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
-type SortKey = "name" | "vertical" | "liveProjects" | "nextMilestoneDate" | "workspace";
+type SortKey = "active" | "open" | "people" | "projects" | "name" | "vertical";
+
+/** Collaboration stats for a client, derived from its workspace (if any). */
+interface CollabStat {
+  people: number;
+  open: number;
+  overdue: number;
+  discussions: number;
+  last: string;
+  lead: string;
+}
+
+/** Short relative time — "3d", "2w", "—". Presentation only. */
+function ago(iso: string, today: string): string {
+  if (!iso) return "—";
+  const then = Date.parse(iso.length <= 10 ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(then)) return "—";
+  const days = Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - then) / 86_400_000));
+  if (days <= 0) return "today";
+  if (days === 1) return "1d";
+  if (days < 14) return `${days}d`;
+  if (days < 60) return `${Math.round(days / 7)}w`;
+  return `${Math.round(days / 30)}mo`;
+}
+
+/** Deterministic pastel for an initials chip — no data, just a stable hue. */
+function hue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return h;
+}
+
+/** Overlapping initials chips for the people on an account. */
+function PeopleCluster({ names }: { names: string[] }) {
+  if (names.length === 0) return <span style={{ fontSize: 11, color: T.inkMuted }}>—</span>;
+  const shown = names.slice(0, 3);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center" }}>
+      {shown.map((n, i) => {
+        const initials = n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+        return (
+          <span
+            key={n + i}
+            title={n}
+            style={{ width: 22, height: 22, marginLeft: i === 0 ? 0 : -7, borderRadius: "50%", border: "2px solid #fff", background: `hsl(${hue(n)} 42% 62%)`, color: "#fff", fontSize: 9, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+          >
+            {initials}
+          </span>
+        );
+      })}
+      {names.length > 3 && <span style={{ marginLeft: 4, fontSize: 10.5, color: T.inkMuted, fontWeight: 700 }}>+{names.length - 3}</span>}
+    </span>
+  );
+}
 
 /**
- * Sortable directory of every client the app sees — workspaces and
- * derived-from-Kantata alike. Click a header to sort; click a row to open
- * its workspace (or set one up). Pure presentation: rows arrive as data.
+ * Client directory, laid out like the Client-Health board but focused on
+ * COLLABORATION: sort and filter by the signals that matter for working
+ * together — activity, open tasks, people, projects — not budget or score.
+ * Pure presentation: rows arrive as data, stats are read off each workspace.
+ * No financials ever render here (guest-visible surface).
  */
 function ClientDirectory({
   rows,
+  accounts,
+  today,
   live,
   stats,
   onOpen,
   onCreate,
 }: {
   rows: DirectoryRow[];
+  accounts: ClientAccount[];
+  today: string;
   live: boolean;
   stats?: { colon: number; dash: number; verbatim: number };
   onOpen: (id: string) => void;
   onCreate: (name: string) => void;
 }) {
   const [q, setQ] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("liveProjects");
-  const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const [sortKey, setSortKey] = useState<SortKey>("active");
+  const [verticalFilter, setVerticalFilter] = useState("");
+  const [leadFilter, setLeadFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "workspace" | "setup">("");
   const [copied, setCopied] = useState(false);
 
+  // Collaboration stats per client, read off its workspace (plain-data props).
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const namesOf = (a: ClientAccount) => [...a.members.map((m) => m.name), ...a.externals.map((e) => e.name)];
+  const statOf = (r: DirectoryRow): CollabStat => {
+    const a = r.accountId ? byId.get(r.accountId) : undefined;
+    if (!a) return { people: 0, open: 0, overdue: 0, discussions: 0, last: "", lead: "" };
+    const open = a.tasks.filter((t) => t.status !== "done");
+    const times = [...a.activity.map((e) => e.at), ...a.thread.map((m) => m.at)].filter(Boolean).sort();
+    return {
+      people: namesOf(a).length,
+      open: open.length,
+      overdue: open.filter((t) => t.due && t.due < today).length,
+      discussions: a.thread.length,
+      last: times[times.length - 1] ?? "",
+      lead: a.members[0]?.name ?? "",
+    };
+  };
+  const st = new Map(rows.map((r) => [r.name, statOf(r)]));
+  const maxOpen = Math.max(1, ...rows.map((r) => st.get(r.name)!.open));
+
+  // Distinct filter values (collaboration lenses).
+  const verticals = [...new Set(rows.map((r) => (r.vertical ? pretty(r.vertical) : "")).filter(Boolean))].sort();
+  const leads = [...new Set([...st.values()].map((s) => s.lead).filter(Boolean))].sort();
+
   const needle = q.trim().toLowerCase();
-  const filtered = rows.filter(
-    (r) => !needle || r.name.toLowerCase().includes(needle) || (r.vertical ?? "").toLowerCase().includes(needle),
-  );
+  const filtered = rows.filter((r) => {
+    const s = st.get(r.name)!;
+    if (needle && !r.name.toLowerCase().includes(needle) && !(r.vertical ?? "").toLowerCase().includes(needle)) return false;
+    if (verticalFilter && (r.vertical ? pretty(r.vertical) : "") !== verticalFilter) return false;
+    if (leadFilter && s.lead !== leadFilter) return false;
+    if (statusFilter === "workspace" && !r.accountId) return false;
+    if (statusFilter === "setup" && r.accountId) return false;
+    return true;
+  });
   const sorted = [...filtered].sort((a, b) => {
+    const sa = st.get(a.name)!;
+    const sb = st.get(b.name)!;
     let d = 0;
     switch (sortKey) {
-      case "name":
-        d = a.name.localeCompare(b.name);
-        break;
-      case "vertical":
-        d = (a.vertical ?? "").localeCompare(b.vertical ?? "");
-        break;
-      case "liveProjects":
-        d = a.liveProjects - b.liveProjects;
-        break;
-      case "nextMilestoneDate":
-        d = (a.nextMilestoneDate ?? "9999-99-99").localeCompare(b.nextMilestoneDate ?? "9999-99-99");
-        break;
-      case "workspace":
-        d = Number(!!a.accountId) - Number(!!b.accountId);
-        break;
+      case "active": d = (sa.last || "").localeCompare(sb.last || ""); break; // most-recent first
+      case "open": d = sa.open - sb.open; break;
+      case "people": d = sa.people - sb.people; break;
+      case "projects": d = a.liveProjects - b.liveProjects; break;
+      case "name": return a.name.localeCompare(b.name);
+      case "vertical": return (a.vertical ?? "").localeCompare(b.vertical ?? "") || a.name.localeCompare(b.name);
     }
-    return (d || a.name.localeCompare(b.name)) * (dir === "asc" ? 1 : -1);
+    return -(d || a.name.localeCompare(b.name)); // high → low for the numeric/recency lenses
   });
 
-  const clickSort = (k: SortKey) => {
-    if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(k);
-      setDir(k === "name" || k === "vertical" ? "asc" : "desc"); // text A→Z, numbers/dates high→low
-    }
-  };
+  // The single most-collaborative client gets a "TOP" tag, like the board.
+  const topName = [...rows].sort((a, b) => {
+    const sa = st.get(a.name)!;
+    const sb = st.get(b.name)!;
+    return sb.people + sb.open + sb.discussions - (sa.people + sa.open + sa.discussions);
+  })[0]?.name;
 
   const withWorkspace = rows.filter((r) => r.accountId).length;
 
-  const th = (k: SortKey, label: string, align: "left" | "right" = "left") => (
-    <th
-      onClick={() => clickSort(k)}
+  const SORTS: { key: SortKey; label: string }[] = [
+    { key: "active", label: "Active" },
+    { key: "open", label: "Open tasks" },
+    { key: "people", label: "People" },
+    { key: "projects", label: "Projects" },
+    { key: "name", label: "Name" },
+    { key: "vertical", label: "Vertical" },
+  ];
+  const sortTab = (key: SortKey, label: string) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSortKey(key)}
       style={{
-        textAlign: align,
-        padding: "9px 12px",
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 700,
+        letterSpacing: 0.4,
         textTransform: "uppercase",
-        letterSpacing: 0.5,
-        color: sortKey === k ? T.roi.navy : T.inkMuted,
+        padding: "5px 12px",
+        borderRadius: 7,
+        border: "none",
         cursor: "pointer",
         whiteSpace: "nowrap",
-        userSelect: "none",
-        position: "sticky",
-        top: 0,
-        background: T.surface,
+        background: sortKey === key ? T.roi.navy : "transparent",
+        color: sortKey === key ? "#fff" : T.inkMuted,
       }}
     >
       {label}
-      <span aria-hidden style={{ opacity: sortKey === k ? 1 : 0.25 }}> {sortKey === k ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+    </button>
+  );
+
+  const filterBox = (label: string, value: string, set: (v: string) => void, options: { v: string; label: string }[]) => (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", background: T.surface }}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>{label}</span>
+      <select value={value} onChange={(e) => set(e.target.value)} style={{ border: "none", background: "none", fontSize: 12, fontWeight: 600, color: T.ink, cursor: "pointer", outline: "none" }}>
+        {options.map((o) => (
+          <option key={o.v} value={o.v}>{o.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const th = (label: string, align: "left" | "right" | "center" = "left") => (
+    <th style={{ textAlign: align, padding: "8px 12px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: T.inkMuted, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface, borderBottom: `1px solid ${T.grid}` }}>
+      {label}
     </th>
   );
 
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderBottom: `1px solid ${T.grid}` }}>
+      {/* Title + provenance + copy/search */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "14px 16px 10px" }}>
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>
             Client directory — {rows.length} {rows.length === 1 ? "client" : "clients"}
           </div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
             {withWorkspace} with a workspace · {rows.length - withWorkspace} not set up yet.
-            {live ? " Live from Kantata." : " Demo data."} Click any column to sort.
+            {live ? " Live from Kantata." : " Demo data."} Sort & filter by how the team collaborates.
           </div>
           {stats && (
             <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 3 }}>
@@ -529,24 +637,49 @@ function ClientDirectory({
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter by name or vertical…"
             className="input"
-            style={{ maxWidth: 240 }}
+            style={{ maxWidth: 220 }}
           />
         </span>
       </div>
+
+      {/* Sort tab strip + collaboration filter dropdowns — the Client-Health control bar. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 12px", borderBottom: `1px solid ${T.grid}` }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Sort</span>
+        <span style={{ display: "inline-flex", gap: 2, background: T.grid, borderRadius: 9, padding: 3 }}>
+          {SORTS.map((s) => sortTab(s.key, s.label))}
+        </span>
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, flexWrap: "wrap" }}>
+          {filterBox("Vertical", verticalFilter, setVerticalFilter, [{ v: "", label: "All" }, ...verticals.map((v) => ({ v, label: v }))])}
+          {leads.length > 0 && filterBox("Lead", leadFilter, setLeadFilter, [{ v: "", label: "All" }, ...leads.map((l) => ({ v: l, label: l }))])}
+          {filterBox("Status", statusFilter, (v) => setStatusFilter(v as "" | "workspace" | "setup"), [
+            { v: "", label: "All" },
+            { v: "workspace", label: "Has workspace" },
+            { v: "setup", label: "Not set up" },
+          ])}
+        </span>
+      </div>
+
       <div style={{ overflowX: "auto", maxHeight: 620, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
           <thead>
             <tr>
-              {th("name", "Client")}
-              {th("vertical", "Vertical")}
-              {th("liveProjects", "Live projects", "right")}
-              {th("nextMilestoneDate", "Next milestone")}
-              {th("workspace", "Workspace", "right")}
+              {th("Client")}
+              {th("Open", "center")}
+              {th("Lead")}
+              {th("Vertical")}
+              {th("People")}
+              {th("Activity")}
+              {th("Last update", "right")}
+              {th("Proj", "right")}
             </tr>
           </thead>
           <tbody>
             {sorted.map((r) => {
+              const s = st.get(r.name)!;
+              const a = r.accountId ? byId.get(r.accountId) : undefined;
               const go = () => (r.accountId ? onOpen(r.accountId) : onCreate(r.name));
+              const openColor = s.overdue > 0 ? T.status.critical : s.open > 0 ? "#8a6d1a" : T.inkMuted;
+              const openBg = s.overdue > 0 ? "#fbe4e4" : s.open > 0 ? "#faf3dc" : "#f0efec";
               return (
                 <tr
                   key={r.name}
@@ -554,33 +687,60 @@ function ClientDirectory({
                   onClick={go}
                   style={{ borderTop: `1px solid ${T.grid}`, cursor: "pointer" }}
                 >
-                  <td style={{ padding: "9px 12px", fontWeight: 700, color: T.roi.navy }}>{r.name}</td>
-                  <td style={{ padding: "9px 12px", color: T.inkSecondary }}>{r.vertical ? pretty(r.vertical) : "—"}</td>
-                  <td style={{ padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.liveProjects > 0 ? T.ink : T.inkMuted }}>
-                    {r.liveProjects}
+                  {/* Client — colored activity rail + name + TOP tag */}
+                  <td style={{ padding: "9px 12px 9px 14px", position: "relative" }}>
+                    <span aria-hidden style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: r.accountId ? (s.last && ago(s.last, today).endsWith("d") ? "#3aa66f" : T.roi.navy) : T.grid }} />
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontWeight: 800, color: T.roi.navy }}>{r.name}</span>
+                      {r.name === topName && (
+                        <span style={{ fontSize: 9, fontWeight: 800, color: "#116a43", background: "#e3f4ec", borderRadius: 4, padding: "1px 6px", letterSpacing: 0.4 }}>TOP</span>
+                      )}
+                    </span>
                   </td>
-                  <td style={{ padding: "9px 12px", color: r.nextMilestoneDate ? T.inkSecondary : T.inkMuted, whiteSpace: "nowrap", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {r.nextMilestoneDate ? (
-                      <>
-                        {shortDay(r.nextMilestoneDate)}
-                        {r.nextMilestone ? <span style={{ color: T.inkMuted }}> · {r.nextMilestone}</span> : null}
-                      </>
+                  {/* Open tasks — the numeric chip */}
+                  <td style={{ padding: "9px 12px", textAlign: "center" }}>
+                    <span style={{ display: "inline-block", minWidth: 30, fontSize: 12, fontWeight: 800, color: openColor, background: openBg, borderRadius: 7, padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>
+                      {r.accountId ? s.open : "—"}
+                    </span>
+                  </td>
+                  {/* Lead */}
+                  <td style={{ padding: "9px 12px", color: s.lead ? T.inkSecondary : T.inkMuted, whiteSpace: "nowrap", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {s.lead || (r.accountId ? "Unassigned" : "—")}
+                  </td>
+                  {/* Vertical */}
+                  <td style={{ padding: "9px 12px", color: T.inkSecondary, whiteSpace: "nowrap" }}>{r.vertical ? pretty(r.vertical) : "—"}</td>
+                  {/* People cluster */}
+                  <td style={{ padding: "9px 12px" }}>
+                    <PeopleCluster names={a ? namesOf(a) : []} />
+                  </td>
+                  {/* Activity bar — open tasks scaled to the busiest client */}
+                  <td style={{ padding: "9px 12px", minWidth: 130 }}>
+                    {r.accountId ? (
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ flex: 1, height: 6, background: T.grid, borderRadius: 999, overflow: "hidden", minWidth: 54 }}>
+                          <span style={{ display: "block", height: "100%", width: `${Math.round((s.open / maxOpen) * 100)}%`, background: s.overdue > 0 ? T.status.critical : T.roi.navy, borderRadius: 999 }} />
+                        </span>
+                        <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>{s.discussions} msg</span>
+                      </span>
                     ) : (
-                      "—"
+                      <span style={{ fontSize: 11, color: T.inkMuted }}>not set up</span>
                     )}
                   </td>
-                  <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: r.accountId ? T.roi.navy : T.inkMuted }}>
-                      {r.accountId ? "Open ›" : "Set up →"}
-                    </span>
+                  {/* Last update */}
+                  <td style={{ padding: "9px 12px", textAlign: "right", color: s.last ? T.inkSecondary : T.inkMuted, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                    {r.accountId ? ago(s.last, today) : "—"}
+                  </td>
+                  {/* Projects */}
+                  <td style={{ padding: "9px 14px 9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.liveProjects > 0 ? T.ink : T.inkMuted, whiteSpace: "nowrap" }}>
+                    {r.liveProjects}p
                   </td>
                 </tr>
               );
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: "18px 12px", color: T.inkMuted, textAlign: "center" }}>
-                  No clients match “{q}”.
+                <td colSpan={8} style={{ padding: "18px 12px", color: T.inkMuted, textAlign: "center" }}>
+                  No clients match these filters.
                 </td>
               </tr>
             )}
