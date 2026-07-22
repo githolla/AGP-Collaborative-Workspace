@@ -3,14 +3,14 @@ import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
-import type { MentionPerson } from "./MentionTextarea.js";
+import { MentionTextarea, type MentionPerson } from "./MentionTextarea.js";
 import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, fillHandoff } from "../workspace/handoffs.js";
-import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
+import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -842,7 +842,7 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
 
-function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; goTo?: (tab: ClientTab) => void }) {
+function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const today = AS_OF_TODAY();
@@ -852,6 +852,12 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
   const deliverables = tasks
     .filter((t) => t.clientVisible)
     .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"));
+  const openDeliverables = deliverables.filter((t) => t.status !== "done");
+  const nextUp = openDeliverables.find((t) => t.due && t.due >= today) ?? openDeliverables[0];
+  const overdueCount = deliverables.filter((t) => t.status !== "done" && t.due && t.due < today).length;
+  const dvDone = deliverables.filter((t) => t.status === "done").length;
+  const dvPct = deliverables.length > 0 ? Math.round((dvDone / deliverables.length) * 100) : 0;
+  const [dash, setDash] = useState("");
   // Client-safe by content: milestone titles and dates only — the full
   // schedule Kantata holds, not just each campaign's next milestone.
   const schedule = (liveContext?.projects ?? [])
@@ -878,6 +884,34 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
           workspaces — by rule, not by discipline.
         </span>
       </div>
+
+      {/* Status summary — the "job tracker" read the client wanted at a glance. */}
+      {deliverables.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          <div style={{ ...card, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: T.inkMuted }}>Progress</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: navy, marginTop: 2 }}>{dvPct}%</div>
+            <div style={{ height: 6, background: T.grid, borderRadius: 999, overflow: "hidden", marginTop: 6 }}>
+              <span style={{ display: "block", height: "100%", width: `${dvPct}%`, background: "#1f9457" }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 5 }}>{dvDone} of {deliverables.length} delivered</div>
+          </div>
+          <div style={{ ...card, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: T.inkMuted }}>Next up</div>
+            {nextUp ? (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginTop: 4, lineHeight: 1.3 }}>{nextUp.title}</div>
+                <div style={{ fontSize: 11, color: T.inkSecondary, marginTop: 3 }}>{nextUp.due ? fmtDay(nextUp.due) : "no date set"}</div>
+              </>
+            ) : <div style={{ fontSize: 12, color: T.inkMuted, marginTop: 4 }}>All caught up 🎉</div>}
+          </div>
+          <div style={{ ...card, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: T.inkMuted }}>Needs attention</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: overdueCount > 0 ? T.status.critical : "#1f9457", marginTop: 2 }}>{overdueCount}</div>
+            <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 5 }}>{overdueCount === 0 ? "nothing past due" : `past due — ${overdueCount === 1 ? "1 item" : `${overdueCount} items`}`}</div>
+          </div>
+        </div>
+      )}
 
       {/* Curated deliverables — the limited status view the client sees. */}
       <div style={card}>
@@ -1052,6 +1086,42 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
           <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{done}/{tasks.length} tasks complete</span>
         </div>
       </div>
+
+      {/* Discussion right on the dashboard — the client and team talk here too. */}
+      {onPost && (
+        <div style={card}>
+          <SectionTitle right={goTo ? <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => goTo("discussions")}>Open all discussions →</button> : undefined}>
+            Discussion
+          </SectionTitle>
+          {account.thread.length === 0 ? (
+            <div style={{ fontSize: 12, color: T.inkMuted, marginBottom: 8 }}>No messages yet — post an update or a question for the team.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
+              {account.thread.slice(-4).map((m) => (
+                <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid ${T.grid}`, borderRadius: 6, padding: "7px 9px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
+                    {m.topic && <span style={{ fontSize: 9, fontWeight: 800, color: navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px" }}>{m.topic}</span>}
+                    <span style={{ fontSize: 10, color: T.inkMuted }}>{m.at.slice(0, 10)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <MentionTextarea
+            value={dash}
+            onChange={setDash}
+            roster={mentionRoster}
+            onSubmit={() => { if (dash.trim()) { onPost(dash.trim()); setDash(""); } }}
+            rows={2}
+            placeholder="Post an update or question… (@ to mention, Ctrl+Enter to post)"
+          />
+          <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 6 }} disabled={!dash.trim()} onClick={() => { onPost(dash.trim()); setDash(""); }}>
+            Post
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1451,18 +1521,23 @@ function CollaborateHub({
  */
 function TaskDetail({
   task,
+  messages = [],
   onStatus,
   onPost,
   goTo,
   onClose,
 }: {
   task: Task;
+  /** The account thread — the task's own discussion history is filtered from it. */
+  messages?: ThreadMessage[];
   onStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string, topic?: string) => void;
   goTo: (t: ClientTab) => void;
   onClose: () => void;
 }) {
   const [note, setNote] = useState("");
+  // This task's own conversation — tied back by topic, oldest first.
+  const history = messages.filter((m) => m.topic === task.title);
   const fromKantata = task.label === "from Kantata";
   const overdue = task.status !== "done" && !!task.due && task.due < AS_OF_TODAY();
   const statusLabel: Record<TaskStatus, string> = { todo: "To do", doing: "In progress", done: "Done" };
@@ -1508,7 +1583,30 @@ function TaskDetail({
           ))}
         </div>
 
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "16px 0 6px" }}>Raise it with the team</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 6px" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>Discussion for this task</span>
+          {history.length > 0 && (
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { onClose(); goTo("discussions"); }}>See all {history.length} in Discussions →</button>
+          )}
+        </div>
+
+        {/* This task's own conversation history — tied back by topic. */}
+        {history.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto", marginBottom: 8 }}>
+            {history.map((m) => (
+              <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid ${T.grid}`, borderRadius: 6, padding: "7px 9px" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
+                  <span style={{ fontSize: 10, color: T.inkMuted }}>{m.at.slice(0, 10)}</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 11.5, color: T.inkMuted, marginBottom: 8 }}>No discussion yet — start one below. It stays tied to this task.</div>
+        )}
+
         <textarea
           className="textarea"
           rows={3}
@@ -1517,22 +1615,19 @@ function TaskDetail({
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          style={{ marginTop: 6, alignSelf: "flex-start" }}
-          disabled={!note.trim()}
-          onClick={() => {
-            onPost(note.trim(), task.title);
-            setNote("");
-            onClose();
-            goTo("discussions");
-          }}
-        >
-          Post to Discussions
-        </button>
-        <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
-          The note lands in Discussions filed under this task — so the conversation stays with the work, and everyone on the account can find it.
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={!note.trim()}
+            onClick={() => {
+              onPost(note.trim(), task.title);
+              setNote("");
+            }}
+          >
+            Post to this task's discussion
+          </button>
+          <span style={{ fontSize: 10.5, color: T.inkMuted }}>Filed under “{task.title.slice(0, 24)}{task.title.length > 24 ? "…" : ""}” — tied here for good.</span>
         </div>
       </div>
     </>
@@ -2266,7 +2361,7 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2284,6 +2379,11 @@ export function ClientWorkspace({
               if (person) onAddMember?.(person.id);
               else onAddNewMember?.(name, "");
             }}
+            onOpenTopic={(topic, kind) => {
+              if (kind === "task") { const t = tasks.find((x) => x.title === topic); if (t) setOpenTask(t); }
+              else if (kind === "file") setTab("files");
+              else if (kind === "project") setTab("dashboard");
+            }}
           />
           {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
@@ -2299,6 +2399,7 @@ export function ClientWorkspace({
       {openTask && (
         <TaskDetail
           task={openTask}
+          messages={account.thread}
           onStatus={(id, s) => { onTaskStatus(id, s); setOpenTask((t) => (t && t.id === id ? { ...t, status: s } : t)); }}
           onPost={onPost}
           goTo={setTab}

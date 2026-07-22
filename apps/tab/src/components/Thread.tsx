@@ -42,6 +42,7 @@ export function Thread({
   fileNames = [],
   mentionRoster = [],
   onQuickAdd,
+  onOpenTopic,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string, topic?: string) => void;
@@ -62,6 +63,8 @@ export function Thread({
   mentionRoster?: readonly MentionPerson[];
   /** Quick-add an off-account person to the account when they're mentioned. */
   onQuickAdd?: (name: string) => void;
+  /** Jump to the source a message is tied to (task / file / project). */
+  onOpenTopic?: (topic: string, kind: "project" | "task" | "file" | "general") => void;
 }) {
   const showAgents = !!roster && roster.length > 0;
   const [draft, setDraft] = useState("");
@@ -249,16 +252,20 @@ export function Thread({
                     </span>
                   )}
                 </span>
-                {m.topic && (
-                  <button
-                    type="button"
-                    onClick={() => { setFilter(m.topic ?? ""); setPostTopic(m.topic ?? ""); }}
-                    title={`${KIND_META[kindOf(m.topic)].label.replace(/s$/, "")} · show only “${m.topic}”`}
-                    style={{ fontSize: 9, fontWeight: 800, color: T.roi.navy, background: "#eef2fb", border: "none", borderRadius: 4, padding: "1px 7px", cursor: "pointer", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
-                    <span aria-hidden style={{ marginRight: 3 }}>{KIND_META[kindOf(m.topic)].icon}</span>{m.topic}
-                  </button>
-                )}
+                {m.topic && (() => {
+                  const k = kindOf(m.topic);
+                  const canOpen = !!onOpenTopic && k !== "general";
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => { if (canOpen) onOpenTopic!(m.topic!, k); else { setFilter(m.topic ?? ""); setPostTopic(m.topic ?? ""); } }}
+                      title={canOpen ? `Open the ${KIND_META[k].label.replace(/s$/, "").toLowerCase()} this is about` : `Show only “${m.topic}”`}
+                      style={{ fontSize: 9, fontWeight: 800, color: T.roi.navy, background: "#eef2fb", border: "none", borderRadius: 4, padding: "1px 7px", cursor: "pointer", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
+                      <span aria-hidden style={{ marginRight: 3 }}>{KIND_META[k].icon}</span>{m.topic}{canOpen && <span aria-hidden style={{ marginLeft: 3, opacity: 0.7 }}>↗</span>}
+                    </button>
+                  );
+                })()}
                 <span style={{ fontSize: 10, color: T.inkMuted }}>{timeAgoLabel(m.at)}</span>
               </div>
               <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 3, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
