@@ -638,6 +638,8 @@ export function App() {
             onTaskStatus={(taskId, status) => ws.setSharedTaskStatus(selectedAccount.id, taskId, status)}
             onPost={(body) => ws.postAccountMessage(selectedAccount.id, body, userName)}
             onAddLink={(name, kind, url) => ws.addAccountLink(selectedAccount.id, name, kind, url)}
+            onSetLinkUrl={(linkId, url) => ws.setAccountLinkUrl(selectedAccount.id, linkId, url)}
+            onRemoveLink={(linkId) => ws.removeAccountLink(selectedAccount.id, linkId)}
             onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}

@@ -1158,6 +1158,44 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Attach (or replace) the SharePoint link on an existing file/doc — so the
+   * standard-template core docs stop being dead text and become real links. */
+  const setAccountLinkUrl = useCallback(
+    (id: string, linkId: string, url: string) => {
+      const clean = url.trim();
+      mutateAccount(id, (a) => {
+        const patch = (l: ClientFileLink): ClientFileLink =>
+          l.id === linkId ? { ...l, ...(clean ? { url: clean } : {}) } : l;
+        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
+        return {
+          ...a,
+          files: a.files.map(patch),
+          docs: a.docs.map(patch),
+          activity: target ? [...a.activity, activityEvent(`Link attached — ${target.name}`, "workspace")] : a.activity,
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Delete a file/doc from the workspace (link only — the file in SharePoint
+   * is untouched). Logs it so the audit trail shows who removed what. */
+  const removeAccountLink = useCallback(
+    (id: string, linkId: string) => {
+      mutateAccount(id, (a) => {
+        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
+        if (!target) return a;
+        return {
+          ...a,
+          files: a.files.filter((l) => l.id !== linkId),
+          docs: a.docs.filter((l) => l.id !== linkId),
+          activity: [...a.activity, activityEvent(`${target.kind === "file" ? "File" : "Document"} removed — ${target.name}`, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /** Add an AGP teammate to the account — collaborate from anywhere in the
    * client, not just the Contractor Access tab. Idempotent by person. */
   const addAccountMember = useCallback(
@@ -1376,6 +1414,8 @@ export function useWorkspace() {
     archiveAllAccounts,
     applyTemplate,
     addAccountLink,
+    setAccountLinkUrl,
+    removeAccountLink,
     addExternal,
     removeExternal,
     offboardEverywhere,

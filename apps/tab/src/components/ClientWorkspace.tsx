@@ -8,7 +8,7 @@ import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
-import type { ClientAccount, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
+import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus } from "../workspace/types.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -1562,32 +1562,63 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
-function FilesTab({ account, onAddLink }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void }) {
+function FileRow({ f, onSetLinkUrl, onRemoveLink }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void }) {
+  const [linking, setLinking] = useState(false);
+  const [draft, setDraft] = useState("");
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+      <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
+      {f.url ? (
+        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
+      ) : linking ? (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{f.name}</span>
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { onSetLinkUrl(f.id, draft.trim()); setLinking(false); } if (e.key === "Escape") setLinking(false); }}
+            placeholder="Paste SharePoint / OneDrive link…"
+            className="input"
+            style={{ flex: 1, minWidth: 120, fontSize: 11.5, padding: "4px 8px" }}
+          />
+          <button type="button" className="btn btn-primary btn-sm" disabled={!draft.trim()} onClick={() => { onSetLinkUrl(f.id, draft.trim()); setLinking(false); }}>Save</button>
+          <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setLinking(false)}>Cancel</button>
+        </span>
+      ) : (
+        <button type="button" onClick={() => setLinking(true)} title="Attach the SharePoint link for this document" style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
+          <span style={{ fontSize: 9.5, fontWeight: 700, color: "#8a6d1a", background: "#faf3dc", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>＋ Add link</span>
+        </button>
+      )}
+      {!linking && (
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
+          <button type="button" onClick={() => onRemoveLink(f.id)} title={`Remove “${f.name}” (the file in SharePoint is untouched)`} aria-label={`Remove ${f.name}`} style={{ background: "none", border: "none", cursor: "pointer", color: T.inkMuted, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
-  const list = (title: string, items: ClientAccount["files"]) => (
+  const list = (title: string, items: ClientAccount["files"], emptyHint: string) => (
     <div style={card}>
-      <SectionTitle>{title}</SectionTitle>
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{items.length} {items.length === 1 ? "item" : "items"}</span>}>{title}</SectionTitle>
       {items.map((f) => (
-        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
-          <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
-          {f.url ? (
-            <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
-          ) : (
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
-          )}
-          <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
-        </div>
+        <FileRow key={f.id} f={f} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} />
       ))}
-      {items.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>Nothing here yet.</div>}
+      {items.length === 0 && <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>{emptyHint}</div>}
     </div>
   );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="home-row-1" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {list("Files", account.files)}
-        {list("Core Documentation", account.docs)}
+        {list("Files", account.files, "No files linked yet. Files live in SharePoint/Teams (once the M365 layer is connected) — link one below, or click a core doc on the right to attach its link.")}
+        {list("Core Documentation", account.docs, "The standard doc set isn't here — add one below.")}
       </div>
       <div style={card}>
         <SectionTitle>Link a file or document</SectionTitle>
@@ -1752,6 +1783,8 @@ export function ClientWorkspace({
   onTaskStatus,
   onPost,
   onAddLink,
+  onSetLinkUrl,
+  onRemoveLink,
   onAddExternal,
   onRemoveExternal,
   onOffboardEverywhere,
@@ -1820,6 +1853,8 @@ export function ClientWorkspace({
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string) => void;
   onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
+  onSetLinkUrl: (linkId: string, url: string) => void;
+  onRemoveLink: (linkId: string) => void;
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemoveExternal: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
@@ -2050,7 +2085,7 @@ export function ClientWorkspace({
         </div>
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
