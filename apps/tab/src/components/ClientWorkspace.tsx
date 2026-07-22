@@ -9,7 +9,7 @@ import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
-import { HANDOFFS, fillHandoff } from "../workspace/handoffs.js";
+import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 
 /**
@@ -1522,6 +1522,7 @@ function CollaborateHub({
 function TaskDetail({
   task,
   messages = [],
+  clientName = "the client",
   onStatus,
   onPost,
   goTo,
@@ -1530,12 +1531,15 @@ function TaskDetail({
   task: Task;
   /** The account thread — the task's own discussion history is filtered from it. */
   messages?: ThreadMessage[];
+  /** The client — personalizes the handoff templates surfaced on this task. */
+  clientName?: string;
   onStatus: (taskId: string, status: TaskStatus) => void;
   onPost: (body: string, topic?: string) => void;
   goTo: (t: ClientTab) => void;
   onClose: () => void;
 }) {
   const [note, setNote] = useState("");
+  const suggested = suggestHandoff(task.title);
   // This task's own conversation — tied back by topic, oldest first.
   const history = messages.filter((m) => m.topic === task.title);
   const fromKantata = task.label === "from Kantata";
@@ -1581,6 +1585,40 @@ function TaskDetail({
               {statusLabel[s]}
             </button>
           ))}
+        </div>
+
+        {/* Auto-fire on hit: mark the step done and it prompts the handoff to
+            the next person — "milestone hit → here's the email to send". */}
+        {task.status === "done" && suggested && (
+          <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#e9f6ef", border: "1px solid #cfe9da", borderRadius: 8, padding: "9px 12px" }}>
+            <span style={{ fontSize: 11.5, color: "#1c5a3c", flex: 1, minWidth: 150 }}>
+              ✓ This step is done — send the <b>{suggested.name}</b> handoff to the next person?
+            </span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setNote(personalizeHandoff(suggested, { clientName, taskTitle: task.title, ...(task.due ? { dueDate: task.due } : {}), ...(task.ownerName ? { ownerName: task.ownerName } : {}) }))}>Draft the handoff</button>
+          </div>
+        )}
+
+        {/* Handoff templates, right on the task — the email for this step,
+            pre-filled and personalized. Pick one; it drops into the box below. */}
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "16px 0 6px" }}>
+          Send a handoff{suggested ? " — suggested for this task" : ""}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[...(suggested ? [suggested] : []), ...HANDOFFS.filter((h) => h.key !== suggested?.key)].map((h) => (
+            <button
+              key={h.key}
+              type="button"
+              title={h.when}
+              onClick={() => setNote(personalizeHandoff(h, { clientName, taskTitle: task.title, ...(task.due ? { dueDate: task.due } : {}), ...(task.ownerName ? { ownerName: task.ownerName } : {}) }))}
+              className="btn btn-secondary btn-sm"
+              style={h.key === suggested?.key ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700 } : {}}
+            >
+              {h.key === suggested?.key ? "★ " : ""}{h.name}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: T.inkMuted, margin: "6px 0 0" }}>
+          Fills the box below with the email for this step — personalized to this task, with the links to include. Adjust and post.
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 6px" }}>
@@ -1689,7 +1727,7 @@ function HandoffComposer({ account, topics, onPost }: { account: ClientAccount; 
           <button
             key={h.key}
             type="button"
-            onClick={() => { setOpenKey(h.key); setDraft(fillHandoff(h, account.clientName)); }}
+            onClick={() => { setOpenKey(h.key); setDraft(personalizeHandoff(h, { clientName: account.clientName, ...(topic ? { project: topic } : {}) })); }}
             aria-pressed={openKey === h.key}
             style={{ textAlign: "left", cursor: "pointer", borderRadius: 9, padding: "9px 12px", minWidth: 180, flex: "1 1 200px", background: openKey === h.key ? "#eef2fb" : "#fff", border: `1.5px solid ${openKey === h.key ? T.roi.navy : T.grid}` }}
           >
@@ -1710,7 +1748,7 @@ function HandoffComposer({ account, topics, onPost }: { account: ClientAccount; 
           <textarea className="textarea" rows={9} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ width: "100%", fontSize: 12.5, lineHeight: 1.5 }} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {topics.length > 0 && (
-              <select className="select" value={topic} onChange={(e) => setTopic(e.target.value)} title="Which project is this handoff for?" style={{ fontSize: 11.5, padding: "5px 8px" }}>
+              <select className="select" value={topic} onChange={(e) => { const v = e.target.value; setTopic(v); if (active) setDraft(personalizeHandoff(active, { clientName: account.clientName, ...(v ? { project: v } : {}) })); }} title="Which project is this handoff for?" style={{ fontSize: 11.5, padding: "5px 8px" }}>
                 <option value="">General</option>
                 {topics.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -2400,6 +2438,7 @@ export function ClientWorkspace({
         <TaskDetail
           task={openTask}
           messages={account.thread}
+          clientName={account.clientName}
           onStatus={(id, s) => { onTaskStatus(id, s); setOpenTask((t) => (t && t.id === id ? { ...t, status: s } : t)); }}
           onPost={onPost}
           goTo={setTab}

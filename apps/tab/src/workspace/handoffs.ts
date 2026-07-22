@@ -56,10 +56,60 @@ export const HANDOFFS: HandoffTemplate[] = [
   },
 ];
 
-/** Fill a template for a client — substitute {client} and prepend the include
+/** Fill a template for a client — substitute {client} and append the include
  * checklist as a reminder of what to attach before posting. */
 export function fillHandoff(t: HandoffTemplate, clientName: string): string {
   const body = t.body.replace(/\{client\}/g, clientName);
   const links = t.include.map((i) => `• ${i}: [ paste link ]`).join("\n");
   return `${body}\n\nInclude:\n${links}`;
+}
+
+/** The project context that personalizes a handoff to a specific piece of work. */
+export interface HandoffContext {
+  clientName: string;
+  /** The project/campaign the handoff is about. */
+  project?: string;
+  /** The task the handoff is triggered from. */
+  taskTitle?: string;
+  /** ISO due date, if any. */
+  dueDate?: string;
+  /** The task/handoff owner. */
+  ownerName?: string;
+}
+
+/** Suggest the handoff that fits a task, by its title — so the right template
+ * pops on the task itself (e.g. a "Copy review" task → the copywriting handoff). */
+export function suggestHandoff(taskTitle: string): HandoffTemplate | undefined {
+  const t = taskTitle.toLowerCase();
+  // Review wins over the raw word "copy"/"design" — a "copy review" is a review.
+  if (/review|feedback|approv|client sign|proof/.test(t)) return HANDOFFS.find((h) => h.key === "client-review");
+  if (/print|\bmail\b|production|drop|in-home|deploy|launch|fulfill/.test(t)) return HANDOFFS.find((h) => h.key === "to-production");
+  if (/copywrit|\bcopy\b|messaging|content/.test(t)) return HANDOFFS.find((h) => h.key === "to-copywriting");
+  if (/design|creative|layout|\bart\b|graphic/.test(t)) return HANDOFFS.find((h) => h.key === "to-design");
+  return undefined;
+}
+
+function shortDate(iso?: string): string {
+  if (!iso) return "";
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * Personalize a handoff to the specific project/task — names the work, the
+ * date, and the owner, so it reads like a real message about *this* job rather
+ * than a generic template. (When the server AI key is set, this becomes the
+ * grounding context for an LLM rewrite; until then it's the deterministic,
+ * always-correct fill.)
+ */
+export function personalizeHandoff(t: HandoffTemplate, ctx: HandoffContext): string {
+  const parts: string[] = [t.body.replace(/\{client\}/g, ctx.clientName)];
+  const specifics: string[] = [];
+  if (ctx.taskTitle) specifics.push(`This is for “${ctx.taskTitle}”${ctx.project ? ` on ${ctx.project}` : ""}.`);
+  else if (ctx.project) specifics.push(`This is for ${ctx.project}.`);
+  const due = shortDate(ctx.dueDate);
+  if (due) specifics.push(`Target date: ${due}.`);
+  if (ctx.ownerName) specifics.push(`Owner: ${ctx.ownerName}.`);
+  if (specifics.length > 0) parts.push(specifics.join(" "));
+  parts.push(`Include:\n${t.include.map((i) => `• ${i}: [ paste link ]`).join("\n")}`);
+  return parts.join("\n\n");
 }
