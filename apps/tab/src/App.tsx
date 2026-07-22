@@ -7,6 +7,7 @@ import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
+import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { TeamManager } from "./components/TeamManager.js";
@@ -715,6 +716,15 @@ export function App() {
 
       {tourStep !== null && <Tour steps={TOUR_STEPS} step={tourStep} onStep={setTourStep} onClose={closeTour} />}
       <TeamManager open={teamOpen} team={ws.team} onAdd={ws.addSignInAccount} onRemove={ws.removeSignInAccount} onClose={() => setTeamOpen(false)} />
+      {ws.accounts.some((a) => !a.archived) && (
+        <DiscussLauncher
+          accounts={ws.accounts}
+          userName={userName}
+          currentAccountId={selectedAccount?.id}
+          onPost={(accountId, body, topic) => ws.postAccountMessage(accountId, body, userName, topic)}
+          onOpenAccount={(id) => setRoute({ view: "account", id })}
+        />
+      )}
     </div>
   );
 }

@@ -2230,7 +2230,7 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
           <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} onPost={onPost} />
-          <Thread messages={account.thread} onPost={onPost} topics={account.campaigns.map((c) => c.name)} />
+          <Thread messages={account.thread} onPost={onPost} topics={account.campaigns.map((c) => c.name)} people={[...account.members.map((m) => m.name), ...account.externals.map((e) => e.name)]} />
           {liveContext && liveContext.posts.length > 0 && <KantataConversation posts={liveContext.posts} />}
           <div style={{ fontSize: 11, color: T.inkMuted }}>
             Tip: “@FirstName” in a message notifies that person in Team Notifications on Home —

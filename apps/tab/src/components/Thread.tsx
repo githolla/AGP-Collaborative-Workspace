@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { card, T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
 import { timeAgoLabel } from "../workspace/format.js";
+import { MentionTextarea } from "./MentionTextarea.js";
 import type { ThreadMessage } from "../workspace/types.js";
 
 export interface AgentRosterEntry {
@@ -29,6 +30,7 @@ export function Thread({
   onAskAnalyst,
   roster,
   topics = [],
+  people = [],
 }: {
   messages: ThreadMessage[];
   onPost: (body: string, topic?: string) => void;
@@ -41,11 +43,16 @@ export function Thread({
   roster?: readonly AgentRosterEntry[];
   /** Project/topic options to scope a post to (client workspaces pass these). */
   topics?: readonly string[];
+  /** People on the account — powers @mention autocomplete. */
+  people?: readonly string[];
 }) {
   const showAgents = !!roster && roster.length > 0;
   const [draft, setDraft] = useState("");
   const [postTopic, setPostTopic] = useState<string>("");
   const [filter, setFilter] = useState<string>("");
+  const [authorFilter, setAuthorFilter] = useState<string>("");
+  const [timeFilter, setTimeFilter] = useState<"" | "7" | "30" | "90">("");
+  const [search, setSearch] = useState("");
 
   // How many messages sit under each topic — drives the filter chips.
   const topicCounts = useMemo(() => {
@@ -66,8 +73,19 @@ export function Thread({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [topics, topicCounts]);
 
-  const scoped = filter ? messages.filter((m) => (m.topic ?? GENERAL) === filter) : messages;
+  const authors = useMemo(() => [...new Set(messages.map((m) => m.author))].sort((a, b) => a.localeCompare(b)), [messages]);
+  const cutoff = timeFilter ? Date.now() - Number(timeFilter) * 86_400_000 : 0;
+  const needle = search.trim().toLowerCase();
+  const scoped = messages.filter((m) => {
+    if (filter && (m.topic ?? GENERAL) !== filter) return false;
+    if (authorFilter && m.author !== authorFilter) return false;
+    if (cutoff && Date.parse(m.at) < cutoff) return false;
+    if (needle && !m.body.toLowerCase().includes(needle) && !(m.topic ?? "").toLowerCase().includes(needle) && !m.author.toLowerCase().includes(needle)) return false;
+    return true;
+  });
   const canScope = topics.length > 0 || allTopics.length > 0;
+  const anyFilter = !!(filter || authorFilter || timeFilter || needle);
+  const selStyle: CSSProperties = { fontSize: 11, padding: "4px 7px" };
 
   const post = () => {
     const body = draft.trim();
@@ -136,6 +154,35 @@ export function Thread({
         </div>
       )}
 
+      {/* View past discussions — author, timeframe, and free-text search. */}
+      {messages.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search discussions…"
+            className="input"
+            style={{ fontSize: 11.5, padding: "5px 9px", flex: 1, minWidth: 150 }}
+          />
+          <select value={authorFilter} onChange={(e) => setAuthorFilter(e.target.value)} className="select" style={selStyle} title="Filter by who posted">
+            <option value="">Anyone</option>
+            {authors.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <select value={timeFilter} onChange={(e) => setTimeFilter(e.target.value as "" | "7" | "30" | "90")} className="select" style={selStyle} title="Filter by recency">
+            <option value="">Any time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+          {anyFilter && (
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setFilter(""); setAuthorFilter(""); setTimeFilter(""); setSearch(""); }}>
+              Clear filters
+            </button>
+          )}
+          <span style={{ fontSize: 10.5, color: T.inkMuted, marginLeft: "auto" }}>{scoped.length} of {messages.length}</span>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 420, overflowY: "auto" }}>
         {scoped.map((m) => (
           <div
@@ -179,23 +226,26 @@ export function Thread({
         ))}
         {scoped.length === 0 && (
           <div style={{ fontSize: 12, color: T.inkMuted }}>
-            {filter ? `No messages under “${filter}” yet.` : "No messages yet — start the conversation."}
+            {messages.length === 0
+              ? "No messages yet — start the conversation."
+              : anyFilter
+                ? "No messages match these filters."
+                : `No messages under “${filter}” yet.`}
           </div>
         )}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "flex-start" }}>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post();
-          }}
-          placeholder={showAgents ? "Write to the team and agents… (Ctrl+Enter to post)" : "Write to the team… (Ctrl+Enter to post)"}
-          rows={2}
-          className="textarea"
-          style={{ flex: 1 }}
-        />
+        <div style={{ flex: 1 }}>
+          <MentionTextarea
+            value={draft}
+            onChange={setDraft}
+            people={people}
+            onSubmit={post}
+            rows={2}
+            placeholder={showAgents ? "Write to the team and agents… (@ to mention, Ctrl+Enter to post)" : "Write to the team… (@ to mention, Ctrl+Enter to post)"}
+          />
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140 }}>
           {canScope && (
             <select
