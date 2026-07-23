@@ -94,12 +94,12 @@ Required GitHub environment configuration:
 	- `AZURE_CONTAINER_APP`
 	- `AZURE_CONTAINER_REGISTRY_NAME`
 	- `AZURE_CONTAINER_REGISTRY_LOGIN_SERVER`
-	- `VITE_ENTRA_TENANT_ID` / `VITE_ENTRA_CLIENT_ID` (optional — see
-	  `apps/tab/src/auth/entra.ts`; leave unset and SSO just reports
-	  "not configured")
+  - `VITE_SUPABASE_URL`
+  - `VITE_SUPABASE_ANON_KEY`
+  - `VITE_ENABLE_MICROSOFT_LOGIN` (optional, defaults true)
+  - `VITE_SUPABASE_REDIRECT_URI` (optional; exact OAuth return URL)
 - On the Container App itself (not GitHub), set the runtime env vars this
   image's `/api` routes read: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-  `KANTATA_API_TOKEN`, and (once SSO is wired up) `AUTH_REQUIRED`,
-  `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`.
+  `KANTATA_API_TOKEN`, and (once SSO is wired up) `AUTH_REQUIRED`.
 - The `stage` branch doesn't exist yet in this repo — create it from `main`
   before relying on `deploy-stage.yml`.

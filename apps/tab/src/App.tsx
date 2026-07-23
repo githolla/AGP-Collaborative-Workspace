@@ -156,12 +156,21 @@ function PageIntro({ title, children }: { title: string; children: React.ReactNo
 export function App() {
   const ws = useWorkspace();
   const { name: userName, setName, signedIn: ssoSignedIn, email: ssoEmail, ssoConfigured, signIn, signOut: ssoSignOut } = useProfile();
-  // Interim email+password identity (until Entra SSO). Persisted per-browser.
+  // Interim email+password identity (until Microsoft SSO). Persisted per-browser.
   const [localId, setLocalId] = useState<LocalIdentity | null>(() => loadIdentity());
   const [teamOpen, setTeamOpen] = useState(false);
-  const signedIn = ssoSignedIn || localId != null;
-  const email = localId?.email ?? ssoEmail;
+  const signedIn = ssoConfigured ? ssoSignedIn : ssoSignedIn || localId != null;
+  const email = ssoConfigured ? ssoEmail : localId?.email ?? ssoEmail;
+
+  // Once Microsoft SSO is configured, retire any old local identity.
+  useEffect(() => {
+    if (!ssoConfigured || !localId) return;
+    clearIdentity();
+    setLocalId(null);
+  }, [ssoConfigured, localId]);
+
   const handlePasswordSignIn = async (em: string, pw: string): Promise<boolean> => {
+    if (ssoConfigured) return false;
     const id = await ws.signInWithPassword(em, pw);
     if (!id) return false;
     saveIdentity(id);
@@ -457,16 +466,47 @@ export function App() {
         liveDetail={liveStatus.detail}
         onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
         onHome={() => setRoute({ view: "clients" })}
-        onSettings={() => setTeamOpen(true)}
+        {...(!ssoConfigured ? { onSettings: () => setTeamOpen(true) } : {})}
         signedIn={signedIn}
         email={email}
         ssoConfigured={ssoConfigured}
         onSignIn={signIn}
         onSignOut={handleSignOut}
-        onSignInPassword={handlePasswordSignIn}
-        onManageTeam={() => setTeamOpen(true)}
+        {...(!ssoConfigured ? { onSignInPassword: handlePasswordSignIn, onManageTeam: () => setTeamOpen(true) } : {})}
       />
 
+      {ssoConfigured && !signedIn ? (
+        <div className="auth-shell">
+          <div className="auth-container">
+            <div className="auth-brand" aria-hidden>
+              <div className="auth-brand-marks">
+                <span className="auth-logo-mark">AGP</span>
+                <span className="auth-wordmark">
+                  Allegiance Group <span className="auth-wordmark-plus">+ Pursuant</span>
+                </span>
+              </div>
+              <p className="auth-brand-sub">Collaboration Workspace</p>
+            </div>
+            <div className="auth-card">
+              <h1 className="auth-title">Sign in required</h1>
+              <p className="auth-copy">
+                This workspace now uses Microsoft SSO. Continue with your AGP Microsoft 365 account to access client workspaces and live data.
+              </p>
+              <button type="button" className="auth-ms-btn" onClick={signIn}>
+                <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden>
+                  <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                  <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                  <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                </svg>
+                Continue with Microsoft
+              </button>
+              <p className="auth-foot">Use the same account you use for AGP Teams and Microsoft 365.</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Persistent navigation — visible on every page, including workspaces. */}
       <div style={{ background: "#fff", borderBottom: `1px solid ${T.grid}` }}>
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -483,9 +523,11 @@ export function App() {
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
             ✦ Take the tour
           </button>
-          <button type="button" className="nav-pill" onClick={() => setTeamOpen(true)} title="Add team members and set sign-in passwords">
-            Team{ws.team.length > 0 ? ` (${ws.team.length})` : ""}
-          </button>
+          {!ssoConfigured && (
+            <button type="button" className="nav-pill" onClick={() => setTeamOpen(true)} title="Add team members and set sign-in passwords">
+              Team{ws.team.length > 0 ? ` (${ws.team.length})` : ""}
+            </button>
+          )}
           <SearchBox accounts={ws.accounts} initiatives={ws.initiatives} ideas={ws.ideas} onNavigate={(target) => setRoute(target)} />
         </div>
       </div>
@@ -720,7 +762,9 @@ export function App() {
       </div>
 
       {tourStep !== null && <Tour steps={TOUR_STEPS} step={tourStep} onStep={setTourStep} onClose={closeTour} />}
-      <TeamManager open={teamOpen} team={ws.team} onAdd={ws.addSignInAccount} onRemove={ws.removeSignInAccount} onClose={() => setTeamOpen(false)} />
+      {!ssoConfigured && (
+        <TeamManager open={teamOpen} team={ws.team} onAdd={ws.addSignInAccount} onRemove={ws.removeSignInAccount} onClose={() => setTeamOpen(false)} />
+      )}
       {ws.accounts.some((a) => !a.archived) && (
         <DiscussLauncher
           accounts={ws.accounts}
@@ -731,6 +775,8 @@ export function App() {
           onOpenAccount={(id) => setRoute({ view: "account", id })}
           onAddMember={(accountId, personId) => ws.addAccountMember(accountId, personId)}
         />
+      )}
+      </>
       )}
     </div>
   );

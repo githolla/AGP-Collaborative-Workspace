@@ -29,17 +29,20 @@ EXPOSE 3000
 CMD ["pnpm", "--filter", "@agp/tab", "dev", "--host", "--port", "3000"]
 
 # Build stage compiles the Vite frontend (apps/tab) — same command as
-# vercel.json's buildCommand. VITE_ENTRA_* are optional (see apps/tab's
-# src/auth/entra.ts) — with neither set, SSO just reports "not configured".
+# vercel.json's buildCommand. Supabase auth vars are compile-time for Vite.
 FROM node:22-alpine AS build
 WORKDIR /app
 ENV NODE_ENV=production
-ARG VITE_ENTRA_TENANT_ID
-ARG VITE_ENTRA_CLIENT_ID
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_ENABLE_MICROSOFT_LOGIN
+ARG VITE_SUPABASE_REDIRECT_URI
 COPY --from=base /app ./
 RUN corepack enable && corepack prepare --activate
-RUN VITE_ENTRA_TENANT_ID=${VITE_ENTRA_TENANT_ID} \
-	VITE_ENTRA_CLIENT_ID=${VITE_ENTRA_CLIENT_ID} \
+RUN VITE_SUPABASE_URL=${VITE_SUPABASE_URL} \
+	VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY} \
+	VITE_ENABLE_MICROSOFT_LOGIN=${VITE_ENABLE_MICROSOFT_LOGIN} \
+	VITE_SUPABASE_REDIRECT_URI=${VITE_SUPABASE_REDIRECT_URI} \
 	pnpm --filter @agp/tab build
 
 # Final production image used for Azure/container deployments. Runs the tsx

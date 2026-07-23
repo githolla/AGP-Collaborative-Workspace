@@ -8,6 +8,11 @@ services:
     build:
       context: .
       target: prod
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+        VITE_ENABLE_MICROSOFT_LOGIN: ${VITE_ENABLE_MICROSOFT_LOGIN:-true}
+        VITE_SUPABASE_REDIRECT_URI: ${VITE_SUPABASE_REDIRECT_URI:-}
     container_name: agp-ai-collaboration
     ports:
       - '${PORT:-3000}:3000'

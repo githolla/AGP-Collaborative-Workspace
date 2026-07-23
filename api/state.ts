@@ -75,7 +75,7 @@ async function writeEnvelope(url: string, key: string, envelope: Envelope): Prom
   }
 }
 
-import { requireAuth } from "./_lib/entraAuth.js";
+import { requireAuth } from "./_lib/authGate.js";
 
 export default async function handler(
   req: { method?: string; body?: unknown; headers?: Record<string, string | string[] | undefined> },
