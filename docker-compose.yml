@@ -1,0 +1,46 @@
+services:
+  # Default service. `docker compose up --build -d` builds the prod image
+  # (built SPA + the Express server.mts) and runs it with live /api — shared
+  # Supabase state and the live Kantata mirror — using the values in .env,
+  # injected at runtime. Self-contained image: no source bind-mount, so no
+  # hot-reload; rebuild (re-run the same command) to pick up code changes.
+  agp-app:
+    build:
+      context: .
+      target: prod
+    container_name: agp-ai-collaboration
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+
+  # Opt-in dev container: Vite with hot-reload on the source tree. It runs
+  # ONLY Vite, so /api is unreachable and the app falls back to bundled demo
+  # data (by design — see README). Not started by a plain `docker compose up`;
+  # bring it up explicitly with:
+  #   docker compose --profile dev up --build
+  # CI=true lets pnpm reinstall non-interactively into the node_modules
+  # volumes below without a TTY prompt.
+  agp-app-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    container_name: agp-ai-collaboration-dev
+    command: sh -c "pnpm install --frozen-lockfile && pnpm --filter @agp/tab dev --host --port 3000"
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      - CI=true
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/tab/node_modules
+      - /app/packages/roi/node_modules
+      - /app/packages/shared/node_modules
+      - /app/services/sync/node_modules

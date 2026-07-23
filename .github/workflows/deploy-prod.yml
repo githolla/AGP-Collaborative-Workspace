@@ -1,0 +1,107 @@
+name: Deploy Prod Container App
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: prod-environment
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.AZURE_CONTAINER_REGISTRY_LOGIN_SERVER }}
+      IMAGE_NAME: agp-ai-collaboration
+      IMAGE_TAG: prod-${{ github.sha }}
+      LATEST_TAG: prod-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          auth-type: SERVICE_PRINCIPAL
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name $ACR_NAME
+
+      - name: Build container image
+        run: |
+          docker build \
+            --target prod \
+            --file Dockerfile \
+            --build-arg VITE_ENTRA_TENANT_ID=${{ secrets.VITE_ENTRA_TENANT_ID }} \
+            --build-arg VITE_ENTRA_CLIENT_ID=${{ secrets.VITE_ENTRA_CLIENT_ID }} \
+            --tag $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG \
+            .
+          docker tag $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG $ACR_LOGIN_SERVER/$IMAGE_NAME:$LATEST_TAG
+
+      - name: Push container image
+        run: |
+          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:$LATEST_TAG
+
+      - name: Deploy revision to Container Apps
+        env:
+          RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          CONTAINER_APP: ${{ secrets.AZURE_CONTAINER_APP }}
+        run: |
+          CONTAINER_NAME=$(az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[?name!='simple-hello-world-container'].name | [0]" \
+            -o tsv)
+
+          if [ -z "$CONTAINER_NAME" ]; then
+            CONTAINER_NAME=$(az containerapp show \
+              --name "$CONTAINER_APP" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query "properties.template.containers[0].name" \
+              -o tsv)
+          fi
+
+          if [ "$CONTAINER_NAME" = "simple-hello-world-container" ]; then
+            echo "::error::Container App '$CONTAINER_APP' is still using the bootstrap hello-world container. Update the app template to your application container and remove hello-world, then rerun."
+            exit 1
+          fi
+
+          REVISION_SUFFIX="prod-$(echo "$GITHUB_SHA" | cut -c1-7)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "Deploying revision suffix: $REVISION_SUFFIX"
+
+          echo "Running container app update with explicit revision suffix."
+          if ! az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-name "$CONTAINER_NAME" \
+            --image $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG \
+            --revision-suffix "$REVISION_SUFFIX"; then
+            echo "Primary deploy with revision suffix failed; retrying without explicit suffix."
+            az containerapp update \
+              --name "$CONTAINER_APP" \
+              --resource-group "$RESOURCE_GROUP" \
+              --container-name "$CONTAINER_NAME" \
+              --image $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
+          fi
+
+          az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.latestRevisionName"

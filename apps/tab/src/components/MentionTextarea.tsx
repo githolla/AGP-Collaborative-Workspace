@@ -17,7 +17,7 @@ export interface MentionPerson {
 export function mentionQueryAt(text: string, caret: number): { anchor: number; query: string } | null {
   const before = text.slice(0, Math.max(0, caret));
   // '@' at the start or after whitespace, then letters/digits/’.- up to caret.
-  const m = /(?:^|\s)@([\p{L}\p{N}'.\-]*)$/u.exec(before);
+  const m = /(?:^|\s)@([\p{L}\p{N}'.-]*)$/u.exec(before);
   if (!m) return null;
   const query = m[1] ?? "";
   return { anchor: caret - query.length - 1, query };

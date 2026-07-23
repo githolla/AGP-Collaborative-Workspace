@@ -650,7 +650,6 @@ function ClientDirectory({
           <tbody>
             {sorted.map((r) => {
               const s = st.get(r.name)!;
-              const a = r.accountId ? byId.get(r.accountId) : undefined;
               const go = () => (r.accountId ? onOpen(r.accountId) : onCreate(r.name));
               const openColor = s.overdue > 0 ? T.status.critical : s.open > 0 ? "#8a6d1a" : T.inkMuted;
               const openBg = s.overdue > 0 ? "#fbe4e4" : s.open > 0 ? "#faf3dc" : "#f0efec";

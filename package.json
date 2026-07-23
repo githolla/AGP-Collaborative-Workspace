@@ -2,6 +2,7 @@
   "name": "agp-project-command",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22"
@@ -10,12 +11,20 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "lint": "eslint .",
-    "build": "pnpm -r run build"
+    "build": "pnpm -r run build",
+    "start": "tsx server.mts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.1",
     "eslint": "^9.30.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "tsx": "^4.23.1"
   }
 }

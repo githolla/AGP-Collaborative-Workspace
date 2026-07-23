@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState } from "react";
 import { T } from "../theme.js";
 import { MentionTextarea, type MentionPerson } from "./MentionTextarea.js";
 import type { ClientAccount } from "../workspace/types.js";

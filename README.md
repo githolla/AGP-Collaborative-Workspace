@@ -66,3 +66,40 @@ pnpm --filter @agp/tab dev     # workspace app on fixtures/localStorage
 
 Deploys to Vercel on every push (`vercel.json`). Demo data persists in the
 browser; "Reset demo data" restores the seed.
+
+## GitHub CI/CD Pipeline (Azure Container Apps)
+
+Alongside the Vercel deploy above, this repo also has a container path that
+fully replaces Vercel (no dependency on it at all) — `server.mts` is a small
+Express server that serves the built `apps/tab` SPA and hosts `/api/state` +
+`/api/mirror` by calling the same handler functions Vercel runs, unmodified.
+
+- `.github/workflows/deploy-stage.yml` runs on pushes to the `stage` branch
+  and deploys to the GitHub `stage` environment.
+- `.github/workflows/deploy-prod.yml` runs on pushes to the `main` branch and
+  deploys to the GitHub `prod` environment.
+
+Both workflows use GitHub OIDC with Azure, build the image from the `prod`
+target in `Dockerfile`, push environment-specific tags to Azure Container
+Registry, and roll out a new Azure Container Apps revision.
+
+Required GitHub environment configuration:
+
+- Create `stage` and `prod` environments in GitHub.
+- Add these secrets to each environment:
+	- `AZURE_CLIENT_ID`
+	- `AZURE_TENANT_ID`
+	- `AZURE_SUBSCRIPTION_ID`
+	- `AZURE_RESOURCE_GROUP`
+	- `AZURE_CONTAINER_APP`
+	- `AZURE_CONTAINER_REGISTRY_NAME`
+	- `AZURE_CONTAINER_REGISTRY_LOGIN_SERVER`
+	- `VITE_ENTRA_TENANT_ID` / `VITE_ENTRA_CLIENT_ID` (optional — see
+	  `apps/tab/src/auth/entra.ts`; leave unset and SSO just reports
+	  "not configured")
+- On the Container App itself (not GitHub), set the runtime env vars this
+  image's `/api` routes read: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `KANTATA_API_TOKEN`, and (once SSO is wired up) `AUTH_REQUIRED`,
+  `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`.
+- The `stage` branch doesn't exist yet in this repo — create it from `main`
+  before relying on `deploy-stage.yml`.

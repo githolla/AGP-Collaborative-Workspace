@@ -30,9 +30,14 @@ function supabaseHeaders(key: string): Record<string, string> {
 }
 
 async function readEnvelope(url: string, key: string): Promise<Envelope | null> {
-  const res = await fetch(`${url}/storage/v1/object/${BUCKET}/${OBJECT}`, { headers: supabaseHeaders(key) });
-  if (!res.ok) return null; // 400/404 = no state yet (or no bucket yet)
+  // Network failures (DNS, timeout, connection reset) reject fetch() itself,
+  // not just a bad response — caught here so a transient Supabase outage
+  // degrades to "no envelope" instead of throwing out of the request handler
+  // (which would crash the whole process on a long-lived host; Vercel only
+  // loses the one invocation).
   try {
+    const res = await fetch(`${url}/storage/v1/object/${BUCKET}/${OBJECT}`, { headers: supabaseHeaders(key) });
+    if (!res.ok) return null; // 400/404 = no state yet (or no bucket yet)
     const json = (await res.json()) as Partial<Envelope>;
     if (typeof json.version === "number" && json.state !== undefined) {
       return { version: json.version, savedAt: String(json.savedAt ?? ""), state: json.state };
@@ -44,23 +49,30 @@ async function readEnvelope(url: string, key: string): Promise<Envelope | null> 
 }
 
 async function writeEnvelope(url: string, key: string, envelope: Envelope): Promise<boolean> {
-  const upload = () =>
-    fetch(`${url}/storage/v1/object/${BUCKET}/${OBJECT}`, {
-      method: "POST",
-      headers: { ...supabaseHeaders(key), "Content-Type": "application/json", "x-upsert": "true" },
-      body: JSON.stringify(envelope),
-    });
-  let res = await upload();
-  if (!res.ok) {
-    // First ever save: create the private bucket, then retry once.
-    await fetch(`${url}/storage/v1/bucket`, {
-      method: "POST",
-      headers: { ...supabaseHeaders(key), "Content-Type": "application/json" },
-      body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }),
-    });
-    res = await upload();
+  // Same reasoning as readEnvelope: a rejected fetch() must resolve to a
+  // handled `false`, not propagate — the caller already treats `false` as
+  // "storage write failed" (502), which is exactly right for a network error.
+  try {
+    const upload = () =>
+      fetch(`${url}/storage/v1/object/${BUCKET}/${OBJECT}`, {
+        method: "POST",
+        headers: { ...supabaseHeaders(key), "Content-Type": "application/json", "x-upsert": "true" },
+        body: JSON.stringify(envelope),
+      });
+    let res = await upload();
+    if (!res.ok) {
+      // First ever save: create the private bucket, then retry once.
+      await fetch(`${url}/storage/v1/bucket`, {
+        method: "POST",
+        headers: { ...supabaseHeaders(key), "Content-Type": "application/json" },
+        body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false }),
+      });
+      res = await upload();
+    }
+    return res.ok;
+  } catch {
+    return false;
   }
-  return res.ok;
 }
 
 import { requireAuth } from "./_lib/entraAuth.js";

@@ -52,7 +52,7 @@ export function IntakePanel({
     setText(seed.text);
     if (seed.serviceLine) setServiceLine(seed.serviceLine);
     if (seed.vertical) setVertical(seed.vertical);
-  }, [seed?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seed?.nonce]);
 
   const toggleTeam = (name: string) =>
     setTeam((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
