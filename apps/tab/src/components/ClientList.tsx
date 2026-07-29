@@ -37,6 +37,8 @@ export interface ClientCandidate {
   lifecycleStage?: string;
   /** How many campaigns a one-click create would import from Kantata/HubSpot. */
   workCount?: number;
+  /** False when the client has no current work — filtered out before here. */
+  active?: boolean;
   /** HubSpot BD-fit: target-account flag and ICP tier. */
   targetAccount?: boolean;
   icpTier?: string;
@@ -98,9 +100,9 @@ function BookOfBusiness({
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>Add a client workspace</div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
-            Active clients only — Kantata decides who's active (live projects); prospects never
-            appear here. Set up the standard workspace, then choose what imports — nothing lands
-            without your review.
+            Current clients only — the same rule as the directory above: work booked this fiscal
+            year, or still running. Setting one up pulls that client's real Kantata campaigns,
+            milestones and tasks straight in; “Review import” is how anything wrong comes out.
           </div>
         </div>
         <span

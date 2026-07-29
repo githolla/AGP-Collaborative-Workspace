@@ -97,7 +97,7 @@ const TOUR_STEPS: TourStep[] = [
     target: '[data-tour="directory"]',
     title: "One list, every client — live from Kantata",
     quote: { text: "Separate workspace per client/project/initiative; no cross-visibility by default.", from: "Cara — features doc, a Must" },
-    body: "Every active client, straight from your Kantata tenant — no demo data, nothing typed by hand. Each row is one client; open it and it's a workspace of its own. The count matches Kantata's book of business.",
+    body: "Every current client, straight from your Kantata tenant — no demo data, nothing typed by hand. Each row is one client; open it and it's a workspace of its own. Clients with no work booked this fiscal year are folded away, with a count and a “Show all” link so nothing is ever silently missing.",
     question: {
       prompt: "Could you find one of your own clients in this list?",
       options: [
@@ -149,7 +149,7 @@ const TOUR_STEPS: TourStep[] = [
     target: '[data-tour="book"]',
     title: "Set up a workspace — one standard template",
     quote: { text: "Ability to apply a template (channels/pages/lists) for consistent set up… you choose what imports.", from: "Cara — features doc, two Musts" },
-    body: "Every client workspace starts identical — Home, plan, dashboard, files, discussions, access. One click sets it up; then Kantata's matched campaigns, milestones, and tasks wait for your review. Nothing lands without you.",
+    body: "Every client workspace starts identical — Home, plan, dashboard, files, discussions, access. One click sets it up and it opens already full: that client's real Kantata campaigns, milestones and tasks are pulled straight in, with the full task tree following in the background. Anything that doesn't belong comes out via “Review import”.",
     question: {
       prompt: "One standard template for every client — right call?",
       options: [
@@ -359,11 +359,15 @@ export function App() {
         ...(c.icpTier ? { icpTier: c.icpTier } : {}),
         workCount: campaignsFromMirror(mirror, c.name, today).length,
         isClient: c.lifecycleStage === "customer" || !!c.abbreviation,
+        ...(c.active != null ? { active: c.active } : {}),
       }))
       // Delivery tool = clients only: active Kantata work, or a real client
       // marker. The server already filters the live pull; this guards the
       // demo fixture and any stale cached payload.
       .filter((c) => c.workCount > 0 || c.isClient)
+      // ...and only CURRENT ones, the same rule the directory above applies.
+      // Two lists on one screen disagreeing about who's active reads as a bug.
+      .filter((c) => c.active !== false)
       .sort(
         (a, b) =>
           b.workCount - a.workCount ||
