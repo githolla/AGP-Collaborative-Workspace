@@ -85,18 +85,24 @@ export function noteActivity(prev: ActivityEvidence, title: string, dates: (stri
 }
 
 /**
- * Active = work in the current fiscal year or the one just gone. The prior
- * year is included deliberately: an annual client whose FY27 work hasn't been
- * booked yet is dormant on paper for a few weeks every summer, and dropping
- * them out of the directory in that window would be wrong.
+ * Current = booked in the CURRENT fiscal year, or still delivering.
  *
- * A client with no year evidence at all counts as active — silence is not
+ * "Still delivering" is what makes the strict year test safe. An engagement
+ * booked as FY26 that runs into July or beyond is live work by any reading,
+ * so an open end-date keeps the client current even though its title says
+ * last year. Without that clause, narrowing to the current FY would drop
+ * clients mid-delivery every July.
+ *
+ * A client with no year and no dates anywhere stays visible: silence is not
  * proof of inactivity, and hiding a real client is a worse error than showing
- * a stale one.
+ * a stale one. Widen this to `currentFY - 1` if the directory should mean
+ * "recent" rather than "current" — that is the only line to change.
  */
 export function isActiveClient(ev: ActivityEvidence, today: string): boolean {
   const currentFY = fiscalYearOn(today);
-  if (ev.latestFiscalYear != null) return ev.latestFiscalYear >= currentFY - 1;
-  if (ev.latestDate) return fiscalYearOn(ev.latestDate) >= currentFY - 1;
+  // Work still running, or booked to finish in the future.
+  if (ev.latestDate && ev.latestDate >= today) return true;
+  if (ev.latestFiscalYear != null) return ev.latestFiscalYear >= currentFY;
+  if (ev.latestDate) return fiscalYearOn(ev.latestDate) >= currentFY;
   return true;
 }

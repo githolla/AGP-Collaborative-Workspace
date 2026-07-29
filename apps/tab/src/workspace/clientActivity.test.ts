@@ -68,19 +68,24 @@ describe("noteActivity", () => {
 });
 
 describe("isActiveClient", () => {
-  it("counts the current fiscal year as active", () => {
+  it("counts the current fiscal year as current", () => {
     expect(isActiveClient({ latestFiscalYear: 2027 }, TODAY)).toBe(true);
   });
 
-  it("counts last fiscal year as active too", () => {
-    // An annual client whose FY27 work isn't booked yet is dormant on paper
-    // for a few weeks each summer. Dropping them would be wrong.
-    expect(isActiveClient({ latestFiscalYear: 2026 }, TODAY)).toBe(true);
+  it("drops a client whose newest work was last fiscal year", () => {
+    // "Current clients", not "recent" — FY26 finished in June.
+    expect(isActiveClient({ latestFiscalYear: 2026 }, TODAY)).toBe(false);
+    expect(isActiveClient({ latestFiscalYear: 2025 }, TODAY)).toBe(false);
   });
 
-  it("treats anything older as history", () => {
-    expect(isActiveClient({ latestFiscalYear: 2025 }, TODAY)).toBe(false);
-    expect(isActiveClient({ latestFiscalYear: 2024 }, TODAY)).toBe(false);
+  it("keeps a last-year engagement that is still running", () => {
+    // The clause that makes the strict year test safe: an FY26 project booked
+    // to finish in September is live work, whatever its title says.
+    expect(isActiveClient({ latestFiscalYear: 2026, latestDate: "2026-09-30" }, TODAY)).toBe(true);
+  });
+
+  it("drops a last-year engagement that has already ended", () => {
+    expect(isActiveClient({ latestFiscalYear: 2026, latestDate: "2026-06-30" }, TODAY)).toBe(false);
   });
 
   it("falls back to dates when no title carried a year", () => {

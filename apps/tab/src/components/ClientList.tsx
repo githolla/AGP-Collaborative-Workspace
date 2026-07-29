@@ -598,15 +598,15 @@ function ClientDirectory({
             <div style={{ fontSize: 11.5, color: T.inkSecondary, marginTop: 4 }}>
               {showAll ? (
                 <>
-                  Including <strong>{dormantCount}</strong> with no work since FY{String(currentFY - 2).slice(2)}.{" "}
+                  Including <strong>{dormantCount}</strong> with no FY{String(currentFY).slice(2)} work and nothing still running.{" "}
                   <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setShowAll(false)}>
                     Show active only
                   </button>
                 </>
               ) : (
                 <>
-                  <strong>{dormantCount}</strong> older {dormantCount === 1 ? "client is" : "clients are"} hidden — no
-                  Kantata work since FY{String(currentFY - 2).slice(2)}.{" "}
+                  <strong>{dormantCount}</strong> past {dormantCount === 1 ? "client is" : "clients are"} hidden — no
+                  FY{String(currentFY).slice(2)} work booked and nothing still running.{" "}
                   <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setShowAll(true)}>
                     Show all {rows.length}
                   </button>
