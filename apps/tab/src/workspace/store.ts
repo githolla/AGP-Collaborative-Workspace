@@ -12,7 +12,7 @@ import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, t
 import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
-import type { ActivityEvent, AiMode, Task, TaskStatus, WorkPackage } from "./types.js";
+import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
 
 /**
  * Client-side workspace store, persisted to localStorage. This is the pivot
@@ -31,6 +31,9 @@ interface PersistedState {
   accounts: ClientAccount[];
   /** Interim sign-in accounts (email + hashed password) until Entra SSO. */
   team: TeamAccount[];
+  /** Tour answers from every tester, pooled. Research data, not workspace
+   * content — which is why "Clear workspace" leaves it alone. */
+  feedback: TourFeedback[];
 }
 
 /** Older stored ideas predate newer fields — backfill them by re-drafting. */
@@ -109,6 +112,7 @@ function migrateState(parsed: Partial<PersistedState>): PersistedState {
     ideas: (Array.isArray(parsed.ideas) ? parsed.ideas : []).filter((i) => !DEMO_SEED_IDS.has(i.id)).map(migrateIdea),
     accounts: (Array.isArray(parsed.accounts) ? parsed.accounts : []).filter((a) => !DEMO_SEED_IDS.has(a.id)).map(migrateAccount),
     team: Array.isArray(parsed.team) ? parsed.team : [],
+    feedback: Array.isArray(parsed.feedback) ? parsed.feedback : [],
   };
 }
 
@@ -122,7 +126,7 @@ function load(): PersistedState {
   } catch {
     // corrupted storage falls through to an empty (live-only) state
   }
-  return { initiatives: [], ideas: [], accounts: [], team: [] };
+  return { initiatives: [], ideas: [], accounts: [], team: [], feedback: [] };
 }
 
 /** Shared-persistence status, surfaced in the footer so the truth is visible. */
@@ -296,6 +300,7 @@ export function useWorkspace() {
       ideas: keepLocallyCreated(remote.ideas, local.ideas, envelope.savedAt),
       accounts: keepLocallyCreated(remote.accounts, local.accounts, envelope.savedAt),
       team: keepLocallyCreated(remote.team, local.team, envelope.savedAt),
+      feedback: keepLocallyCreated(remote.feedback, local.feedback, envelope.savedAt),
     };
     // Suppress the follow-up save ONLY when we took the remote document as-is.
     // If we carried anything over, it still has to go up — otherwise the
@@ -304,7 +309,8 @@ export function useWorkspace() {
       merged.initiatives.length === remote.initiatives.length &&
       merged.ideas.length === remote.ideas.length &&
       merged.accounts.length === remote.accounts.length &&
-      merged.team.length === remote.team.length;
+      merged.team.length === remote.team.length &&
+      merged.feedback.length === remote.feedback.length;
     setState(merged);
     setSyncStatus({ mode: "shared", savedAt: envelope.savedAt });
   }, []);
@@ -1489,8 +1495,31 @@ export function useWorkspace() {
       return;
     }
     window.localStorage.removeItem(STORAGE_KEY);
-    setState((s) => ({ initiatives: [], ideas: [], accounts: [], team: s.team }));
+    // Sign-in accounts and tour feedback survive: one would lock people out,
+    // the other is research nobody can re-collect.
+    setState((s) => ({ initiatives: [], ideas: [], accounts: [], team: s.team, feedback: s.feedback }));
   }, [syncStatus.mode]);
+
+  /**
+   * Log one tour answer. Re-answering a step replaces that person's previous
+   * response rather than stacking a second one — people go back a step and
+   * change their mind, and a tally that counted both would be wrong.
+   */
+  const recordFeedback = useCallback(
+    (entry: Omit<TourFeedback, "id" | "createdAt">) => {
+      const who = entry.personEmail.trim().toLowerCase() || entry.personName.trim().toLowerCase();
+      setState((s) => ({
+        ...s,
+        feedback: [
+          ...s.feedback.filter(
+            (f) => !(f.stepKey === entry.stepKey && (f.personEmail.trim().toLowerCase() || f.personName.trim().toLowerCase()) === who),
+          ),
+          { ...entry, id: newId("fb"), createdAt: new Date().toISOString() },
+        ],
+      }));
+    },
+    [],
+  );
 
   return {
     initiatives,
@@ -1553,6 +1582,8 @@ export function useWorkspace() {
     removeSignInAccount,
     signInWithPassword,
     clearWorkspace,
+    feedback: state.feedback,
+    recordFeedback,
     syncStatus,
   };
 }
