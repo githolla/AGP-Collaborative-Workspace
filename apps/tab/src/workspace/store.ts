@@ -1428,7 +1428,10 @@ export function useWorkspace() {
     [],
   );
 
-  const resetDemo = useCallback(() => {
+  /** Clear every workspace this browser (or the team, when shared) has built:
+   * accounts, ideas, initiatives. Nothing is re-seeded — the app comes back
+   * empty and refills from the live Kantata pull. Sign-in accounts survive. */
+  const clearWorkspace = useCallback(() => {
     if (
       syncStatus.mode === "shared" &&
       !window.confirm("This clears the SHARED workspace for everyone on the team, back to an empty (live-only) state. Continue?")
@@ -1499,7 +1502,7 @@ export function useWorkspace() {
     addSignInAccount,
     removeSignInAccount,
     signInWithPassword,
-    resetDemo,
+    clearWorkspace,
     syncStatus,
   };
 }

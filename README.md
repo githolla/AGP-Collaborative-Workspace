@@ -64,5 +64,16 @@ pnpm typecheck && pnpm lint && pnpm test
 pnpm --filter @agp/tab dev     # workspace app on fixtures/localStorage
 ```
 
-Deploys to Vercel on every push (`vercel.json`). Demo data persists in the
-browser; "Reset demo data" restores the seed.
+Deploys to Vercel on every push (`vercel.json`).
+
+**Live-only — there is no demo workspace.** The app boots empty and fills from
+the live Kantata pull (`/api/mirror`): pick a client from the book and its
+workspace is created with that client's campaigns, milestones, and tasks
+already in it. Any leftover seed content from earlier builds is purged on load
+(`DEMO_SEED_IDS` in `apps/tab/src/workspace/store.ts`) and never re-seeded.
+"Clear workspace" empties what you've built — it restores nothing.
+
+Two fallbacks remain deliberate, and both say so on screen: when `/api/mirror`
+can't answer (no tokens, local dev) the bundled fixture mirror stands in behind
+a "Live data unavailable" banner, and the bundled `AGP_PEOPLE` roster backs the
+Copilot's cast suggestions until the org-chart seed lands (BLOCKERS #2).

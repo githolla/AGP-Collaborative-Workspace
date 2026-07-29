@@ -52,7 +52,10 @@ export function IntakePanel({
     setText(seed.text);
     if (seed.serviceLine) setServiceLine(seed.serviceLine);
     if (seed.vertical) setVertical(seed.vertical);
-  }, [seed?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Keyed on the nonce ALONE, deliberately: each pick is one application of
+    // the seed. Depending on `seed` itself would re-apply (and clobber the
+    // user's edits) on every re-render that hands back a new object.
+  }, [seed?.nonce]);
 
   const toggleTeam = (name: string) =>
     setTeam((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));

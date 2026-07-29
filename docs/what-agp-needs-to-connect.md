@@ -94,12 +94,22 @@ People don't live in the tool; a nudge brings them in. Provide one or both:
   that can post notifications.
 - **Email:** either add **`Mail.Send`** (delegated/application) to the app
   registration, or provide a **SendGrid** (or similar) send key.
+  **Settled on the 2026-07-29 call: use SendGrid.** AGP has a paid account
+  already wired to other apps, Ren holds the API key and attaches it at the
+  application level, and it has been proven on another build. That takes
+  `Mail.Send` — and one more round of Entra admin consent — off the list.
+  Ren also sets the **reply-to address** as an environment variable, so we need
+  to tell him which address replies should come back to.
 - **Decide the default channel** (Teams, email, or per-person choice — the app
   already lets each person pick).
 
 ---
 
 ## 4. Hosting — Azure in AGP's tenant
+
+> **Status 2026-07-29: the Azure environment is in hand.** What's left is
+> configuration, not procurement — the final URL, the env vars below, and
+> pointing the pipeline at the repo. See BLOCKERS #10.
 
 Host the app on **Azure within AGP's Microsoft environment** (the plan already in
 motion) so identity, files, and audit all stay inside their tenant. IT provisions
@@ -161,6 +171,30 @@ use. This reuses the **same Entra app registration** from #1 — it is additive.
 **Minimum to pilot the Teams tab:** the same two IDs from #1, the "Expose an
 API" `access_as_user` scope + pre-authorized Teams clients + admin consent, and
 **custom app upload allowed** in Teams admin. Then a channel owner adds the tab.
+
+> **A first round is much cheaper than that — everything above is round two.**
+> Sign-in is currently dormant (`AUTH_REQUIRED` unset means the server
+> authorizes every request), so a tab pointed at the deployed URL simply loads.
+> No app registration, no `access_as_user`, no admin consent. The **only**
+> external dependency for round one is **custom app upload allowed in Teams
+> admin** — Jaden's approval, 1–3 weeks, so start it now. On our side we still
+> owe the app package itself: `manifest.json`, a colour and an outline icon,
+> the Teams JS SDK `app.initialize()` call, and a `frame-ancestors
+> teams.microsoft.com *.teams.microsoft.com` header so the app embeds. None of
+> that exists in the repo yet; it is about a day's work and needs nothing from
+> AGP (BLOCKERS #13).
+>
+> Round one runs on the live Kantata book and proves the mechanics — does it
+> load, does it feel native, does navigation survive the iframe. It will not
+> tell you whether people adopt it, which was Josh's actual reason for wanting
+> tabs; that needs round two pointed at a real client account. Worth saying out
+> loud so "it works" isn't mistaken for "it'll get used."
+>
+> One thing to warn testers about: shared state today is a single workspace
+> document, so everyone with the URL edits the same one and sees each other's
+> changes live (BLOCKERS #7, accepted until SSO). For a collaboration test
+> that's arguably the point — but say it first, or the first "my note
+> disappeared" comes back as a bug.
 
 > Note: the Teams tab is a *packaging/embedding* layer on top of the running web
 > app — everything the app does (files, discussions, dashboard) works the same

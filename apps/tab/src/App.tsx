@@ -64,8 +64,8 @@ const TOUR_KEY = "agp-collab-tour-v1";
 /**
  * The spotlight walkthrough — written to be read aloud while demoing. Each
  * step pairs the ask (a line from Cara's features doc or the product-owner
- * brief) with what was built from it. Routes use the seeded demo data
- * (ABC Foodbank, the grant-report idea).
+ * brief) with what was built from it. Routes run on whatever the live
+ * Kantata pull returns — there is no seeded demo workspace to fall back on.
  */
 const TOUR_STEPS: TourStep[] = [
   {
@@ -561,15 +561,15 @@ export function App() {
                 Shared team workspace — synced to Supabase
                 {ws.syncStatus.savedAt ? ` · last saved ${new Date(ws.syncStatus.savedAt).toLocaleTimeString()}` : ""}
                 {ws.syncStatus.error ? " · retrying…" : ""}{" "}
-                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
-                  Reset shared demo data
+                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.clearWorkspace}>
+                  Clear shared workspace
                 </Button>
               </>
             ) : (
               <>
-                Demo data is stored locally in your browser.{" "}
-                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.resetDemo}>
-                  Reset demo data
+                Workspaces are stored locally in your browser.{" "}
+                <Button variant="link" style={{ fontSize: 11 }} onClick={ws.clearWorkspace}>
+                  Clear workspace
                 </Button>
               </>
             )}
