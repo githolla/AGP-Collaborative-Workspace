@@ -45,7 +45,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 10; // 10: dedup by legal-suffix + trailing fiscal-year/campaign code
+const CACHE_SCHEMA = 11; // 11: 2-char dash prefixes, AGP/Test internal, space-insensitive keys
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -61,9 +61,16 @@ const stripCode = (title: string): string => title.replace(/^\s*\d[\d.-]*\s+/, "
  * convention). Dropped from the client list AND the project list — it isn't
  * delivery for an outside client.
  */
-export const isInternalTitle = (title: string): boolean => /^agency\b/i.test(stripCode(str(title)));
+export const isInternalTitle = (title: string): boolean => {
+  const t = stripCode(str(title));
+  // AGP labels its own work "AGP:" / "Allegiance Group …" — NOT the
+  // "Agency:" this rule originally assumed, so internal projects were
+  // being counted as two clients ("AGP", "Allegiance Group").
+  // "Test:" projects are scratch work and are not a client either.
+  return /^(agency|agp|allegiance\s+group|test)\b/i.test(t);
+};
 
-const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const normKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "");
 const TITLE_SEP = /\s+[—–|]\s+|\s+-\s+/;
 
 /**
@@ -105,7 +112,8 @@ export function classifyClientTitle(raw: string): TitleClass {
     }
   }
   const dash = title.split(TITLE_SEP);
-  if (dash.length >= 2 && (dash[0]?.trim().length ?? 0) >= 4) return { via: "dash", client: dash[0]!.trim() };
+  const head = dash[0]?.trim() ?? "";
+  if (dash.length >= 2 && head.length >= 2 && head.length <= 40) return { via: "dash", client: head };
   if (title.length >= 4) return { via: "verbatim", client: title };
   return { via: "internal" };
 }

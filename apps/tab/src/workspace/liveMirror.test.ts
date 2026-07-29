@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapLivePayload, mergeFocusPayload, type RawMirrorPayload } from "./liveMirror.js";
+import { classifyClientTitle, mapLivePayload, mergeFocusPayload, type RawMirrorPayload } from "./liveMirror.js";
 
 /**
  * The raw /api/mirror payload → AgpMirror mapping, validated against the
@@ -350,5 +350,44 @@ describe("mapLivePayload", () => {
     expect(tasks.find((t) => t.id === "t9")).toBeDefined();
     expect(tasks.find((t) => t.id === "t1")).toBeUndefined();
     expect(mirror.milestones.map((m) => m.id).sort()).toEqual(["m2", "m9"]);
+  });
+});
+
+/**
+ * Client-derivation regressions found against AGP's real Kantata tenant
+ * (393 projects), where the directory read 165 clients against a book of 128.
+ */
+describe("client derivation — AGP tenant regressions", () => {
+  it("attributes a dash title with a short acronym client to that client", () => {
+    // THE BUG: the dash branch demanded a 4-character prefix, so every
+    // "COH - FY25 …" fell through to verbatim and was never attributed to COH.
+    for (const title of ["COH - FY25 DM #1", "CWS - FY26", "MH - FY26", "ARF - TO4 Security & Multi-site"]) {
+      const cls = classifyClientTitle(title);
+      expect(cls.via).toBe("dash");
+    }
+    expect(classifyClientTitle("COH - FY25 DM #1")).toEqual({ via: "dash", client: "COH" });
+  });
+
+  it("still treats a colon prefix as authoritative over a later dash", () => {
+    expect(classifyClientTitle("IdahoPTV: FY26 (JuL-Dec) Direct Response")).toEqual({
+      via: "colon",
+      client: "IdahoPTV",
+    });
+  });
+
+  it("treats AGP's own work as internal, not as clients", () => {
+    for (const title of ["AGP: Software & Support", "AGP: AI Initiatives", "Allegiance Group : Mavenlink : Support"]) {
+      expect(classifyClientTitle(title).via).toBe("internal");
+    }
+  });
+
+  it("drops scratch projects", () => {
+    expect(classifyClientTitle("Test: Kellie").via).toBe("internal");
+  });
+
+  it("keeps a title with no separator at all out of the client list", () => {
+    // "Informs Redesign" is a project title, not a client — verbatim titles
+    // are reachable via the Project Finder but never counted as clients.
+    expect(classifyClientTitle("Informs Redesign").via).toBe("verbatim");
   });
 });
