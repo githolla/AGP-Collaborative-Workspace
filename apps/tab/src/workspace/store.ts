@@ -81,6 +81,26 @@ function migrateAccount(a: ClientAccount): ClientAccount {
   };
 }
 
+/**
+ * Re-attach items this browser created after the shared document was written.
+ * `remote` is authoritative — anything it still holds wins, and anything it
+ * dropped stays dropped. Only local items that are BOTH absent from the
+ * remote copy and newer than its `savedAt` come back: those cannot have been
+ * deleted by a teammate, because they did not exist when that save happened.
+ *
+ * Timestamps are `new Date().toISOString()` on both sides (the server stamps
+ * `savedAt` the same way), so a lexicographic compare is a chronological one.
+ */
+export function keepLocallyCreated<T extends { id: string; createdAt: string }>(
+  remote: readonly T[],
+  local: readonly T[],
+  savedAt: string,
+): T[] {
+  const known = new Set(remote.map((r) => r.id));
+  const carried = local.filter((l) => !known.has(l.id) && l.createdAt > savedAt);
+  return carried.length > 0 ? [...remote, ...carried] : [...remote];
+}
+
 /** Apply per-field migrations to any state document (local or shared).
  * Live-only: demo seed content is dropped, never re-seeded. */
 function migrateState(parsed: Partial<PersistedState>): PersistedState {
@@ -253,10 +273,39 @@ export function useWorkspace() {
   const saveTimerRef = useRef(0);
   stateRef.current = state;
 
+  /**
+   * Adopt the shared document — without destroying work this browser did
+   * after that document was written. The remote copy wins for everything it
+   * knows about, so a teammate's edits AND their deletions still land; what
+   * gets carried over is only what was created HERE since `savedAt`.
+   *
+   * The time bound is the whole trick. A plain union would resurrect every
+   * deleted workspace on the next poll; replacing wholesale (the old
+   * behaviour) silently ate any workspace created in the seconds before a
+   * boot fetch, a 25s poll, or a 409 landed — you'd click into the workspace
+   * you just made and get "Client workspace not found". An item older than
+   * the remote snapshot that the remote no longer has was deleted on
+   * purpose; an item newer than it simply hasn't been uploaded yet.
+   */
   const adopt = useCallback((envelope: { version: number; savedAt: string; state: unknown }) => {
     versionRef.current = envelope.version;
-    adoptingRef.current = true;
-    setState(migrateState(envelope.state as Partial<PersistedState>));
+    const remote = migrateState(envelope.state as Partial<PersistedState>);
+    const local = stateRef.current;
+    const merged: PersistedState = {
+      initiatives: keepLocallyCreated(remote.initiatives, local.initiatives, envelope.savedAt),
+      ideas: keepLocallyCreated(remote.ideas, local.ideas, envelope.savedAt),
+      accounts: keepLocallyCreated(remote.accounts, local.accounts, envelope.savedAt),
+      team: keepLocallyCreated(remote.team, local.team, envelope.savedAt),
+    };
+    // Suppress the follow-up save ONLY when we took the remote document as-is.
+    // If we carried anything over, it still has to go up — otherwise the
+    // teammate whose save we just adopted never sees it.
+    adoptingRef.current =
+      merged.initiatives.length === remote.initiatives.length &&
+      merged.ideas.length === remote.ideas.length &&
+      merged.accounts.length === remote.accounts.length &&
+      merged.team.length === remote.team.length;
+    setState(merged);
     setSyncStatus({ mode: "shared", savedAt: envelope.savedAt });
   }, []);
 
@@ -269,8 +318,9 @@ export function useWorkspace() {
           body: JSON.stringify({ baseVersion: versionRef.current, state: s }),
         });
         if (res.status === 409) {
-          // Someone saved first — their version wins; ours re-applies on top
-          // of it through normal editing.
+          // Someone saved first — their version wins for what it contains,
+          // and `adopt` carries our newer creations across so the losing
+          // side of the race doesn't quietly lose a workspace.
           const j = (await res.json()) as { envelope?: { version: number; savedAt: string; state: unknown } };
           if (j.envelope) adopt(j.envelope);
           return;
