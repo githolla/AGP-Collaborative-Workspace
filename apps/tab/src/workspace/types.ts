@@ -258,3 +258,28 @@ export interface SandboxIdea {
   promotedInitiativeId?: string;
   createdAt: string;
 }
+
+/**
+ * One answer to one tour question. The tour teaches; these capture what people
+ * think of the design and the workflow while they're looking at it — which is
+ * the only moment the reaction is honest. Stored alongside the workspace so
+ * responses from every tester land in one place.
+ */
+export interface TourFeedback {
+  id: string;
+  createdAt: string;
+  /** Stable key of the tour step this answers. */
+  stepKey: string;
+  /** Human title of that step, denormalized so an exported CSV reads on its own. */
+  stepTitle: string;
+  /** The question as it was asked — questions get reworded between rounds. */
+  prompt: string;
+  /** "a" | "b" | "c", or "" when someone only left a comment. */
+  choice: string;
+  /** Denormalized option text, for the same reason as stepTitle. */
+  choiceLabel: string;
+  /** Optional free text — the part that usually carries the real signal. */
+  comment: string;
+  personName: string;
+  personEmail: string;
+}

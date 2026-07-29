@@ -8,6 +8,7 @@ import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
 import { ClientWorkspace } from "./components/ClientWorkspace.js";
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
+import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { TeamManager } from "./components/TeamManager.js";
@@ -32,10 +33,13 @@ type Route =
   | { view: "clients" }
   | { view: "initiative"; id: string }
   | { view: "idea"; id: string }
-  | { view: "account"; id: string };
+  | { view: "account"; id: string }
+  /** Tour-feedback admin. Deliberately unlinked — reachable by URL only. */
+  | { view: "admin" };
 
 function parseHash(): Route {
   const hash = window.location.hash;
+  if (/^#admin\/feedback$/.test(hash)) return { view: "admin" };
   const initiative = hash.match(/^#i\/(.+)$/);
   if (initiative?.[1]) return { view: "initiative", id: initiative[1] };
   const idea = hash.match(/^#s\/(.+)$/);
@@ -54,6 +58,8 @@ function hashOf(route: Route): string {
       return `s/${route.id}`;
     case "account":
       return `c/${route.id}`;
+    case "admin":
+      return "admin/feedback";
     default:
       return "";
   }
@@ -74,6 +80,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Welcome to the workspace",
     body: "A 90-second tour of how this works — ask by ask. Cara scoped the collaboration workspace; Kellie needs the plan to feed capacity. Everything you see here is live from Kantata. → or Enter to continue, Esc to exit.",
     quote: { text: "…the primary execution environment for client accounts — communication, tasks, files, and visibility across internal teams, clients, and contractors.", from: "Cara — features doc, opening line" },
+    question: {
+      prompt: "Before you start — how clear is it what this workspace is for?",
+      options: [
+        { key: "a", label: "Completely clear" },
+        { key: "b", label: "Roughly — I'd want to see it first" },
+        { key: "c", label: "Not clear yet" },
+      ],
+      placeholder: "What would have made it land faster? (optional)",
+    },
   },
   {
     key: "directory",
@@ -82,6 +97,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "One list, every client — live from Kantata",
     quote: { text: "Separate workspace per client/project/initiative; no cross-visibility by default.", from: "Cara — features doc, a Must" },
     body: "Every active client, straight from your Kantata tenant — no demo data, nothing typed by hand. Each row is one client; open it and it's a workspace of its own. The count matches Kantata's book of business.",
+    question: {
+      prompt: "Could you find one of your own clients in this list?",
+      options: [
+        { key: "a", label: "Straight away" },
+        { key: "b", label: "Yes, but it took some scanning" },
+        { key: "c", label: "No — I couldn't find them" },
+      ],
+      placeholder: "Which client, and what got in the way? (optional)",
+    },
   },
   {
     key: "collaborating",
@@ -91,6 +115,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Who's collaborating, and on what",
     quote: { text: "Communication, tasks, files, and visibility across internal teams, clients, and contractors.", from: "Cara — features doc" },
     body: "“Who's collaborating” is the real Kantata delivery team booked on that client — with their role — and “Working on” is the live campaigns in flight. Both come from Kantata's participants and projects, so the list shows the actual working picture, not a guess.",
+    question: {
+      prompt: "Does “who's collaborating” match who is really on that work?",
+      options: [
+        { key: "a", label: "Yes — that's the team" },
+        { key: "b", label: "Mostly, with people missing or extra" },
+        { key: "c", label: "No — this isn't the working picture" },
+      ],
+      placeholder: "Who's wrong, missing, or shouldn't be there? (optional)",
+    },
   },
   {
     key: "sort",
@@ -99,6 +132,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Sort & filter around collaboration",
     quote: { text: "Users can find updates, tasks, and files within 60 seconds.", from: "Cara — features doc, the Home Must" },
     body: "Sort by what matters for working together — most active, open tasks, people, projects — and filter by vertical, lead, or setup status. Findability is the point: the client you need is a click away.",
+    question: {
+      prompt: "Which of these would you actually reach for first?",
+      options: [
+        { key: "a", label: "Sorting — most active, open tasks, people" },
+        { key: "b", label: "Filtering — vertical, lead, setup status" },
+        { key: "c", label: "Neither — I'd just search" },
+      ],
+      placeholder: "What would you sort or filter by that isn't here? (optional)",
+    },
   },
   {
     key: "book",
@@ -107,6 +149,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Set up a workspace — one standard template",
     quote: { text: "Ability to apply a template (channels/pages/lists) for consistent set up… you choose what imports.", from: "Cara — features doc, two Musts" },
     body: "Every client workspace starts identical — Home, plan, dashboard, files, discussions, access. One click sets it up; then Kantata's matched campaigns, milestones, and tasks wait for your review. Nothing lands without you.",
+    question: {
+      prompt: "One standard template for every client — right call?",
+      options: [
+        { key: "a", label: "Yes — consistency is the point" },
+        { key: "b", label: "Mostly, but some clients need their own shape" },
+        { key: "c", label: "No — too rigid for how we work" },
+      ],
+      placeholder: "What would you add to or drop from the standard set? (optional)",
+    },
   },
   {
     key: "people",
@@ -114,6 +165,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Collaborate from anywhere in a client",
     quote: { text: "Invite client/contractor users with controlled access (guest/external).", from: "Cara — features doc, a Must" },
     body: "Inside a client, the People hub sits on the navy band on EVERY tab — add an AGP teammate, invite a client or contractor, or post an update to the team without leaving what you're doing. The roster you add from is the live AGP team in Kantata.",
+    question: {
+      prompt: "Adding people and posting from any tab — does that fit how you work?",
+      options: [
+        { key: "a", label: "Yes — I'd use it where I am" },
+        { key: "b", label: "I'd rather go to one place to do it" },
+        { key: "c", label: "It feels like clutter on every tab" },
+      ],
+      placeholder: "Where would you expect this to live instead? (optional)",
+    },
   },
   {
     key: "tasks",
@@ -121,6 +181,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Every task is clickable — and accountable",
     quote: { text: "Shared task lists — assign owners, due dates; track status/progress. @mentions notify.", from: "Cara — features doc, Tasks Musts" },
     body: "Task owners come from Kantata's assignees — no plan lands ownerless. Click any task to see everything about it, move its status, or raise it with the team in one step. One list, no double entry: the plan is the source.",
+    question: {
+      prompt: "Would you run a project from this task list, or keep using Kantata?",
+      options: [
+        { key: "a", label: "This — it's easier to work from" },
+        { key: "b", label: "Both, depending on what I'm doing" },
+        { key: "c", label: "Kantata — this doesn't add enough" },
+      ],
+      placeholder: "What's missing before you'd work here daily? (optional)",
+    },
   },
   {
     key: "access",
@@ -128,6 +197,15 @@ const TOUR_STEPS: TourStep[] = [
     title: "Access that revokes for real",
     quote: { text: "Removing a user revokes access across the workspace immediately.", from: "Cara — features doc, a Must" },
     body: "The access register shows who invited whom and when they were last active. Remove revokes on the spot, and “Offboard everywhere” clears a person from every client workspace at once — audit-logged. Clients only ever see their own workspace; internal financials never appear.",
+    question: {
+      prompt: "Is this enough control to let a client or contractor in?",
+      options: [
+        { key: "a", label: "Yes — I'd invite someone today" },
+        { key: "b", label: "Nearly — I'd want one more safeguard" },
+        { key: "c", label: "No — I wouldn't risk it yet" },
+      ],
+      placeholder: "What would you need to see before inviting someone? (optional)",
+    },
   },
   {
     key: "resource-sync",
@@ -135,12 +213,30 @@ const TOUR_STEPS: TourStep[] = [
     title: "The plan feeds capacity — through Kantata",
     quote: { text: "Weekly reservations are created in Kantata — and recalculated as the plan changes.", from: "Kellie — Resource capacity planner" },
     body: "The loop closes through Kantata: task owners, dates, and weekly hours written here flow back to Kantata, and the capacity planner reads them — one source of truth, by person, by week. Read side is live today; the write-back rides the same connection once write access is on.",
+    question: {
+      prompt: "The plan here feeding Kantata capacity — how much does that matter to you?",
+      options: [
+        { key: "a", label: "Critical — it's the reason to use this" },
+        { key: "b", label: "Useful, not decisive" },
+        { key: "c", label: "Not part of my job" },
+      ],
+      placeholder: "What would you want written back that isn't? (optional)",
+    },
   },
   {
     key: "done",
     title: "That's the loop",
     quote: { text: "If the plan moves in the workspace, it has to move in Kantata — that's what I schedule capacity off of.", from: "Kellie — Resource capacity planner" },
     body: "Live Kantata book → a workspace per client → the real team, tasks, and campaigns populate in → everyone works one plan → it syncs back to Kantata for Kellie's capacity planner. No dummy data anywhere. Restart any time with “Take the tour”.",
+    question: {
+      prompt: "Overall — would this replace something you do today?",
+      options: [
+        { key: "a", label: "Yes — I'd switch to it" },
+        { key: "b", label: "It would sit alongside what I use" },
+        { key: "c", label: "No — not as it stands" },
+      ],
+      placeholder: "The one change that would make the biggest difference? (optional)",
+    },
   },
 ];
 
@@ -434,6 +530,18 @@ export function App() {
 
   const listView = route.view === "clients";
 
+  // This person's own tour answers, so re-opening a step shows what they
+  // chose. Everyone else's stay pooled for the admin roll-up.
+  const myAnswers = useMemo(() => {
+    const me = (email ?? "").trim().toLowerCase() || userName.trim().toLowerCase();
+    const mine: Record<string, { choice: string; comment: string }> = {};
+    for (const f of ws.feedback) {
+      const who = f.personEmail.trim().toLowerCase() || f.personName.trim().toLowerCase();
+      if (who === me) mine[f.stepKey] = { choice: f.choice, comment: f.comment };
+    }
+    return mine;
+  }, [ws.feedback, email, userName]);
+
   // The sandbox lives inside each client: an idea's Back returns to its
   // owning workspace when one still exists.
   const ideaHome = (idea: { accountId?: string }): Route =>
@@ -693,6 +801,10 @@ export function App() {
           />
         )}
 
+        {route.view === "admin" && (
+          <FeedbackAdmin feedback={ws.feedback} onBack={() => setRoute({ view: "clients" })} />
+        )}
+
         {route.view === "account" && !selectedAccount && (
           <EmptyState
             icon="🔍"
@@ -719,7 +831,29 @@ export function App() {
         )}
       </div>
 
-      {tourStep !== null && <Tour steps={TOUR_STEPS} step={tourStep} onStep={setTourStep} onClose={closeTour} />}
+      {tourStep !== null && (
+        <Tour
+          steps={TOUR_STEPS}
+          step={tourStep}
+          onStep={setTourStep}
+          onClose={closeTour}
+          answers={myAnswers}
+          onAnswer={(stepKey, answer) => {
+            const s = TOUR_STEPS.find((t) => t.key === stepKey);
+            if (!s?.question) return;
+            ws.recordFeedback({
+              stepKey,
+              stepTitle: s.title,
+              prompt: s.question.prompt,
+              choice: answer.choice,
+              choiceLabel: s.question.options.find((o) => o.key === answer.choice)?.label ?? "",
+              comment: answer.comment,
+              personName: userName,
+              personEmail: email ?? "",
+            });
+          }}
+        />
+      )}
       <TeamManager open={teamOpen} team={ws.team} onAdd={ws.addSignInAccount} onRemove={ws.removeSignInAccount} onClose={() => setTeamOpen(false)} />
       {ws.accounts.some((a) => !a.archived) && (
         <DiscussLauncher

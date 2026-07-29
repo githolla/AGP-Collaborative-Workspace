@@ -44,6 +44,26 @@ of every initiative**: live headline, confidence grade, scenario dials, and a
 - **Acceptance invariant** (tested): an empty initiative shows $0, grade ≤ C,
   and the correct still-to-gather count; numbers tighten only as evidence lands.
 
+## Tour + feedback capture
+
+"Take the tour" is both the walkthrough and the research instrument. Each of
+the ten steps teaches one thing and then asks one multiple-choice question
+(A/B/C) about that screen's design or workflow, with an optional comment box.
+Answering is never required — the tour moves on regardless — and answers save
+as people step through, including on "Skip tour", so a half-finished run still
+contributes. Re-answering a step replaces that person's earlier response.
+
+Responses pool into the shared workspace document, so every tester's answers
+land in one place. Read them at **`#admin/feedback`** — an unlinked route,
+passcode-gated via `VITE_FEEDBACK_ADMIN_CODE` (see `.env.example`). It shows a
+per-step tally with percentages, every comment attributed and dated, and a
+**Download CSV** button (RFC 4180 quoting, UTF-8 BOM, so comments containing
+commas, quotes, or line breaks survive Excel).
+
+The passcode is obscurity, not authentication — anyone with the route and the
+code can read the responses. That's acceptable for internal testing feedback;
+swap it for a sign-in check when Entra SSO lands (BLOCKERS #5).
+
 ## Layout (focused per ADR 0005)
 
 ```

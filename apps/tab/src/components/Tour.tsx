@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { T } from "../theme.js";
 
@@ -21,6 +21,24 @@ export interface TourQuote {
   from: string;
 }
 
+export interface TourOption {
+  /** "a" | "b" | "c" — shown as the letter badge and stored in the export. */
+  key: string;
+  label: string;
+}
+
+/**
+ * The feedback half of a step. Multiple choice for something countable, free
+ * text for the part that actually explains it. Both are optional to answer —
+ * a tour that won't let you move on is a tour people abandon, and abandoned
+ * tours produce worse data than partial ones.
+ */
+export interface TourQuestion {
+  prompt: string;
+  options: TourOption[];
+  placeholder?: string;
+}
+
 export interface TourStep {
   key: string;
   /** Hash (without #) to be on before showing this step. */
@@ -32,11 +50,21 @@ export interface TourStep {
   body: string;
   /** The ask this step answers — shown as a quote block above the body. */
   quote?: TourQuote;
+  /** Asked at the bottom of the card, while they're looking at the thing. */
+  question?: TourQuestion;
+}
+
+export interface TourAnswer {
+  choice: string;
+  comment: string;
 }
 
 const PAD = 8;
 const CARD_W = 344;
-const CARD_EST_H = 300;
+const CARD_BASE_H = 300;
+/** A question adds roughly this much card — placement has to account for it
+ * or the card gets pinned to the bottom edge and the textarea is unreachable. */
+const QUESTION_H = 215;
 const GLIDE_MS = 350;
 const DIM = "rgba(7, 26, 47, 0.72)";
 
@@ -60,15 +88,23 @@ export function Tour({
   step,
   onStep,
   onClose,
+  answers = {},
+  onAnswer,
 }: {
   steps: TourStep[];
   step: number;
   onStep: (i: number) => void;
   onClose: () => void;
+  /** Answers already given, keyed by step — so going back shows your choice. */
+  answers?: Record<string, TourAnswer>;
+  onAnswer?: (stepKey: string, answer: TourAnswer) => void;
 }) {
   const s = steps[step];
   const [box, setBox] = useState<Box | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const [choice, setChoice] = useState("");
+  const [comment, setComment] = useState("");
+  const CARD_EST_H = s?.question ? CARD_BASE_H + QUESTION_H : CARD_BASE_H;
   const reduced =
     typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -117,27 +153,75 @@ export function Tour({
     };
   }, [step, s, reduced]);
 
-  // Keyboard driving + focus trap.
+  // Focus lands in the card on every step.
+  useEffect(() => {
+    const btn = cardRef.current?.querySelector<HTMLElement>("[data-tour-next]");
+    btn?.focus();
+  }, [step]);
+
+  // Re-open a step with whatever you answered last time, so stepping back to
+  // re-read something doesn't look like your answer was thrown away.
+  const stepKey = s?.key;
+  useEffect(() => {
+    const prior = stepKey ? answers[stepKey] : undefined;
+    setChoice(prior?.choice ?? "");
+    setComment(prior?.comment ?? "");
+    // Keyed on the step ALONE, deliberately: `answers` gets a new identity on
+    // every save, and depending on it would wipe whatever the user is
+    // part-way through typing.
+  }, [stepKey]);
+
+  /** Save before navigating — including on Skip, so a half-finished tour still
+   * contributes everything it collected. */
+  const commit = useCallback(() => {
+    if (!stepKey || !onAnswer) return;
+    const prior = answers[stepKey];
+    const trimmed = comment.trim();
+    if (!choice && !trimmed) return;
+    if (prior && prior.choice === choice && prior.comment === trimmed) return;
+    onAnswer(stepKey, { choice, comment: trimmed });
+  }, [stepKey, onAnswer, answers, choice, comment]);
+
+  const go = useCallback(
+    (i: number) => {
+      commit();
+      onStep(i);
+    },
+    [commit, onStep],
+  );
+
+  const finish = useCallback(() => {
+    commit();
+    onClose();
+  }, [commit, onClose]);
+
+  // Keyboard driving + focus trap. Declared after `go`/`finish` so the answer
+  // on screen is saved before the key moves the tour on.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        finish();
         return;
       }
       // Enter on a focused control means THAT control — Back must go back,
       // Skip must skip. Hijacking it globally made the tour "skip ahead".
-      const onInteractive = !!(e.target as HTMLElement | null)?.closest?.("button, [href], input, select, textarea");
+      const el = e.target as HTMLElement | null;
+      const onInteractive = !!el?.closest?.("button, [href], input, select, textarea");
       if (e.key === "Enter" && onInteractive) return;
+      // Arrow keys belong to the caret while someone is writing a comment —
+      // otherwise moving the cursor left jumps the tour back a step.
+      const typing = !!el?.closest?.("input, textarea");
+      if (typing && (e.key === "ArrowRight" || e.key === "ArrowLeft")) return;
       if ((e.key === "ArrowRight" || e.key === "Enter") && step < steps.length - 1) {
         e.preventDefault();
-        onStep(step + 1);
+        go(step + 1);
       } else if (e.key === "Enter" && step === steps.length - 1) {
         e.preventDefault();
-        onClose();
+        finish();
       } else if (e.key === "ArrowLeft" && step > 0) {
-        onStep(step - 1);
+        go(step - 1);
       } else if (e.key === "Tab" && cardRef.current) {
-        const focusables = cardRef.current.querySelectorAll<HTMLElement>("button, [href], input");
+        const focusables = cardRef.current.querySelectorAll<HTMLElement>("button, [href], input, textarea");
         if (focusables.length === 0) return;
         const first = focusables[0]!;
         const last = focusables[focusables.length - 1]!;
@@ -152,13 +236,7 @@ export function Tour({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, steps.length, onStep, onClose]);
-
-  // Focus lands in the card on every step.
-  useEffect(() => {
-    const btn = cardRef.current?.querySelector<HTMLElement>("[data-tour-next]");
-    btn?.focus();
-  }, [step]);
+  }, [step, steps.length, go, finish]);
 
   if (!s) return null;
   const last = step === steps.length - 1;
@@ -288,12 +366,109 @@ export function Tour({
           <div style={{ fontSize: 13, color: T.ink, opacity: 0.78, lineHeight: 1.6 }}>{s.body}</div>
         </div>
 
+        {s.question && (
+          <div style={{ marginTop: 13, borderTop: `1px solid ${T.grid}`, paddingTop: 11 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  letterSpacing: 0.7,
+                  textTransform: "uppercase",
+                  color: T.inkMuted,
+                  border: `1px solid ${T.grid}`,
+                  borderRadius: 999,
+                  padding: "1px 7px",
+                  flexShrink: 0,
+                }}
+              >
+                Your take
+              </span>
+              <span style={{ fontSize: 10.5, color: T.inkMuted }}>optional</span>
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, marginTop: 7, lineHeight: 1.45 }}>
+              {s.question.prompt}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+              {s.question.options.map((o) => {
+                const on = choice === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    aria-pressed={on}
+                    // Clicking the chosen answer again clears it — there is no
+                    // other way to take back a misclick on an optional question.
+                    onClick={() => setChoice(on ? "" : o.key)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      textAlign: "left",
+                      background: on ? "#eef4fb" : "#fff",
+                      border: `1px solid ${on ? T.roi.navy : T.grid}`,
+                      borderRadius: 8,
+                      padding: "7px 9px",
+                      cursor: "pointer",
+                      font: "inherit",
+                      transition: reduced ? "none" : "background 140ms ease, border-color 140ms ease",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 5,
+                        flexShrink: 0,
+                        display: "grid",
+                        placeItems: "center",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: on ? "#fff" : T.inkSecondary,
+                        background: on ? T.roi.navy : "#f0efec",
+                      }}
+                    >
+                      {o.key.toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: 12, color: T.ink, lineHeight: 1.4 }}>{o.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={2}
+              placeholder={s.question.placeholder ?? "Anything else? (optional)"}
+              style={{
+                width: "100%",
+                marginTop: 8,
+                border: `1px solid ${T.grid}`,
+                borderRadius: 8,
+                padding: "7px 9px",
+                fontSize: 12,
+                fontFamily: "inherit",
+                color: T.ink,
+                resize: "vertical",
+                boxSizing: "border-box",
+              }}
+            />
+            {answers[s.key] && (
+              <div style={{ fontSize: 10.5, color: "#116a43", marginTop: 5 }}>
+                ✓ Saved — change it any time, your latest answer is the one that counts.
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
-          <button type="button" data-tour-next className="btn btn-primary btn-sm" onClick={() => (last ? onClose() : onStep(step + 1))}>
+          <button type="button" data-tour-next className="btn btn-primary btn-sm" onClick={() => (last ? finish() : go(step + 1))}>
             {last ? "Finish ✓" : "Next →"}
           </button>
           {step > 0 && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onStep(step - 1)}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => go(step - 1)}>
               ← Back
             </button>
           )}
@@ -312,7 +487,7 @@ export function Tour({
               />
             ))}
           </span>
-          <button type="button" className="btn-link" style={{ marginLeft: "auto", fontSize: 11, color: T.inkMuted }} onClick={onClose}>
+          <button type="button" className="btn-link" style={{ marginLeft: "auto", fontSize: 11, color: T.inkMuted }} onClick={finish}>
             Skip tour
           </button>
         </div>
