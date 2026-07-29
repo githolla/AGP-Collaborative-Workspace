@@ -1502,6 +1502,21 @@ export function useWorkspace() {
   }, [syncStatus.mode]);
 
   /**
+   * Log one page report from the floating feedback button. Unlike a tour
+   * answer this APPENDS: the same person on the same screen may well have two
+   * separate things to say on two separate days, and silently replacing the
+   * first would throw away a report nobody knows was lost. The cost is that
+   * one person answering twice counts twice in a page tally — the right trade,
+   * since a dropped report is unrecoverable and a skewed percentage is not.
+   */
+  const addPageFeedback = useCallback((entry: Omit<TourFeedback, "id" | "createdAt">) => {
+    setState((s) => ({
+      ...s,
+      feedback: [...s.feedback, { ...entry, id: newId("fb"), createdAt: new Date().toISOString() }],
+    }));
+  }, []);
+
+  /**
    * Log one tour answer. Re-answering a step replaces that person's previous
    * response rather than stacking a second one — people go back a step and
    * change their mind, and a tally that counted both would be wrong.
@@ -1585,6 +1600,7 @@ export function useWorkspace() {
     clearWorkspace,
     feedback: state.feedback,
     recordFeedback,
+    addPageFeedback,
     syncStatus,
   };
 }

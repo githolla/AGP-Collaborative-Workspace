@@ -53,6 +53,19 @@ Answering is never required — the tour moves on regardless — and answers sav
 as people step through, including on "Skip tour", so a half-finished run still
 contributes. Re-answering a step replaces that person's earlier response.
 
+Alongside the tour, a **floating Feedback button sits on every surface** and
+asks about the one you're on — the client directory, each tab of a client
+workspace, an initiative's ROI view, an idea draft — naming the screen and the
+client in the prompt (`apps/tab/src/workspace/pageContext.ts`, tested). A
+generic feedback box collects generic feedback; asking "would you be
+comfortable showing this view to SPCA of Texas?" does not. Page reports
+**append** rather than replace: the same person on the same screen may have
+two separate things to say on two separate days, and a dropped report can't be
+recovered, whereas a slightly skewed percentage can be read around. The button
+hides on the admin page and while the tour is running.
+
+Both feed the same store, so tour answers and page reports share one roll-up
+and one CSV, distinguished by their step key (`page:` prefixed for the button).
 Responses pool into the shared workspace document, so every tester's answers
 land in one place. Read them at **`#admin/feedback`** — an unlinked route,
 passcode-gated via `VITE_FEEDBACK_ADMIN_CODE` (see `.env.example`). It shows a

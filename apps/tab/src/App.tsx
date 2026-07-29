@@ -6,9 +6,10 @@ import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
-import { ClientWorkspace } from "./components/ClientWorkspace.js";
+import { ClientWorkspace, type ClientTab } from "./components/ClientWorkspace.js";
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
+import { FeedbackButton } from "./components/FeedbackButton.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { TeamManager } from "./components/TeamManager.js";
@@ -297,6 +298,9 @@ export function App() {
       // storage unavailable — the tour just won't remember it ran
     }
   };
+  // The client workspace reports its visible tab up so the floating
+  // feedback button can ask about that exact surface.
+  const [clientTab, setClientTab] = useState<ClientTab>("home");
   const [route, setRouteState] = useState<Route>(parseHash);
   const setRoute = (r: Route) => {
     setRouteState(r);
@@ -796,6 +800,7 @@ export function App() {
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
             onToggleClientVisible={(taskId) => ws.toggleAccountTaskClientVisible(selectedAccount.id, taskId)}
             onRemindDeliverable={(taskId) => ws.remindClientDeliverable(selectedAccount.id, taskId, userName)}
+            onTabChange={setClientTab}
             onSetNotifyPref={(person, pref) => ws.setNotifyPref(selectedAccount.id, person, pref)}
             importCandidates={campaignsFromMirror(
               loadMirror(),
@@ -872,6 +877,22 @@ export function App() {
           />
         )}
       </div>
+
+      {/* Page-level feedback: always reachable, always about the surface in
+          front of you. Hidden while the tour is running so the two feedback
+          affordances never compete for the same click. */}
+      {tourStep === null && (
+        <FeedbackButton
+          location={
+            route.view === "account"
+              ? { view: "account", tab: clientTab, ...(selectedAccount ? { subject: selectedAccount.clientName } : {}) }
+              : { view: route.view }
+          }
+          onSubmit={(entry) =>
+            ws.addPageFeedback({ ...entry, personName: userName, personEmail: email ?? "" })
+          }
+        />
+      )}
 
       {tourStep !== null && (
         <Tour

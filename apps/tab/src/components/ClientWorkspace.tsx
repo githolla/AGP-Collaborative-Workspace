@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { TasksCard } from "./TasksCard.js";
@@ -2128,6 +2128,7 @@ export function ClientWorkspace({
   onToggleClientVisible,
   onRemindDeliverable,
   onSetNotifyPref,
+  onTabChange,
   importCandidates = [],
   taskCandidates = [],
   onImportCampaigns,
@@ -2204,8 +2205,16 @@ export function ClientWorkspace({
   onRemindDeliverable: (taskId: string) => void;
   /** Set a person's notification channel (Teams/email/both). */
   onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+  /** Report the visible tab upward, so the page-level feedback button can ask
+   * about the surface the person is actually looking at. Optional: nothing
+   * inside this component depends on anyone listening. */
+  onTabChange?: (tab: ClientTab) => void;
 }) {
   const [tab, setTab] = useState<ClientTab>("home");
+  useEffect(() => {
+    onTabChange?.(tab);
+  }, [tab, onTabChange]);
+
   // Collaborate hub: add people / post an update from ANY tab (the navy band
   // is persistent, so this popover is always reachable).
   const [hubOpen, setHubOpen] = useState(false);
