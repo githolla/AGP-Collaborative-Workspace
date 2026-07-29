@@ -1,5 +1,6 @@
 import { setMirrorOverride, type AgpMirror, type MirrorClient } from "./agpKnowledge.js";
 import { autoAbbreviation, initialism, stripCorpSuffix } from "./campaignImport.js";
+import { isActiveClient, noteActivity, type ActivityEvidence } from "./clientActivity.js";
 import { apiFetch } from "../auth/apiFetch.js";
 
 /**
@@ -127,21 +128,24 @@ export function classifyClientTitle(raw: string): TitleClass {
  * Every derived client is active by construction — it exists because a live
  * project references it.
  */
-function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
+function deriveClientsFromKantata(p: RawMirrorPayload, today: string): MirrorClient[] {
   const byKey = new Map<string, MirrorClient>();
-  const add = (rawName: string, abbreviation: string | undefined, vertical: string) => {
+  // Activity evidence per client key, gathered from the same titles and dates
+  // the derivation already walks — no extra API call.
+  const evidence = new Map<string, ActivityEvidence>();
+  const add = (rawName: string, abbreviation: string | undefined, vertical: string): string | undefined => {
     // Canonical display name: drop the legal suffix so "Acme, Inc." and "Acme"
     // are ONE client (both by key and on screen) — a common inflation source.
     const name = stripCorpSuffix(rawName).trim() || rawName.trim();
     const key = normKey(name);
-    if (!key || key.length < 2 || key === "agency") return;
+    if (!key || key.length < 2 || key === "agency") return undefined;
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.vertical && vertical) existing.vertical = vertical;
       if (!existing.abbreviation && abbreviation) existing.abbreviation = abbreviation;
       // Prefer the fuller display name (keeps "Acme Health" over "Acme").
       if (name.length > existing.name.length) existing.name = name;
-      return;
+      return key;
     }
     byKey.set(key, {
       id: `k-${key.replace(/\s+/g, "-")}`,
@@ -150,6 +154,7 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
       lifecycleStage: "customer",
       ...(abbreviation ? { abbreviation } : {}),
     });
+    return key;
   };
   const verticalFor = (workspaceId: string) => {
     const fieldsFor = (p.kantataCustomFields ?? []).filter((f) => String(f.subject_id) === workspaceId);
@@ -175,7 +180,16 @@ function deriveClientsFromKantata(p: RawMirrorPayload): MirrorClient[] {
           ? cls.client.toUpperCase()
           : autoAbbreviation(cls.client)
         : undefined;
-    add(cls.client, abbr, vertical);
+    const key = add(cls.client, abbr, vertical);
+    if (key) {
+      evidence.set(
+        key,
+        noteActivity(evidence.get(key) ?? {}, str(w.title), [str(w.due_date), str(w.start_date)]),
+      );
+    }
+  }
+  for (const [key, client] of byKey) {
+    client.active = isActiveClient(evidence.get(key) ?? {}, today);
   }
   return mergeAcronymDuplicates([...byKey.values()]);
 }
@@ -233,7 +247,7 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
 
   // Kantata-only: new payloads carry no companies — derive the client
   // directory from Kantata itself. Legacy cached payloads still map.
-  const clients = mappedCompanies.length > 0 ? mappedCompanies : deriveClientsFromKantata(p);
+  const clients = mappedCompanies.length > 0 ? mappedCompanies : deriveClientsFromKantata(p, (p.fetchedAt || new Date().toISOString()).slice(0, 10));
 
   const nameOf = (id: unknown): string => clients.find((c) => c.id === String(id))?.name ?? "";
 

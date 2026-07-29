@@ -2,6 +2,7 @@ import { useState } from "react";
 import { T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
+import { fiscalYearOn } from "../workspace/clientActivity.js";
 import type { ClientAccount } from "../workspace/types.js";
 
 /** One row of the sortable client directory — every client the app sees,
@@ -22,6 +23,8 @@ export interface DirectoryRow {
   areas?: string[];
   /** Most-recent collaboration on this client (live Kantata + local), ISO. */
   lastCollab?: string;
+  /** False when every project for this client is two or more fiscal years old. */
+  active?: boolean;
   /** Most-recent collaboration by the CURRENT user on this client, ISO. */
   myLastCollab?: string;
 }
@@ -449,6 +452,10 @@ function ClientDirectory({
   const [verticalFilter, setVerticalFilter] = useState("");
   const [leadFilter, setLeadFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | "workspace" | "setup">("");
+  // Default to the ACTIVE book. Kantata carries every project we have ever
+  // run, so the unfiltered list answers "everyone we have ever worked with"
+  // when people are asking "who are we working with now".
+  const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // Collaboration stats per client. Collaborators & areas are LIVE from
@@ -488,8 +495,10 @@ function ClientDirectory({
     if (leadFilter && s.lead !== leadFilter) return false;
     if (statusFilter === "workspace" && !r.accountId) return false;
     if (statusFilter === "setup" && r.accountId) return false;
+    if (!showAll && r.active === false) return false;
     return true;
   });
+  const dormantCount = rows.filter((r) => r.active === false).length;
   const sorted = [...filtered].sort((a, b) => {
     const sa = st.get(a.name)!;
     const sb = st.get(b.name)!;
@@ -518,7 +527,9 @@ function ClientDirectory({
     return sb.people + sb.open + sb.discussions - (sa.people + sa.open + sa.discussions);
   })[0]?.name;
 
-  const withWorkspace = rows.filter((r) => r.accountId).length;
+  const shownCount = filtered.length;
+  const shownWithWorkspace = filtered.filter((r) => r.accountId).length;
+  const currentFY = fiscalYearOn(today);
 
   const SORTS: { key: SortKey; label: string }[] = [
     { key: "active", label: "Recent collab" },
@@ -574,12 +585,35 @@ function ClientDirectory({
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "14px 16px 10px" }}>
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.roi.navy }}>
-            Client directory — {rows.length} {rows.length === 1 ? "client" : "clients"}
+            Client directory — {shownCount} {shownCount === 1 ? "client" : "clients"}
+            {!showAll && dormantCount > 0 ? <span style={{ fontSize: 12, fontWeight: 600, color: T.inkMuted }}>{" "}active</span> : null}
           </div>
           <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2 }}>
-            {withWorkspace} with a workspace · {rows.length - withWorkspace} not set up yet.
+            {shownWithWorkspace} with a workspace · {shownCount - shownWithWorkspace} not set up yet.
             {live ? " Live from Kantata." : " Demo data."} Sorted by your most recent collaboration.
           </div>
+          {dormantCount > 0 && (
+            // Say what's hidden and why, with the way to see it — a filtered
+            // count that doesn't explain itself reads as missing data.
+            <div style={{ fontSize: 11.5, color: T.inkSecondary, marginTop: 4 }}>
+              {showAll ? (
+                <>
+                  Including <strong>{dormantCount}</strong> with no work since FY{String(currentFY - 2).slice(2)}.{" "}
+                  <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setShowAll(false)}>
+                    Show active only
+                  </button>
+                </>
+              ) : (
+                <>
+                  <strong>{dormantCount}</strong> older {dormantCount === 1 ? "client is" : "clients are"} hidden — no
+                  Kantata work since FY{String(currentFY - 2).slice(2)}.{" "}
+                  <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={() => setShowAll(true)}>
+                    Show all {rows.length}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           {stats && (
             <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 3 }}>
               From project titles: {stats.colon} “Client:” prefix · {stats.dash} name-dash

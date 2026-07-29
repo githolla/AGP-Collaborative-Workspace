@@ -435,9 +435,10 @@ export function App() {
       areas?: string[];
       lastCollab?: string;
       myLastCollab?: string;
+      active?: boolean;
     }[] = [];
     const usedAccounts = new Set<string>();
-    const emit = (name: string, vertical: string | undefined, account?: ClientAccount) => {
+    const emit = (name: string, vertical: string | undefined, account?: ClientAccount, active?: boolean) => {
       const ctx = accountLiveContext(mirror, name, account?.kantataProjectIds);
       let nextMilestone: string | undefined;
       let nextMilestoneDate: string | undefined;
@@ -488,12 +489,15 @@ export function App() {
         ...(areas.length > 0 ? { areas } : {}),
         ...(lastCollab ? { lastCollab } : {}),
         ...(myLastCollab ? { myLastCollab } : {}),
+        // Workspaces you've built are always current, whatever the Kantata
+        // history says — you made one because the client matters now.
+        ...(account ? { active: true } : active != null ? { active } : {}),
       });
     };
     for (const c of mirror.clients) {
       const account = accountByName.get(norm(c.name));
       if (account) usedAccounts.add(account.id);
-      emit(c.name, c.vertical, account);
+      emit(c.name, c.vertical, account, c.active);
     }
     // Workspaces whose name isn't in the derived directory (manual / renamed).
     for (const a of activeAccounts) {

@@ -286,6 +286,9 @@ export interface MirrorClient {
   id: string;
   name: string;
   vertical: string;
+  /** False when every project for this client is two or more fiscal years
+   * old — history, not live work. Absent on fixture data. */
+  active?: boolean;
   /** Live-only enrichment (HubSpot pull) — internal surfaces only. */
   abbreviation?: string;
   lifecycleStage?: string;
