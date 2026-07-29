@@ -463,7 +463,7 @@ async function pullWorkspaceStories(
   return { milestones, tasks, note: `focus: ${workspaceIds.length} workspaces · ${milestones.length} milestones · ${tasks.length} tasks` };
 }
 
-import { requireAuth } from "./_lib/entraAuth.js";
+import { requireAuth } from "./_lib/authGate.js";
 
 export default async function handler(
   req: { method?: string; url?: string; headers?: Record<string, string | string[] | undefined> },

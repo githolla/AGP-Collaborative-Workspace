@@ -97,3 +97,40 @@ Two fallbacks remain deliberate, and both say so on screen: when `/api/mirror`
 can't answer (no tokens, local dev) the bundled fixture mirror stands in behind
 a "Live data unavailable" banner, and the bundled `AGP_PEOPLE` roster backs the
 Copilot's cast suggestions until the org-chart seed lands (BLOCKERS #2).
+
+## GitHub CI/CD Pipeline (Azure Container Apps)
+
+Alongside the Vercel deploy above, this repo also has a container path that
+fully replaces Vercel (no dependency on it at all) — `server.mts` is a small
+Express server that serves the built `apps/tab` SPA and hosts `/api/state` +
+`/api/mirror` by calling the same handler functions Vercel runs, unmodified.
+
+- `.github/workflows/deploy-stage.yml` runs on pushes to the `stage` branch
+  and deploys to the GitHub `stage` environment.
+- `.github/workflows/deploy-prod.yml` runs on pushes to the `main` branch and
+  deploys to the GitHub `prod` environment.
+
+Both workflows use GitHub OIDC with Azure, build the image from the `prod`
+target in `Dockerfile`, push environment-specific tags to Azure Container
+Registry, and roll out a new Azure Container Apps revision.
+
+Required GitHub environment configuration:
+
+- Create `stage` and `prod` environments in GitHub.
+- Add these secrets to each environment:
+	- `AZURE_CLIENT_ID`
+	- `AZURE_TENANT_ID`
+	- `AZURE_SUBSCRIPTION_ID`
+	- `AZURE_RESOURCE_GROUP`
+	- `AZURE_CONTAINER_APP`
+	- `AZURE_CONTAINER_REGISTRY_NAME`
+	- `AZURE_CONTAINER_REGISTRY_LOGIN_SERVER`
+  - `VITE_SUPABASE_URL`
+  - `VITE_SUPABASE_ANON_KEY`
+  - `VITE_ENABLE_MICROSOFT_LOGIN` (optional, defaults true)
+  - `VITE_SUPABASE_REDIRECT_URI` (optional; exact OAuth return URL)
+- On the Container App itself (not GitHub), set the runtime env vars this
+  image's `/api` routes read: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `KANTATA_API_TOKEN`, and (once SSO is wired up) `AUTH_REQUIRED`.
+- The `stage` branch doesn't exist yet in this repo — create it from `main`
+  before relying on `deploy-stage.yml`.

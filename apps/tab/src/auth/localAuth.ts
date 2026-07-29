@@ -8,7 +8,7 @@
  *
  * HONEST LIMITATION: the shared state is readable by any signed-in client, so
  * this is not a hardened auth system — it's a lightweight gate for the
- * prototype. It gets replaced wholesale by Entra SSO (see auth/entra.ts); do
+ * prototype. It gets replaced wholesale by Microsoft SSO (see auth/ssoAuth.ts); do
  * not carry this into production as-is.
  */
 

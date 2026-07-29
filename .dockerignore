@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+**/node_modules
+npm-debug.log
+
+# Build artifacts
+dist
+**/dist
+dist-ssr
+.vite
+**/*.tsbuildinfo
+
+# Git
+.git
+.gitignore
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Misc
+Dockerfile
+docker-compose.yml
+.dockerignore
+vercel.json
+.vercel
+coverage
+**/coverage

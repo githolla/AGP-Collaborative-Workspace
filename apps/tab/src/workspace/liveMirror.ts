@@ -1,5 +1,6 @@
 import { setMirrorOverride, type AgpMirror, type MirrorClient } from "./agpKnowledge.js";
 import { autoAbbreviation, initialism, stripCorpSuffix } from "./campaignImport.js";
+import { apiFetch } from "../auth/apiFetch.js";
 
 /**
  * Live mirror: the browser-side half of /api/mirror. On boot the app asks
@@ -361,7 +362,7 @@ export async function deepenWorkspaces(workspaceIds: string[]): Promise<number> 
   const ids = [...new Set(workspaceIds.filter((i) => /^\d+$/.test(i)))].slice(0, 12);
   if (ids.length === 0 || !lastPayload?.live) return 0;
   try {
-    const res = await fetch(`/api/mirror?workspaces=${ids.join(",")}`);
+    const res = await apiFetch(`/api/mirror?workspaces=${ids.join(",")}`);
     if (!res.ok) return 0;
     const detail = (await res.json()) as {
       live: boolean;
@@ -432,7 +433,7 @@ export async function initLiveMirror(
   }
 
   try {
-    const res = await fetch(opts?.fresh ? "/api/mirror?fresh=1" : "/api/mirror");
+    const res = await apiFetch(opts?.fresh ? "/api/mirror?fresh=1" : "/api/mirror");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = (await res.json()) as RawMirrorPayload;
     if (payload.live) {

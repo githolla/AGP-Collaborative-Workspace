@@ -4,7 +4,7 @@ import { T } from "../theme.js";
 import type { TeamAccount } from "../auth/localAuth.js";
 
 /**
- * Team members & sign-in (interim, pre-Entra). An admin adds a person with a
+ * Team members & sign-in (interim, pre-SSO). An admin adds a person with a
  * name, email, role, and a starter password; that person can then sign in with
  * email + password. Replaced by Microsoft SSO later — see auth/entra.ts.
  */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { currentIdentity, handleRedirect, signInWithMicrosoft, signOutOfMicrosoft, ssoConfigured } from "../auth/entra.js";
+import { currentIdentity, handleRedirect, signInWithMicrosoft, signOutOfMicrosoft, ssoConfigured } from "../auth/ssoAuth.js";
 
 /**
  * Local user profile. Stored under its own key — separate from the workspace
@@ -67,7 +67,7 @@ export function useProfile() {
 
   const signIn = useCallback(() => void signInWithMicrosoft(), []);
   const signOut = useCallback(() => {
-    signOutOfMicrosoft();
+    void signOutOfMicrosoft();
     setSsoName(null);
     setSsoEmail(null);
   }, []);

@@ -236,7 +236,9 @@ function ProfileMenu({ userName, onChangeName, signedIn, email, ssoConfigured, o
                 <div style={{ fontSize: 10, color: "#8a887f", marginTop: 6, lineHeight: 1.5 }}>
                   {ssoConfigured
                     ? "Single sign-on via your Allegiance Microsoft 365 account."
-                    : "Microsoft SSO turns on once Azure is wired — email + password is the interim sign-in."}
+                    : onSignInPassword
+                      ? "Microsoft SSO turns on once Azure is wired — email + password is the interim sign-in."
+                      : "Microsoft SSO turns on once Azure is wired."}
                 </div>
               </>
             )}
@@ -317,9 +319,11 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
           {liveLabel ?? (live ? "Live" : "Demo data")}
           {onRefreshData && <span aria-hidden style={{ marginLeft: 5, opacity: 0.7 }}>⟳</span>}
         </button>
-        <button type="button" style={styles.iconButton} aria-label="Settings" onClick={onSettings}>
-          <GearIcon />
-        </button>
+        {onSettings && (
+          <button type="button" style={styles.iconButton} aria-label="Settings" onClick={onSettings}>
+            <GearIcon />
+          </button>
+        )}
         {signedIn && (
           <button type="button" style={styles.iconButton} aria-label="Sign out" onClick={onSignOut}>
             <SignOutIcon />
