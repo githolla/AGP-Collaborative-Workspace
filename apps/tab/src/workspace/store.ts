@@ -10,6 +10,7 @@ import { AS_OF_TODAY } from "./format.js";
 import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, refineIdea, replanPreservingStatus, type DraftOverrides } from "./copilot.js";
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, type AgpPerson, type MirrorStaff } from "./agpKnowledge.js";
 import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
+import { apiFetch } from "../auth/apiFetch.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
@@ -29,7 +30,7 @@ interface PersistedState {
   initiatives: Initiative[];
   ideas: SandboxIdea[];
   accounts: ClientAccount[];
-  /** Interim sign-in accounts (email + hashed password) until Entra SSO. */
+  /** Interim sign-in accounts (email + hashed password) until Microsoft SSO. */
   team: TeamAccount[];
   /** Tour answers from every tester, pooled. Research data, not workspace
    * content — which is why "Clear workspace" leaves it alone. */
@@ -318,7 +319,7 @@ export function useWorkspace() {
   const pushRemote = useCallback(
     async (s: PersistedState) => {
       try {
-        const res = await fetch("/api/state", {
+        const res = await apiFetch("/api/state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ baseVersion: versionRef.current, state: s }),
@@ -346,7 +347,7 @@ export function useWorkspace() {
     let cancelled = false;
     const boot = async () => {
       try {
-        const res = await fetch("/api/state");
+        const res = await apiFetch("/api/state");
         if (!res.ok) return;
         const j = (await res.json()) as {
           configured?: boolean;
@@ -364,7 +365,7 @@ export function useWorkspace() {
 
     const poll = window.setInterval(async () => {
       try {
-        const res = await fetch("/api/state");
+        const res = await apiFetch("/api/state");
         if (!res.ok) return;
         const j = (await res.json()) as { exists?: boolean; envelope?: { version: number; savedAt: string; state: unknown } };
         if (j.exists && j.envelope && j.envelope.version > versionRef.current) adopt(j.envelope);
@@ -1501,6 +1502,21 @@ export function useWorkspace() {
   }, [syncStatus.mode]);
 
   /**
+   * Log one page report from the floating feedback button. Unlike a tour
+   * answer this APPENDS: the same person on the same screen may well have two
+   * separate things to say on two separate days, and silently replacing the
+   * first would throw away a report nobody knows was lost. The cost is that
+   * one person answering twice counts twice in a page tally — the right trade,
+   * since a dropped report is unrecoverable and a skewed percentage is not.
+   */
+  const addPageFeedback = useCallback((entry: Omit<TourFeedback, "id" | "createdAt">) => {
+    setState((s) => ({
+      ...s,
+      feedback: [...s.feedback, { ...entry, id: newId("fb"), createdAt: new Date().toISOString() }],
+    }));
+  }, []);
+
+  /**
    * Log one tour answer. Re-answering a step replaces that person's previous
    * response rather than stacking a second one — people go back a step and
    * change their mind, and a tally that counted both would be wrong.
@@ -1584,6 +1600,7 @@ export function useWorkspace() {
     clearWorkspace,
     feedback: state.feedback,
     recordFeedback,
+    addPageFeedback,
     syncStatus,
   };
 }

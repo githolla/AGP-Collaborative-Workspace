@@ -26,9 +26,9 @@ AGP's Entra admin registers one app; everything else reuses it.
   - **Directory (tenant) ID**
   - **Application (client) ID**
 
-We set `VITE_ENTRA_TENANT_ID` and `VITE_ENTRA_CLIENT_ID`, flip `AUTH_REQUIRED=true`,
-and single sign-on goes live. (The server already validates the token; the
-button is already built.)
+We configure Azure as a provider in Supabase Auth, set `VITE_SUPABASE_URL` +
+`VITE_SUPABASE_ANON_KEY` (+ optional `VITE_SUPABASE_REDIRECT_URI`), flip
+`AUTH_REQUIRED=true`, and single sign-on goes live. (The button is already built.)
 
 ---
 
@@ -122,10 +122,12 @@ variables and backend config live in Azure, not in the code. So the flow is:
 AGP/IT hands over the **values** (tenant ID, client ID, Kantata token, any mail
 key), Ren **sets them as env vars in Azure** and runs the backend, and we push
 code that reads them. The env keys the Azure config needs:
-- **Build-time (baked into the web app):** `VITE_ENTRA_TENANT_ID`,
-  `VITE_ENTRA_CLIENT_ID` — must be present when the Azure pipeline **builds**.
-- **Runtime (backend / serverless):** `AUTH_REQUIRED=true`, `ENTRA_TENANT_ID`,
-  `ENTRA_CLIENT_ID`, the Kantata token, and any notification key.
+- **Build-time (baked into the web app):** `VITE_SUPABASE_URL`,
+  `VITE_SUPABASE_ANON_KEY`, optional `VITE_ENABLE_MICROSOFT_LOGIN` and
+  optional `VITE_SUPABASE_REDIRECT_URI` — must be present when the Azure
+  pipeline **builds**.
+- **Runtime (backend / serverless):** `AUTH_REQUIRED=true`, `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY`, the Kantata token, and any notification key.
 
 Ren owns setting these in Azure; we own the code that consumes them.
 
