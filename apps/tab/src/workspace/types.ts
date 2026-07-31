@@ -15,6 +15,9 @@ export interface ThreadMessage {
    * (Per the client call: scope by project, pilot at the task level.)
    */
   topic?: string;
+  /** Set when the author edited the post — shown so a changed message is
+   * never passed off as the original. */
+  editedAt?: string;
 }
 
 /** Audit-trail snapshot (roi-calculator-spec §10) written on every factor change. */
@@ -147,6 +150,18 @@ export interface ClientAccount {
    * campaigns/milestones/tasks/hours follow this client permanently.
    */
   kantataProjectIds?: string[];
+  /**
+   * When true, this workspace covers ONLY the projects in `kantataProjectIds`
+   * — not everything under the client name.
+   *
+   * From Cara's pilot feedback (2026-07-30): "the workspace would align to one
+   * client project… although all of these projects align to the PATNC client,
+   * they may have completely different project teams and comingling them is
+   * not ideal." So a workspace is scoped to selected work by default once the
+   * user picks; covering the whole client stays available for the cases she
+   * called the exception.
+   */
+  scopedToProjects?: boolean;
   /**
    * Set once the workspace has been auto-populated from Kantata's full task
    * tree (deepen + import). Guards against re-adding work the user later

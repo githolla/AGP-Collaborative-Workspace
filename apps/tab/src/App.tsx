@@ -443,7 +443,7 @@ export function App() {
     }[] = [];
     const usedAccounts = new Set<string>();
     const emit = (name: string, vertical: string | undefined, account?: ClientAccount, active?: boolean) => {
-      const ctx = accountLiveContext(mirror, name, account?.kantataProjectIds);
+      const ctx = accountLiveContext(mirror, name, account?.kantataProjectIds, account?.scopedToProjects);
       let nextMilestone: string | undefined;
       let nextMilestoneDate: string | undefined;
       for (const p of ctx.projects) {
@@ -529,7 +529,7 @@ export function App() {
   // Everything the mirror knows about the open account, computed once per
   // render of that workspace — the workspace renders it as plain props.
   const selectedLiveCtx = selectedAccount
-    ? accountLiveContext(loadMirror(), selectedAccount.clientName, selectedAccount.kantataProjectIds)
+    ? accountLiveContext(loadMirror(), selectedAccount.clientName, selectedAccount.kantataProjectIds, selectedAccount.scopedToProjects)
     : null;
   const selectedLinkSuggestions =
     selectedAccount && selectedLiveCtx && liveStatus.live && !selectedLiveCtx.crm
@@ -809,6 +809,9 @@ export function App() {
             onToggleClientVisible={(taskId) => ws.toggleAccountTaskClientVisible(selectedAccount.id, taskId)}
             onRemindDeliverable={(taskId) => ws.remindClientDeliverable(selectedAccount.id, taskId, userName)}
             onTabChange={setClientTab}
+            onSetProjectScope={(ids, scoped) => ws.setProjectScope(selectedAccount.id, ids, scoped)}
+            onEditPost={(messageId, body) => ws.editAccountPost(selectedAccount.id, messageId, body)}
+            onDeletePost={(messageId) => ws.deleteAccountPost(selectedAccount.id, messageId)}
             onSetNotifyPref={(person, pref) => ws.setNotifyPref(selectedAccount.id, person, pref)}
             importCandidates={campaignsFromMirror(
               loadMirror(),

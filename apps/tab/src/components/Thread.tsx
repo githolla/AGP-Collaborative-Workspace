@@ -43,9 +43,16 @@ export function Thread({
   mentionRoster = [],
   onQuickAdd,
   onOpenTopic,
+  userName,
+  onEdit,
+  onDelete,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string, topic?: string) => void;
+  /** Who's reading — edit/delete appear only on your own posts. */
+  userName?: string;
+  onEdit?: (messageId: string, body: string) => void;
+  onDelete?: (messageId: string) => void;
   onAskAnalyst?: () => void;
   /**
    * The AI roster is injected by internal workspaces only. Client workspaces
@@ -111,6 +118,8 @@ export function Thread({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [topics, topicCounts]);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const authors = useMemo(() => [...new Set(messages.map((m) => m.author))].sort((a, b) => a.localeCompare(b)), [messages]);
   const cutoff = timeFilter ? Date.now() - Number(timeFilter) * 86_400_000 : 0;
   const needle = search.trim().toLowerCase();
@@ -267,10 +276,61 @@ export function Thread({
                   );
                 })()}
                 <span style={{ fontSize: 10, color: T.inkMuted }}>{timeAgoLabel(m.at)}</span>
+                {m.editedAt && <span style={{ fontSize: 10, color: T.inkMuted }}>· edited</span>}
+                {/* Your own posts only. Someone mis-posting into a discussion
+                    had no way back — Cara hit exactly that on the pilot. */}
+                {userName && m.author === userName && m.kind !== "agent" && (onEdit || onDelete) && editingId !== m.id && (
+                  <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                    {onEdit && (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ fontSize: 10.5 }}
+                        onClick={() => { setEditingId(m.id); setEditDraft(m.body); }}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ fontSize: 10.5, color: T.status.critical }}
+                        onClick={() => { if (window.confirm("Delete this post? It disappears for everyone.")) onDelete(m.id); }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 3, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
-                {m.body}
-              </div>
+              {editingId === m.id ? (
+                <div style={{ marginTop: 5 }}>
+                  <textarea
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    rows={3}
+                    style={{ width: "100%", border: `1px solid ${T.grid}`, borderRadius: 8, padding: "7px 9px", fontSize: 12, fontFamily: "inherit", boxSizing: "border-box", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={!editDraft.trim()}
+                      onClick={() => { onEdit?.(m.id, editDraft); setEditingId(null); }}
+                    >
+                      Save
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 3, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                  {m.body}
+                </div>
+              )}
             </div>
           </div>
         ))}

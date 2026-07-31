@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
+import { ProjectScope } from "./ProjectScope.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
 import { MentionTextarea, type MentionPerson } from "./MentionTextarea.js";
@@ -21,6 +22,17 @@ import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus, T
  * HARD RULE enforced by construction: no internal financials (ROI, margin,
  * realism, human-in-the-loop) exist anywhere in this component tree.
  */
+
+/** "COH: FY27 DM#1" / "COH - FY27" -> "COH". Local to keep this guest-visible
+ * file free of the matcher's import graph (clientSafety.test.ts). */
+const titlePrefix = (title: string): string => {
+  const t = title.replace(/^\s*\d[\d.-]*\s+/, "").trim();
+  const colon = t.indexOf(":");
+  if (colon >= 2) return t.slice(0, colon);
+  const dash = t.split(/\s+[—–|]\s+|\s+-\s+/);
+  return dash.length >= 2 ? (dash[0] ?? "") : t;
+};
+const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 export type ClientTab = "home" | "plan" | "dashboard" | "files" | "discussions" | "sandbox" | "access";
 
@@ -1693,10 +1705,25 @@ function TaskDetail({
  * and stories, read-only. The team's real back-and-forth, in one place. */
 function KantataConversation({ posts }: { posts: AccountLiveContext["posts"] }) {
   const [showAll, setShowAll] = useState(false);
+  // Collapsed by default: AGP's teams don't use Kantata's project conversation
+  // ("not used or needed" — Cara, pilot feedback). It stays reachable rather
+  // than deleted, because one person's "we don't use it" isn't everyone's.
+  const [open, setOpen] = useState(false);
   const shown = showAll ? posts : posts.slice(0, 6);
+  if (!open) {
+    return (
+      <button type="button" className="btn-link" style={{ fontSize: 11.5, alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
+        Kantata project posts ({posts.length}) — not the account conversation
+      </button>
+    );
+  }
   return (
     <div style={card}>
       <SectionTitle right={<KantataChip />}>Project conversation · from Kantata</SectionTitle>
+      <div style={{ fontSize: 11.5, color: T.inkMuted, marginTop: -4, marginBottom: 8, lineHeight: 1.5 }}>
+        Posts made inside Kantata. The account's Teams room is the conversation people actually use —
+        connecting it is pending the Microsoft setup.
+      </div>
       <div style={{ display: "flex", flexDirection: "column" }}>
         {shown.map((p, i) => (
           <div key={i} style={{ display: "flex", gap: 10, padding: "9px 0", borderBottom: i < shown.length - 1 ? `1px solid ${T.grid}` : "none" }}>
@@ -2129,6 +2156,9 @@ export function ClientWorkspace({
   onRemindDeliverable,
   onSetNotifyPref,
   onTabChange,
+  onSetProjectScope,
+  onEditPost,
+  onDeletePost,
   importCandidates = [],
   taskCandidates = [],
   onImportCampaigns,
@@ -2205,6 +2235,11 @@ export function ClientWorkspace({
   onRemindDeliverable: (taskId: string) => void;
   /** Set a person's notification channel (Teams/email/both). */
   onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+  /** Set which Kantata projects this workspace covers (Cara's pilot ask). */
+  onSetProjectScope?: (projectIds: string[], scoped: boolean) => void;
+  /** Edit / delete your own discussion post. */
+  onEditPost?: (messageId: string, body: string) => void;
+  onDeletePost?: (messageId: string) => void;
   /** Report the visible tab upward, so the page-level feedback button can ask
    * about the surface the person is actually looking at. Optional: nothing
    * inside this component depends on anyone listening. */
@@ -2214,6 +2249,22 @@ export function ClientWorkspace({
   useEffect(() => {
     onTabChange?.(tab);
   }, [tab, onTabChange]);
+
+  // The picker must offer every project under the client, not just the ones
+  // already in scope — otherwise you could narrow a workspace but never widen
+  // it again. `searchable` is the unscoped list the finder uses.
+  const clientKey = squash(account.clientName);
+  const clientProjects = (liveContext?.searchable ?? [])
+    .filter((p) => squash(p.clientGroup ?? "") === clientKey || squash(titlePrefix(p.title)) === clientKey)
+    .map((p) => ({ id: p.id, title: p.title, ...(p.dueDate ? { dueDate: p.dueDate } : {}) }));
+  // Anything already in scope stays offered even if its title stopped matching
+  // — a workspace must never lose the ability to un-pick its own project.
+  for (const id of account.kantataProjectIds ?? []) {
+    if (!clientProjects.some((p) => p.id === id)) {
+      const found = (liveContext?.searchable ?? []).find((p) => p.id === id);
+      if (found) clientProjects.push({ id: found.id, title: found.title, ...(found.dueDate ? { dueDate: found.dueDate } : {}) });
+    }
+  }
 
   // Collaborate hub: add people / post an update from ANY tab (the navy band
   // is persistent, so this popover is always reachable).
@@ -2395,6 +2446,17 @@ export function ClientWorkspace({
               onOpenReview={() => setReviewOpen(true)}
             />
           )}
+          {onSetProjectScope && liveContext && liveContext.searchable.length > 0 && (
+            <div style={{ ...card, padding: "12px 14px" }}>
+              <ProjectScope
+                clientName={account.clientName}
+                projects={clientProjects}
+                selectedIds={account.kantataProjectIds ?? []}
+                scoped={account.scopedToProjects === true}
+                onApply={(ids, scoped) => onSetProjectScope(ids, scoped)}
+              />
+            </div>
+          )}
           <Home account={account} tasks={tasks} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
           {/* Below the wireframe: our additions side by side, not stacked. */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 14, alignItems: "start" }}>
@@ -2448,6 +2510,9 @@ export function ClientWorkspace({
           <Thread
             messages={account.thread}
             onPost={onPost}
+            userName={userName}
+            {...(onEditPost ? { onEdit: onEditPost } : {})}
+            {...(onDeletePost ? { onDelete: onDeletePost } : {})}
             topics={account.campaigns.map((c) => c.name)}
             taskTitles={tasks.map((t) => t.title)}
             fileNames={[...account.files, ...account.docs].map((f) => f.name)}

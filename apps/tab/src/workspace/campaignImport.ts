@@ -199,13 +199,18 @@ export function campaignsFromMirror(
   clientName: string,
   today: string,
   linkedProjectIds?: readonly string[],
+  /** Scoped: import only from the linked projects. */
+  scoped?: boolean,
 ): ImportedCampaign[] {
   const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
   const linked = new Set(linkedProjectIds ?? []);
+  const scopeOnly = scoped === true && linked.size > 0;
   const matcherBelongs = projectMatcher(mirror, canonical, client?.abbreviation);
-  // A human-linked project ALWAYS belongs — links beat heuristics.
-  const belongs = (p: (typeof mirror.projects)[number]): boolean => linked.has(p.id) || matcherBelongs(p);
+  // A human-linked project ALWAYS belongs — links beat heuristics. When the
+  // workspace is scoped, the links are the whole story.
+  const belongs = (p: (typeof mirror.projects)[number]): boolean =>
+    scopeOnly ? linked.has(p.id) : linked.has(p.id) || matcherBelongs(p);
 
   const fromProjects: ImportedCampaign[] = mirror.projects
     .filter(belongs)
@@ -351,12 +356,20 @@ export function accountLiveContext(
   mirror: AgpMirror,
   clientName: string,
   linkedProjectIds?: readonly string[],
+  /** Scoped: the workspace is ONLY the linked projects, not the whole client. */
+  scoped?: boolean,
 ): AccountLiveContext {
   const client = findDirectoryClient(mirror, clientName);
   const canonical = client?.name ?? clientName;
   const linked = new Set(linkedProjectIds ?? []);
   const matcherBelongs = projectMatcher(mirror, canonical, client?.abbreviation);
-  const belongs = (p: (typeof mirror.projects)[number]): boolean => linked.has(p.id) || matcherBelongs(p);
+  // A scoped workspace ignores name matching entirely: two projects under one
+  // client can have completely different teams, and folding them together is
+  // what Cara flagged as wrong. An empty selection can't scope to nothing —
+  // that would silently empty the workspace — so it falls back to the client.
+  const scopeOnly = scoped === true && linked.size > 0;
+  const belongs = (p: (typeof mirror.projects)[number]): boolean =>
+    scopeOnly ? linked.has(p.id) : linked.has(p.id) || matcherBelongs(p);
 
   const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => ({
     id: p.id,

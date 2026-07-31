@@ -392,3 +392,47 @@ describe("quiet signals", () => {
     expect(imported.some((c) => c.name.includes("sign-ups"))).toBe(false);
   });
 });
+
+/**
+ * Project scoping — from Cara's pilot feedback: a workspace usually covers ONE
+ * project, because two projects under one client can have different teams and
+ * "comingling them is not ideal".
+ */
+describe("accountLiveContext — project scope", () => {
+  const scopedMirror = () =>
+    mirror({
+      clients: [{ id: "c1", name: "PATNC", vertical: "" }],
+      projects: [
+        { id: "p1", title: "PATNC: Main Site Ongoing Support", serviceLine: "", vertical: "", model: "" },
+        { id: "p2", title: "PATNC: Design and Development", serviceLine: "", vertical: "", model: "" },
+        { id: "p3", title: "PATNC: Ongoing Support", serviceLine: "", vertical: "", model: "" },
+      ],
+    });
+
+  it("covers every project under the client when unscoped", () => {
+    expect(accountLiveContext(scopedMirror(), "PATNC").projects).toHaveLength(3);
+  });
+
+  it("covers ONLY the chosen projects when scoped", () => {
+    const ctx = accountLiveContext(scopedMirror(), "PATNC", ["p1"], true);
+    expect(ctx.projects.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("keeps name-matching additive when links exist but scope is off", () => {
+    // Linking is the rescue flow for an unmatched workspace; it must not
+    // silently narrow a workspace that never asked to be narrowed.
+    const ctx = accountLiveContext(scopedMirror(), "PATNC", ["p1"], false);
+    expect(ctx.projects).toHaveLength(3);
+  });
+
+  it("refuses to scope to nothing", () => {
+    // An empty selection would empty the workspace with no way back.
+    const ctx = accountLiveContext(scopedMirror(), "PATNC", [], true);
+    expect(ctx.projects).toHaveLength(3);
+  });
+
+  it("scopes the import the same way, so the plan matches the workspace", () => {
+    const camps = campaignsFromMirror(scopedMirror(), "PATNC", "2026-07-31", ["p2"], true);
+    expect(camps.map((c) => c.name)).toEqual(["PATNC: Design and Development"]);
+  });
+});

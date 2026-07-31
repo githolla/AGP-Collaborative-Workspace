@@ -178,14 +178,14 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
   const today = AS_OF_TODAY();
   const campaigns = [...a.campaigns];
   let campaignsAdded = 0;
-  for (const imp of campaignsFromMirror(mirror, a.clientName, today, a.kantataProjectIds)) {
+  for (const imp of campaignsFromMirror(mirror, a.clientName, today, a.kantataProjectIds, a.scopedToProjects)) {
     const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
     if (idx === -1) {
       campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
       campaignsAdded += 1;
     } else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
   }
-  const ctx = accountLiveContext(mirror, a.clientName, a.kantataProjectIds);
+  const ctx = accountLiveContext(mirror, a.clientName, a.kantataProjectIds, a.scopedToProjects);
   // The account team = the REAL Kantata delivery participants on this client's
   // projects. Titles from the live staff roster. Merges with anyone already
   // added; no hardcoded people.
@@ -966,6 +966,69 @@ export function useWorkspace() {
   /** Project Finder: a human hand-picked Kantata projects for this client.
    * Links are permanent (beat every name heuristic) and the picked
    * projects' campaigns import immediately — the pick IS the review. */
+  /**
+   * Set which Kantata projects this workspace covers. `scoped` true means the
+   * workspace IS those projects; false returns it to covering the whole client.
+   *
+   * From Cara's pilot feedback: two projects under one client can have
+   * completely different teams, so a workspace usually wants one of them, not
+   * all. Re-populating afterwards is deliberate — the campaigns and tasks on
+   * screen have to match the new scope, or the workspace silently keeps work
+   * that no longer belongs to it.
+   */
+  const setProjectScope = useCallback(
+    (accountId: string, projectIds: readonly string[], scoped: boolean) => {
+      mutateAccount(accountId, (a) => {
+        const ids = [...new Set(projectIds)];
+        const next: ClientAccount = { ...a, kantataProjectIds: ids, scopedToProjects: scoped };
+        // Drop auto-populated work that fell outside the new scope, then
+        // re-import within it. Anything the user added by hand is untouched.
+        const inScope = new Set(
+          campaignsFromMirror(loadMirror(), a.clientName, AS_OF_TODAY(), ids, scoped).map((c) => c.name),
+        );
+        const kept = next.campaigns.filter((c) => c.source !== "kantata" || inScope.has(c.name));
+        const { account } = populateFromKantata({ ...next, campaigns: kept });
+        return {
+          ...account,
+          notifications: [
+            ...account.notifications,
+            {
+              id: newId("n"),
+              text: scoped
+                ? `Workspace scoped to ${ids.length} Kantata project${ids.length === 1 ? "" : "s"}.`
+                : `Workspace now covers every ${a.clientName} project.`,
+              at: new Date().toISOString(),
+            },
+          ],
+          activity: [...account.activity, activityEvent(scoped ? "Workspace scoped to selected projects" : "Workspace covers the whole client", "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Edit your own discussion post. Cara asked for this directly after
+   * posting into the wrong place — without it a misfire is permanent. */
+  const editAccountPost = useCallback(
+    (accountId: string, messageId: string, body: string) => {
+      const text = body.trim();
+      if (!text) return;
+      mutateAccount(accountId, (a) => ({
+        ...a,
+        thread: a.thread.map((m) => (m.id === messageId ? { ...m, body: text, editedAt: new Date().toISOString() } : m)),
+      }));
+    },
+    [mutateAccount],
+  );
+
+  /** Delete your own discussion post. */
+  const deleteAccountPost = useCallback(
+    (accountId: string, messageId: string) => {
+      mutateAccount(accountId, (a) => ({ ...a, thread: a.thread.filter((m) => m.id !== messageId) }));
+    },
+    [mutateAccount],
+  );
+
   const linkProjects = useCallback(
     async (id: string, projectIds: string[]) => {
       if (projectIds.length === 0) return;
@@ -1549,6 +1612,9 @@ export function useWorkspace() {
     ensureAutoPopulated,
     renameAccount,
     linkProjects,
+    setProjectScope,
+    editAccountPost,
+    deleteAccountPost,
     removeCampaign,
     clearCampaigns,
     addAccountTask,
