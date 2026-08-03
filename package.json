@@ -12,7 +12,8 @@
     "test": "pnpm -r run test",
     "lint": "eslint .",
     "build": "pnpm -r run build",
-    "start": "tsx server.mts"
+    "start": "tsx server.mts",
+    "teams:package": "node apps/tab/teams/build-package.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

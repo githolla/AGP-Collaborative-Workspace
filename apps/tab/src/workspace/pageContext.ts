@@ -23,7 +23,7 @@ export interface PageQuestion {
 }
 
 export interface PageLocation {
-  view: "clients" | "account" | "initiative" | "idea" | "admin";
+  view: "clients" | "account" | "initiative" | "idea" | "admin" | "teams-config";
   /** Active tab when the view is a client workspace. */
   tab?: ClientTab;
   /** Client or initiative name, woven into the prompt when known. */
@@ -112,7 +112,9 @@ const IDEA: PageQuestion = {
  * giving it.
  */
 export function questionFor(loc: PageLocation): PageQuestion | null {
-  if (loc.view === "admin") return null;
+  // No prompt where asking makes no sense: the admin page is for reading
+  // feedback, and the Teams config screen belongs to Teams' own dialog.
+  if (loc.view === "admin" || loc.view === "teams-config") return null;
   if (loc.view === "clients") return CLIENTS;
   if (loc.view === "initiative") return INITIATIVE;
   if (loc.view === "idea") return IDEA;

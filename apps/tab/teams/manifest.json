@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "b7c1e5a2-4f38-4f0b-9c6e-2a1d5f3e8b41",
+  "packageName": "com.teamallegiance.collaboration",
+  "developer": {
+    "name": "Allegiance Group & Pursuant",
+    "websiteUrl": "https://collaboration.teamallegiance.com",
+    "privacyUrl": "https://collaboration.teamallegiance.com/#privacy",
+    "termsOfUseUrl": "https://collaboration.teamallegiance.com/#terms"
+  },
+  "name": {
+    "short": "Collaboration",
+    "full": "AGP Collaboration Workspace"
+  },
+  "description": {
+    "short": "Client workspaces — tasks, files, and discussions, live from Kantata.",
+    "full": "One standardized execution workspace per client account: communication, tasks, files, and visibility for internal teams, clients, and contractors. Runs on live Kantata data. Internal financials never appear here."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#22346F",
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://collaboration.teamallegiance.com/#teams-config",
+      "canUpdateConfiguration": true,
+      "scopes": ["team", "groupChat"]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "agp-collaboration-home",
+      "name": "Collaboration",
+      "contentUrl": "https://collaboration.teamallegiance.com/",
+      "websiteUrl": "https://collaboration.teamallegiance.com/",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": [
+    "collaboration.teamallegiance.com"
+  ]
+}

@@ -68,3 +68,10 @@ describe("locationLabel", () => {
     expect(locationLabel(loc, questionFor(loc)!)).toBe("Client directory");
   });
 });
+
+describe("questionFor — Teams surfaces", () => {
+  it("stays silent on Teams' own tab-config screen", () => {
+    // It renders inside Teams' dialog; a feedback button there is noise.
+    expect(questionFor({ view: "teams-config" })).toBeNull();
+  });
+});

@@ -10,6 +10,7 @@ import { ClientWorkspace, type ClientTab } from "./components/ClientWorkspace.js
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
 import { FeedbackButton } from "./components/FeedbackButton.js";
+import { TeamsConfig } from "./components/TeamsConfig.js";
 import { Button, EmptyState } from "./components/ui.js";
 import { Tour, type TourStep } from "./components/Tour.js";
 import { TeamManager } from "./components/TeamManager.js";
@@ -17,6 +18,7 @@ import { useWorkspace } from "./workspace/store.js";
 import { useProfile } from "./workspace/profile.js";
 import { clearIdentity, loadIdentity, saveIdentity, type LocalIdentity } from "./auth/localAuth.js";
 import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
+import { initTeams } from "./teams/teamsHost.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
@@ -36,11 +38,14 @@ type Route =
   | { view: "idea"; id: string }
   | { view: "account"; id: string }
   /** Tour-feedback admin. Deliberately unlinked — reachable by URL only. */
-  | { view: "admin" };
+  | { view: "admin" }
+  /** Teams' own tab-setup screen. Teams opens it; people never navigate here. */
+  | { view: "teams-config" };
 
 function parseHash(): Route {
   const hash = window.location.hash;
   if (/^#admin\/feedback$/.test(hash)) return { view: "admin" };
+  if (/^#teams-config$/.test(hash)) return { view: "teams-config" };
   const initiative = hash.match(/^#i\/(.+)$/);
   if (initiative?.[1]) return { view: "initiative", id: initiative[1] };
   const idea = hash.match(/^#s\/(.+)$/);
@@ -61,6 +66,8 @@ function hashOf(route: Route): string {
       return `c/${route.id}`;
     case "admin":
       return "admin/feedback";
+    case "teams-config":
+      return "teams-config";
     default:
       return "";
   }
@@ -251,6 +258,13 @@ function PageIntro({ title, children }: { title: string; children: React.ReactNo
 }
 
 export function App() {
+  // Teams opens the tab-setup screen in its own small dialog. Rendering the
+  // whole workspace behind it would be noise, so this returns early.
+  if (parseHash().view === "teams-config") return <TeamsConfig />;
+  return <Workspace />;
+}
+
+function Workspace() {
   const ws = useWorkspace();
   const { name: userName, setName, signedIn: ssoSignedIn, email: ssoEmail, ssoConfigured, signIn, signOut: ssoSignOut } = useProfile();
   // Interim email+password identity (until Microsoft SSO). Persisted per-browser.
@@ -301,6 +315,17 @@ export function App() {
   // The client workspace reports its visible tab up so the floating
   // feedback button can ask about that exact surface.
   const [clientTab, setClientTab] = useState<ClientTab>("home");
+  // Teams shows a spinner until the embedded page says it's ready, so this
+  // has to run on mount. In a browser it resolves immediately, having loaded
+  // nothing.
+  // Called for its side effect, not its answer: Teams keeps showing its own
+  // loading state until the embedded page initializes and reports success.
+  // Nothing in the UI branches on being inside Teams — the tab is the same
+  // workspace — so there is no state to hold here.
+  useEffect(() => {
+    void initTeams();
+  }, []);
+
   const [route, setRouteState] = useState<Route>(parseHash);
   const setRoute = (r: Route) => {
     setRouteState(r);

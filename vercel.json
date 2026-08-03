@@ -4,6 +4,19 @@
   "outputDirectory": "apps/tab/dist",
   "installCommand": "pnpm install --frozen-lockfile",
   "functions": {
-    "api/*.ts": { "maxDuration": 30 }
-  }
+    "api/*.ts": {
+      "maxDuration": 30
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self' teams.microsoft.com *.teams.microsoft.com *.teams.microsoft.us *.skype.com *.cloud.microsoft;"
+        }
+      ]
+    }
+  ]
 }

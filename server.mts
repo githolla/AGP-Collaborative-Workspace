@@ -44,6 +44,23 @@ function guard(handler: (req: express.Request, res: express.Response) => Promise
   };
 }
 
+/**
+ * Teams embeds the app in an iframe, so the browser needs explicit permission
+ * to frame it. `frame-ancestors` is the modern control; X-Frame-Options is
+ * deliberately NOT set, because its ALLOW-FROM is ignored by every current
+ * browser and a bare SAMEORIGIN would block Teams outright.
+ *
+ * The list is exact — Teams' own hosts and nothing else. Widening it to `*`
+ * would let any site frame the workspace, which is a clickjacking surface on
+ * an app holding live client data.
+ */
+const FRAME_ANCESTORS =
+  "frame-ancestors 'self' teams.microsoft.com *.teams.microsoft.com *.teams.microsoft.us *.skype.com *.cloud.microsoft;";
+app.use((_req, res, next) => {
+  res.setHeader("Content-Security-Policy", FRAME_ANCESTORS);
+  next();
+});
+
 app.all("/api/state", guard(stateHandler));
 app.all("/api/mirror", guard(mirrorHandler));
 

@@ -8,3 +8,4 @@ dist/
 coverage/
 .vercel/
 .DS_Store
+apps/tab/teams/dist/
