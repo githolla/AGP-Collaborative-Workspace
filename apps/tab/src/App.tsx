@@ -203,17 +203,17 @@ const TOUR_STEPS: TourStep[] = [
   {
     key: "access",
     route: "",
-    title: "Access that revokes for real",
+    title: "A handover record for every contractor",
     quote: { text: "Removing a user revokes access across the workspace immediately.", from: "Cara — features doc, a Must" },
-    body: "The access register shows who invited whom and when they were last active. Remove revokes on the spot, and “Offboard everywhere” clears a person from every client workspace at once — audit-logged. Clients only ever see their own workspace; internal financials never appear.",
+    body: "One card per person: what they were sent, when and by whom, whether they've opened it, and the work still assigned to them. When they're done, the card lists exactly what to revoke and what to reassign — then does it in one click. Revoking never deletes the record, so “what did this contractor ever have” is answerable a year later.",
     question: {
-      prompt: "Is this enough control to let a client or contractor in?",
+      prompt: "Does this answer what you need to know when a contractor finishes?",
       options: [
-        { key: "a", label: "Yes — I'd invite someone today" },
-        { key: "b", label: "Nearly — I'd want one more safeguard" },
-        { key: "c", label: "No — I wouldn't risk it yet" },
+        { key: "a", label: "Yes — that's the whole picture" },
+        { key: "b", label: "Nearly — something's missing" },
+        { key: "c", label: "No — this isn't what I'd check" },
       ],
-      placeholder: "What would you need to see before inviting someone? (optional)",
+      placeholder: "What else would you need to see before signing them off? (optional)",
     },
   },
   {
@@ -221,7 +221,7 @@ const TOUR_STEPS: TourStep[] = [
     route: "",
     title: "The plan feeds capacity — through Kantata",
     quote: { text: "Weekly reservations are created in Kantata — and recalculated as the plan changes.", from: "Kellie — Resource capacity planner" },
-    body: "The loop closes through Kantata: task owners, dates, and weekly hours written here flow back to Kantata, and the capacity planner reads them — one source of truth, by person, by week. Read side is live today; the write-back rides the same connection once write access is on.",
+    body: "The loop closes through Kantata: change an owner, a date, or a status here and the workspace shows you exactly what differs from Kantata, field by field. Tick what should go, send it, and the capacity planner reads it from Kantata — one source of truth, by person, by week. Nothing is ever sent without someone approving it.",
     question: {
       prompt: "The plan here feeding Kantata capacity — how much does that matter to you?",
       options: [
@@ -890,6 +890,10 @@ function Workspace() {
             people={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
             onAddMember={(personId) => ws.addAccountMember(selectedAccount.id, personId)}
             onAddNewMember={(name, title) => ws.addAccountMemberNamed(selectedAccount.id, name, title)}
+            onShare={(personName, items) => ws.shareWithPerson(selectedAccount.id, personName, items, userName)}
+            onRevokeShare={(shareId) => ws.revokeShare(selectedAccount.id, shareId, userName)}
+            onRevokeAllForPerson={(personName) => ws.revokeAllForPerson(selectedAccount.id, personName, userName)}
+            onOpenItem={(itemKind, itemId) => ws.recordItemOpened(selectedAccount.id, userName, itemKind, itemId)}
             sandboxCount={selectedAccountIdeas.length}
             sandboxContent={
               <Sandbox

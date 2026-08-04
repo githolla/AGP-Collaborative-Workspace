@@ -12,7 +12,19 @@ import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImp
 import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
-import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
+import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
+import {
+  CHASE_AFTER_DAYS,
+  needsAttention,
+  offboardChecklist,
+  personHandover,
+  shareState,
+  shareableItems,
+  stateLabel,
+  unsharedWith,
+  type ShareState,
+  type ShareableItem,
+} from "../workspace/handover.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -1993,7 +2005,7 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
-function FileRow({ f, onSetLinkUrl, onRemoveLink, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
+function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onDiscuss?: (name: string, note: string) => void }) {
   const [linking, setLinking] = useState(false);
   const [draft, setDraft] = useState("");
   const [discussing, setDiscussing] = useState(false);
@@ -2004,7 +2016,7 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onDiscuss }: { f: ClientFileLi
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
       <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
       {f.url ? (
-        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
+        <a href={f.url} target="_blank" rel="noreferrer" onClick={() => onOpen?.()} style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
       ) : linking ? (
         <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{f.name}</span>
@@ -2056,7 +2068,7 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onDiscuss }: { f: ClientFileLi
   );
 }
 
-function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
+function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
@@ -2064,7 +2076,16 @@ function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onDiscussFil
     <div style={card}>
       <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{items.length} {items.length === 1 ? "item" : "items"}</span>}>{title}</SectionTitle>
       {items.map((f) => (
-        <FileRow key={f.id} f={f} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} onDiscuss={onDiscussFile} />
+        <FileRow
+          key={f.id}
+          f={f}
+          onSetLinkUrl={onSetLinkUrl}
+          onRemoveLink={onRemoveLink}
+          // Opening the link is the one open we can observe without Microsoft:
+          // the store records it only if THIS viewer holds a live share for it.
+          {...(onOpenItem ? { onOpen: () => onOpenItem(f.kind, f.id) } : {})}
+          onDiscuss={onDiscussFile}
+        />
       ))}
       {items.length === 0 && <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>{emptyHint}</div>}
     </div>
@@ -2124,30 +2145,309 @@ function NotifyPref({ person, pref, onSet }: { person: string; pref: "teams" | "
   );
 }
 
-function AccessTab({
+// ---------------------------------------------------------------------------
+// Contractor Access — a HANDOVER view, one card per person.
+//
+// The old tab answered "who has access". The questions actually asked when a
+// contractor finishes are: what did we send them, when, have they opened it,
+// and what do we revoke now. Each card answers all four, and the offboard
+// checklist at its foot is the answer to the fourth, written out.
+//
+// Revoking never deletes a row. "Sent 3 Aug, opened 4 Aug, revoked 20 Aug" has
+// to still be readable a year later. See workspace/handover.ts.
+// ---------------------------------------------------------------------------
+
+const KIND_LABEL: Record<Share["itemKind"], string> = { file: "File", doc: "Document", task: "Task" };
+
+/** Colour by state — chase and never-opened are the two worth catching. */
+function stateStyle(state: ShareState): React.CSSProperties {
+  const map: Record<ShareState, [string, string, string]> = {
+    opened: ["#116a43", "#e8f5ee", "#bfe3d0"],
+    waiting: [T.inkSecondary, "#f2f4f8", T.grid],
+    chase: ["#8a6d1a", "#faf3dc", "#e7c66f"],
+    "revoked-unopened": ["#9b2c2c", "#fdeced", "#f3c2c4"],
+    revoked: [T.inkMuted, "#f2f4f8", T.grid],
+  };
+  const [color, background, border] = map[state];
+  return { color, background, border: `1px solid ${border}`, fontSize: 10, fontWeight: 700, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" };
+}
+
+function ShareRow({ share, today, onRevoke }: { share: Share; today: string; onRevoke: (shareId: string) => void }) {
+  const state = shareState(share, today);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 10.5, color: T.inkMuted, width: 62, flexShrink: 0 }}>{KIND_LABEL[share.itemKind]}</span>
+      <span
+        style={{
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: share.revokedAt ? T.inkMuted : T.ink,
+          textDecoration: share.revokedAt ? "line-through" : "none",
+          flex: 1,
+          minWidth: 120,
+        }}
+      >
+        {share.itemName}
+      </span>
+      <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>
+        sent {share.sentAt.slice(0, 10)} by {share.sentBy}
+      </span>
+      <span style={stateStyle(state)}>{stateLabel(state, share)}</span>
+      {!share.revokedAt && (
+        <button
+          type="button"
+          className="btn btn-danger btn-sm"
+          title={`Revoke “${share.itemName}” from ${share.personName} — the record of the send stays`}
+          onClick={() => onRevoke(share.id)}
+        >
+          Revoke
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SendPanel({
+  personName,
+  items,
+  onSend,
+}: {
+  personName: string;
+  items: ShareableItem[];
+  onSend: (chosen: ShareableItem[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const key = (i: ShareableItem) => `${i.kind}:${i.itemId}`;
+  const chosen = items.filter((i) => picked.has(key(i)));
+
+  if (items.length === 0) {
+    return <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>{personName} already has everything in this workspace.</div>;
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
+        Send something to {personName.split(" ")[0]} →
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8, padding: 10, background: "#f7f8fb", borderRadius: 8, border: `1px solid ${T.grid}` }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+        Not yet with {personName}
+      </div>
+      <div style={{ maxHeight: 190, overflowY: "auto" }}>
+        {items.map((i) => (
+          <label key={key(i)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={picked.has(key(i))}
+              onChange={() =>
+                setPicked((p) => {
+                  const next = new Set(p);
+                  if (next.has(key(i))) next.delete(key(i));
+                  else next.add(key(i));
+                  return next;
+                })
+              }
+            />
+            <span style={{ fontSize: 10.5, color: T.inkMuted, width: 62 }}>{KIND_LABEL[i.kind]}</span>
+            <span style={{ fontSize: 12.5, color: T.ink }}>{i.itemName}</span>
+          </label>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={chosen.length === 0}
+          onClick={() => {
+            onSend(chosen);
+            setPicked(new Set());
+            setOpen(false);
+          }}
+        >
+          Send {chosen.length > 0 ? `${chosen.length} ` : ""}to {personName.split(" ")[0]}
+        </button>
+        <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PersonHandoverCard({
+  person,
   account,
-  onAdd,
+  today,
+  onSend,
+  onRevokeShare,
+  onRevokeAll,
   onRemove,
   onOffboardEverywhere,
   onSetNotifyPref,
 }: {
+  person: ExternalMember;
   account: ClientAccount;
+  today: string;
+  onSend: (personName: string, items: ShareableItem[]) => void;
+  onRevokeShare: (shareId: string) => void;
+  onRevokeAll: (personName: string) => void;
+  onRemove: (externalId: string) => void;
+  onOffboardEverywhere: (personName: string) => void;
+  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+}) {
+  const [showHistory, setShowHistory] = useState(false);
+  const handover = personHandover(account, person.name, today);
+  const checklist = offboardChecklist(handover);
+  const revoked = handover.shares.filter((s) => !!s.revokedAt);
+  const visible = showHistory ? handover.shares : handover.live;
+
+  return (
+    <div style={{ ...card, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <Avatar name={person.name} />
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{person.name}</span>
+        <span style={{ fontSize: 11.5, color: T.inkMuted }}>{person.org}</span>
+        <TagChip>{person.role}</TagChip>
+        <TagChip>{person.access}</TagChip>
+        {handover.chase.length > 0 && (
+          <span style={stateStyle("chase")}>
+            {handover.chase.length} not opened
+          </span>
+        )}
+        <span style={{ marginLeft: "auto" }}>
+          <NotifyPref person={person.name} pref={account.notifyPrefs?.[person.name]} onSet={onSetNotifyPref} />
+        </span>
+      </div>
+
+      <div style={{ fontSize: 11, color: T.inkMuted, margin: "6px 0 10px" }}>
+        Access granted {person.addedAt.slice(0, 10)}
+        {person.invitedBy ? ` by ${person.invitedBy}` : ""} · {handover.sent} sent · {handover.opened} opened
+        {handover.openTasks.length > 0 ? ` · ${handover.openTasks.length} open task${handover.openTasks.length === 1 ? "" : "s"}` : ""}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
+        {showHistory ? "Everything ever sent" : "What they have"}
+      </div>
+      {visible.length === 0 ? (
+        <div style={{ fontSize: 12, color: T.inkMuted, padding: "6px 0" }}>
+          Nothing sent to {person.name.split(" ")[0]} yet.
+        </div>
+      ) : (
+        visible.map((s) => <ShareRow key={s.id} share={s} today={today} onRevoke={onRevokeShare} />)
+      )}
+      {revoked.length > 0 && (
+        <button type="button" className="btn-link" style={{ fontSize: 11, marginTop: 6 }} onClick={() => setShowHistory((h) => !h)}>
+          {showHistory ? "Show only what they have" : `Show ${revoked.length} revoked item${revoked.length === 1 ? "" : "s"}`}
+        </button>
+      )}
+
+      {handover.openTasks.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "12px 0 2px" }}>
+            Work assigned to them
+          </div>
+          {handover.openTasks.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.grid}` }}>
+              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{t.title}</span>
+              <span style={{ fontSize: 10.5, color: T.inkMuted }}>{t.due ? `due ${t.due}` : "no date"}</span>
+              <TagChip>{t.status === "doing" ? "in progress" : "to do"}</TagChip>
+            </div>
+          ))}
+        </>
+      )}
+
+      <SendPanel
+        personName={person.name}
+        items={unsharedWith(shareableItems(account), handover)}
+        onSend={(chosen) => onSend(person.name, chosen)}
+      />
+
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.grid}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+          When they're done
+        </div>
+        {checklist.map((line) => (
+          <div key={line} style={{ fontSize: 12, color: T.inkSecondary, padding: "2px 0" }}>
+            {line}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          {handover.live.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              title={`Revoke all ${handover.live.length} live items from ${person.name}. They keep workspace access; the send record is kept.`}
+              onClick={() => onRevokeAll(person.name)}
+            >
+              Revoke all {handover.live.length} items
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            title="Remove from this workspace — revokes everything they hold here, immediately"
+            onClick={() => onRemove(person.id)}
+          >
+            Remove from this workspace
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger-solid btn-sm"
+            title="Remove this person from EVERY client workspace, audit-logged"
+            onClick={() => onOffboardEverywhere(person.name)}
+          >
+            Offboard everywhere
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessTab({
+  account,
+  today,
+  onAdd,
+  onRemove,
+  onOffboardEverywhere,
+  onSetNotifyPref,
+  onShare,
+  onRevokeShare,
+  onRevokeAllForPerson,
+}: {
+  account: ClientAccount;
+  today: string;
   onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onRemove: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
   onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+  onShare?: (personName: string, items: ShareableItem[]) => void;
+  onRevokeShare?: (shareId: string) => void;
+  onRevokeAllForPerson?: (personName: string) => void;
 }) {
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
   const [role, setRole] = useState<ExternalMember["role"]>("contractor");
   const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
-  // Entra access-review pattern (docs/research-best-practices.md): flag
-  // guests with no activity in 30+ days so the account lead re-attests them.
-  const staleCutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  const isStale = (e: ExternalMember) => !!e.lastActive && e.lastActive.slice(0, 10) < staleCutoff;
+  const attention = needsAttention(account, today);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {attention.length > 0 && (
+        <div style={{ ...card, padding: "10px 14px", borderLeft: `3px solid #e7c66f`, background: "#fffdf5" }}>
+          <span style={{ fontSize: 12.5, color: T.ink }}>
+            <strong>Waiting on someone.</strong>{" "}
+            {attention.map((r) => `${r.personName} (${r.chase})`).join(", ")} — sent {CHASE_AFTER_DAYS}+ days ago and not
+            opened.
+          </span>
+        </div>
+      )}
+
       <div style={card}>
         <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>notify: each person's choice</span>}>AGP team</SectionTitle>
         {account.members.map((m) => (
@@ -2161,50 +2461,29 @@ function AccessTab({
         {account.members.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No AGP members yet — the team arrives from Kantata, or add someone from the People hub.</div>}
       </div>
 
-      <div style={card}>
-        <SectionTitle>External access — clients & contractors</SectionTitle>
-        {account.externals.map((e) => (
-          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
-            <Avatar name={e.name} />
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{e.name}</span>
-            <span style={{ fontSize: 11.5, color: T.inkMuted }}>{e.org}</span>
-            <TagChip>{e.role}</TagChip>
-            <TagChip>{e.access}</TagChip>
-            <span style={{ fontSize: 10.5, color: T.inkMuted }}>
-              invited by {e.invitedBy ?? "—"} · last active {e.lastActive ?? "—"}
-            </span>
-            {isStale(e) && (
-              <span
-                title="No activity in 30+ days — confirm this person still needs access, or remove them"
-                style={{ fontSize: 10, fontWeight: 800, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 999, padding: "2px 9px", textTransform: "uppercase", letterSpacing: 0.4 }}
-              >
-                ⚠ review access
-              </span>
-            )}
-            <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              <NotifyPref person={e.name} pref={account.notifyPrefs?.[e.name]} onSet={onSetNotifyPref} />
-              <button
-                type="button"
-                onClick={() => onRemove(e.id)}
-                title="Removal revokes access across this workspace immediately"
-                className="btn btn-danger btn-sm"
-              >
-                Remove — revokes immediately
-              </button>
-              <button
-                type="button"
-                onClick={() => onOffboardEverywhere(e.name)}
-                title="One click removes this person from every client workspace, audit-logged"
-                className="btn btn-danger-solid btn-sm"
-              >
-                Offboard everywhere
-              </button>
-            </span>
-          </div>
-        ))}
-        {account.externals.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No external members.</div>}
+      {account.externals.map((e) => (
+        <PersonHandoverCard
+          key={e.id}
+          person={e}
+          account={account}
+          today={today}
+          onSend={(personName, items) => onShare?.(personName, items)}
+          onRevokeShare={(shareId) => onRevokeShare?.(shareId)}
+          onRevokeAll={(personName) => onRevokeAllForPerson?.(personName)}
+          onRemove={onRemove}
+          onOffboardEverywhere={onOffboardEverywhere}
+          onSetNotifyPref={onSetNotifyPref}
+        />
+      ))}
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+      <div style={card}>
+        <SectionTitle>Grant access — clients &amp; contractors</SectionTitle>
+        {account.externals.length === 0 && (
+          <div style={{ fontSize: 12, color: T.inkMuted, marginBottom: 8 }}>
+            No external members yet. Add someone and their handover record starts here.
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" style={{flex: 1, minWidth: 130 }} />
           <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" className="input" style={{flex: 1, minWidth: 130 }} />
           <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} className="select">
@@ -2237,12 +2516,19 @@ function AccessTab({
 
       <div style={card}>
         <SectionTitle>Access log</SectionTitle>
-        {[...account.activity].reverse().filter((a) => a.kind === "team").slice(0, 8).map((a) => (
+        {[...account.activity].reverse().filter((a) => a.kind === "team").slice(0, 12).map((a) => (
           <div key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: T.inkSecondary, padding: "5px 0" }}>
             <span>{a.text}</span>
             <span style={{ color: T.inkMuted, fontVariantNumeric: "tabular-nums" }}>{a.at.slice(0, 10)}</span>
           </div>
         ))}
+        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 10, lineHeight: 1.5 }}>
+          <strong>What “opened” means here.</strong> An open is recorded when the person opens the item
+          from inside this workspace — that we see directly. Opens that happen straight in SharePoint
+          are reported by Microsoft once the SharePoint connection is switched on; until then an item
+          opened that way still reads as “not opened yet”. It means we haven't seen an open, not that
+          there wasn't one.
+        </div>
       </div>
     </div>
   );
@@ -2294,6 +2580,10 @@ export function ClientWorkspace({
   onAddNewMember,
   pendingKantataWrites = [],
   onPushToKantata,
+  onShare,
+  onRevokeShare,
+  onRevokeAllForPerson,
+  onOpenItem,
 }: {
   account: ClientAccount;
   /** AGP roster to add to the account (plain data — guest-safe). */
@@ -2318,6 +2608,14 @@ export function ClientWorkspace({
   pendingKantataWrites?: PendingWrite[];
   /** Send the ticked changes. Resolves with what actually landed. */
   onPushToKantata?: (refs: string[]) => Promise<WriteResponse>;
+  /** Hand items to an outside person — starts their handover record. */
+  onShare?: (personName: string, items: ShareableItem[]) => void;
+  /** Revoke one share. The record of the send is kept, stamped revoked. */
+  onRevokeShare?: (shareId: string) => void;
+  /** Revoke everything still live with one person — the "they're done" button. */
+  onRevokeAllForPerson?: (personName: string) => void;
+  /** Record that the signed-in person opened a file/doc from in here. */
+  onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void;
   /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
   onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
@@ -2629,7 +2927,7 @@ export function ClientWorkspace({
         </div>
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
@@ -2664,7 +2962,17 @@ export function ClientWorkspace({
       )}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
-        <AccessTab account={account} onAdd={onAddExternal} onRemove={onRemoveExternal} onOffboardEverywhere={onOffboardEverywhere} onSetNotifyPref={onSetNotifyPref} />
+        <AccessTab
+          account={account}
+          today={AS_OF_TODAY()}
+          onAdd={onAddExternal}
+          onRemove={onRemoveExternal}
+          onOffboardEverywhere={onOffboardEverywhere}
+          onSetNotifyPref={onSetNotifyPref}
+          {...(onShare ? { onShare } : {})}
+          {...(onRevokeShare ? { onRevokeShare } : {})}
+          {...(onRevokeAllForPerson ? { onRevokeAllForPerson } : {})}
+        />
       )}
       {openTask && (
         <TaskDetail

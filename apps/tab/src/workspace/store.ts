@@ -11,6 +11,7 @@ import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, r
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, type AgpPerson, type MirrorStaff } from "./agpKnowledge.js";
 import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
 import { apiFetch } from "../auth/apiFetch.js";
+import { samePerson, type ShareableItem } from "./handover.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
@@ -1457,6 +1458,138 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  // ---- handover: what an outside person was given, and what to revoke ----
+
+  /**
+   * Hand items to an outside person. Each becomes a Share stamped with the
+   * item's name AT SEND TIME, so the record still reads correctly after the
+   * file is renamed or deleted.
+   */
+  const shareWithPerson = useCallback(
+    (id: string, personName: string, items: ShareableItem[], sentBy = "You") => {
+      if (items.length === 0) return;
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => ({
+        ...a,
+        shares: [
+          ...(a.shares ?? []),
+          ...items.map((i) => ({
+            id: newId("share"),
+            personName,
+            itemKind: i.kind,
+            itemId: i.itemId,
+            itemName: i.itemName,
+            sentAt: at,
+            sentBy,
+          })),
+        ],
+        activity: [
+          ...a.activity,
+          activityEvent(
+            `${items.length} item${items.length === 1 ? "" : "s"} sent to ${personName} — ${items.map((i) => i.itemName).join(", ")}`,
+            "team",
+          ),
+        ],
+      }));
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * Record that a share was opened — the FIRST open only, since "when did they
+   * get to it" is the question, not how often they revisit.
+   *
+   * `source` is kept because it is the difference between something we watched
+   * happen and something Microsoft told us: an open we never observe must read
+   * as unknown, not as "didn't open".
+   */
+  const recordShareOpened = useCallback(
+    (id: string, shareId: string, source: "workspace" | "sharepoint" = "workspace") => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const hit = (a.shares ?? []).find((s) => s.id === shareId);
+        if (!hit || hit.openedAt || hit.revokedAt) return a;
+        return {
+          ...a,
+          shares: (a.shares ?? []).map((s) => (s.id === shareId ? { ...s, openedAt: at, openSource: source } : s)),
+          activity: [...a.activity, activityEvent(`${hit.personName} opened ${hit.itemName}`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * The open we can actually observe today: the person who was sent something
+   * opened it from inside this workspace. Called from the Files tab on a link
+   * click, with whoever is signed in — so it records nothing unless that
+   * person genuinely holds a live, unopened share for that item.
+   */
+  const recordItemOpened = useCallback(
+    (id: string, personName: string, itemKind: "file" | "doc" | "task", itemId: string) => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const hit = (a.shares ?? []).find(
+          (s) => s.itemKind === itemKind && s.itemId === itemId && !s.openedAt && !s.revokedAt && samePerson(s.personName, personName),
+        );
+        if (!hit) return a;
+        return {
+          ...a,
+          shares: (a.shares ?? []).map((s) => (s.id === hit.id ? { ...s, openedAt: at, openSource: "workspace" as const } : s)),
+          activity: [...a.activity, activityEvent(`${hit.personName} opened ${hit.itemName}`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Revoke one share. The row stays, stamped — the audit trail is the point. */
+  const revokeShare = useCallback(
+    (id: string, shareId: string, revokedBy = "You") => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const hit = (a.shares ?? []).find((s) => s.id === shareId);
+        if (!hit || hit.revokedAt) return a;
+        return {
+          ...a,
+          shares: (a.shares ?? []).map((s) => (s.id === shareId ? { ...s, revokedAt: at, revokedBy } : s)),
+          activity: [...a.activity, activityEvent(`Access revoked — ${hit.itemName} (${hit.personName}) by ${revokedBy}`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * Revoke everything still live with one person — the "they're done" button.
+   * Their access record and their open tasks are untouched: reassigning work
+   * is a decision, not a side effect of withdrawing a file.
+   */
+  const revokeAllForPerson = useCallback(
+    (id: string, personName: string, revokedBy = "You") => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const live = (a.shares ?? []).filter((s) => samePerson(s.personName, personName) && !s.revokedAt);
+        if (live.length === 0) return a;
+        const ids = new Set(live.map((s) => s.id));
+        return {
+          ...a,
+          shares: (a.shares ?? []).map((s) => (ids.has(s.id) ? { ...s, revokedAt: at, revokedBy } : s)),
+          activity: [
+            ...a.activity,
+            activityEvent(
+              `All access revoked for ${personName} — ${live.length} item${live.length === 1 ? "" : "s"} (${live
+                .map((s) => s.itemName)
+                .join(", ")}) by ${revokedBy}`,
+              "team",
+            ),
+          ],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /**
    * One-click cross-workspace offboard (Layer 0.5): revoke a person from
    * EVERY client workspace at once, each removal audit-logged. Entra removal
@@ -1471,6 +1604,15 @@ export function useWorkspace() {
         return {
           ...a,
           externals: a.externals.filter((e) => e.name !== personName),
+          ...(a.shares
+            ? {
+                shares: a.shares.map((sh) =>
+                  samePerson(sh.personName, personName) && !sh.revokedAt
+                    ? { ...sh, revokedAt: new Date().toISOString(), revokedBy: "cross-workspace offboard" }
+                    : sh,
+                ),
+              }
+            : {}),
           activity: [...a.activity, activityEvent(`Access revoked immediately (cross-workspace offboard) — ${personName}`, "team")],
         };
       }),
@@ -1480,11 +1622,21 @@ export function useWorkspace() {
   /** Offboarding (Must): removal revokes access across the workspace immediately. */
   const removeExternal = useCallback(
     (id: string, externalId: string) => {
+      const at = new Date().toISOString();
       mutateAccount(id, (a) => {
         const ext = a.externals.find((e) => e.id === externalId);
+        // Removing the person revokes what they hold, but the handover record
+        // survives them: "what did we ever send this contractor" must still be
+        // answerable after they are off the account.
+        const shares = ext
+          ? (a.shares ?? []).map((sh) =>
+              samePerson(sh.personName, ext.name) && !sh.revokedAt ? { ...sh, revokedAt: at, revokedBy: "access removed" } : sh,
+            )
+          : (a.shares ?? []);
         return {
           ...a,
           externals: a.externals.filter((e) => e.id !== externalId),
+          ...(a.shares ? { shares } : {}),
           activity: [...a.activity, activityEvent(`Access revoked immediately — ${ext?.name ?? externalId} (${ext?.org ?? ""})`, "team")],
         };
       });
@@ -1678,6 +1830,11 @@ export function useWorkspace() {
     remindClientDeliverable,
     setNotifyPref,
     addExternal,
+    shareWithPerson,
+    recordShareOpened,
+    recordItemOpened,
+    revokeShare,
+    revokeAllForPerson,
     removeExternal,
     offboardEverywhere,
     setClientAccount,

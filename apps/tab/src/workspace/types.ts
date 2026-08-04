@@ -140,6 +140,35 @@ export interface ExternalMember {
   addedAt: string;
 }
 
+/**
+ * One thing handed to one outside person — the handover record.
+ *
+ * A RECORD, not a permission: revoking stamps `revokedAt` and keeps the row,
+ * because "sent 3 Aug, opened 4 Aug, revoked 20 Aug" has to still be
+ * answerable a year later. See workspace/handover.ts.
+ */
+export interface Share {
+  id: string;
+  /** Recipient, by name — externals are named before they have identities. */
+  personName: string;
+  itemKind: "file" | "doc" | "task";
+  itemId: string;
+  /** Name captured AT SEND TIME, so the record survives a rename or deletion. */
+  itemName: string;
+  sentAt: string;
+  sentBy: string;
+  /** First observed open. Absent until we actually see one — never inferred. */
+  openedAt?: string;
+  /**
+   * How we know it was opened. "workspace" = they opened it from inside this
+   * app, which we observe directly today. "sharepoint" = Microsoft told us,
+   * which needs the Graph connection (BLOCKERS #5).
+   */
+  openSource?: "workspace" | "sharepoint";
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
 export interface ClientAccount {
   id: string;
   clientName: string;
@@ -147,6 +176,11 @@ export interface ClientAccount {
   members: { personId: string; name: string; title: string }[];
   /** Clients + contractors (Contractor Access tab). Removal revokes instantly. */
   externals: ExternalMember[];
+  /**
+   * What each outside person was handed, when, and whether they opened it.
+   * Optional so workspaces saved before handover tracking existed still load.
+   */
+  shares?: Share[];
   clientContacts: number;
   campaigns: Campaign[];
   notifications: ClientNotification[];
