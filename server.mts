@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import stateHandler from "./api/state.js";
 import mirrorHandler from "./api/mirror.js";
+import kantataWriteHandler from "./api/kantata-write.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -63,6 +64,7 @@ app.use((_req, res, next) => {
 
 app.all("/api/state", guard(stateHandler));
 app.all("/api/mirror", guard(mirrorHandler));
+app.all("/api/kantata-write", guard(kantataWriteHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.

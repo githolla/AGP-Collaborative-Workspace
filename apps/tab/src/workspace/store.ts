@@ -1069,7 +1069,10 @@ export function useWorkspace() {
   /** Review-gated Kantata task import — same contract as campaigns: the
    * user picked these in the review panel; merge by title, never duplicate. */
   const importTasks = useCallback(
-    (id: string, selected: { title: string; status: TaskStatus; due?: string }[]) => {
+    (
+      id: string,
+      selected: { title: string; status: TaskStatus; due?: string; kantataStoryId?: string; kantataProjectId?: string }[],
+    ) => {
       if (selected.length === 0) return;
       mutateAccount(id, (a) => {
         const tasks = [...a.tasks];
@@ -1084,6 +1087,10 @@ export function useWorkspace() {
             label: "from Kantata",
             source: "manual" as const,
             createdAt: new Date().toISOString(),
+            // The story id makes this task writable back to Kantata. Imported
+            // tasks are already in sync at the moment they land.
+            ...(t.kantataStoryId ? { kantataStoryId: t.kantataStoryId, kantataSyncedAt: new Date().toISOString() } : {}),
+            ...(t.kantataProjectId ? { kantataProjectId: t.kantataProjectId } : {}),
           });
           added += 1;
         }
@@ -1146,6 +1153,44 @@ export function useWorkspace() {
         ],
         activity: [...a.activity, activityEvent(`Task added — "${title}"`, "task")],
       }));
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * Record that these tasks were successfully written to Kantata. Called only
+   * with the refs the write endpoint reported as APPLIED — a failed intent
+   * leaves its task un-stamped so it stays in the review queue.
+   *
+   * `createdId` arrives when the push CREATED the story; storing it turns a
+   * workspace-only task into one that can be updated by id from then on.
+   */
+  const markTasksSynced = useCallback(
+    (id: string, applied: { ref: string; createdId?: string }[]) => {
+      if (applied.length === 0) return;
+      const at = new Date().toISOString();
+      const byRef = new Map(applied.map((a) => [a.ref, a]));
+      mutateAccount(id, (a) => {
+        const touched = a.tasks.filter((t) => byRef.has(t.id));
+        if (touched.length === 0) return a;
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => {
+            const hit = byRef.get(t.id);
+            if (!hit) return t;
+            return { ...t, kantataSyncedAt: at, ...(hit.createdId ? { kantataStoryId: hit.createdId } : {}) };
+          }),
+          activity: [
+            ...a.activity,
+            activityEvent(
+              `${touched.length} task${touched.length === 1 ? "" : "s"} sent to Kantata — ${touched
+                .map((t) => `"${t.title.slice(0, 40)}"`)
+                .join(", ")}`,
+              "task",
+            ),
+          ],
+        };
+      });
     },
     [mutateAccount],
   );
@@ -1608,6 +1653,7 @@ export function useWorkspace() {
     createAccountFromMirror,
     importCampaigns,
     importTasks,
+    markTasksSynced,
     importAllFromKantata,
     ensureAutoPopulated,
     renameAccount,

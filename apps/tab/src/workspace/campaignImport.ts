@@ -260,6 +260,14 @@ export interface LiveMilestone {
 }
 
 export interface LiveTask {
+  /**
+   * Kantata story id. Carried so an imported task can be written BACK —
+   * `PUT /stories/{id}` needs it, and without it the only write available is
+   * `POST /stories`, which would duplicate work Kantata already has.
+   */
+  id: string;
+  /** Kantata workspace id the story lives in — needed to create siblings. */
+  projectId: string;
   title: string;
   state: string;
   dueDate?: string;
@@ -385,6 +393,8 @@ export function accountLiveContext(
     tasks: (mirror.tasks ?? [])
       .filter((t) => t.projectId === p.id)
       .map((t) => ({
+        id: t.id,
+        projectId: t.projectId,
         title: t.title,
         state: t.state,
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),

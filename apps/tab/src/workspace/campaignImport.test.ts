@@ -239,7 +239,11 @@ describe("accountLiveContext", () => {
     expect(ctx.deals).toHaveLength(1);
     expect(ctx.deals[0]).toMatchObject({ title: "FY27 Renewal", won: false, closeDate: "2026-08-30" });
     // Task tree, delivery team, and hours ride along — only THIS client's.
-    expect(ctx.projects[0]?.tasks).toEqual([{ title: "Package creative", state: "started", dueDate: "2026-08-15" }]);
+    // The Kantata story id rides along too: it is what makes an imported task
+    // writable back to Kantata (PUT /stories/{id}) instead of duplicable.
+    expect(ctx.projects[0]?.tasks).toEqual([
+      { id: "t1", projectId: "ws-1", title: "Package creative", state: "started", dueDate: "2026-08-15" },
+    ]);
     expect(ctx.projects[0]?.team).toEqual(["Dana Whitfield", "Priya Raman"]);
     expect(ctx.projects[0]).toMatchObject({ minutes30d: 720, people30d: 2, lastEntryDate: "2026-07-13" });
   });

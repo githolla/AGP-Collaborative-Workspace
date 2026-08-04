@@ -9,6 +9,7 @@ import { Crumbs } from "./ui.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
+import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
@@ -1158,6 +1159,119 @@ export interface TaskCandidate {
   status: TaskStatus;
   due?: string;
   project: string;
+  /** Kantata story id — carried so edits after import can be written back. */
+  kantataStoryId?: string;
+  kantataProjectId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Push to Kantata — the write half, and the mirror image of Review import.
+// Reads flow in automatically; writes NEVER do. Every proposed change is shown
+// as from → to, ticked by a person, and only then sent. See
+// workspace/kantataWrite.ts and api/kantata-write.ts.
+// ---------------------------------------------------------------------------
+
+function KantataPush({
+  writes,
+  onPush,
+}: {
+  writes: PendingWrite[];
+  onPush: (refs: string[]) => Promise<WriteResponse>;
+}) {
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<WriteResponse | null>(null);
+
+  const chosen = writes.filter((w) => !skipped.has(w.ref));
+  const toggle = (ref: string) =>
+    setSkipped((s) => {
+      const next = new Set(s);
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
+      return next;
+    });
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      setResult(await onPush(chosen.map((w) => w.ref)));
+    } catch (err) {
+      setResult({
+        dryRun: true,
+        reason: err instanceof Error ? err.message : "push failed",
+        applied: 0,
+        failed: chosen.length,
+        results: [],
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ ...card, padding: 14, marginBottom: 14, borderLeft: `3px solid ${T.series1}` }}>
+      <SectionTitle>Send these changes to Kantata</SectionTitle>
+      <div style={{ fontSize: 12, color: T.inkSecondary, margin: "2px 0 10px" }}>
+        {writes.length} {writes.length === 1 ? "task differs" : "tasks differ"} from Kantata. Nothing is sent until you
+        choose it — Kantata stays the system of record for capacity.
+      </div>
+
+      {writes.map((w) => (
+        <label
+          key={w.ref}
+          style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
+        >
+          <input type="checkbox" checked={!skipped.has(w.ref)} onChange={() => toggle(w.ref)} style={{ marginTop: 3 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink }}>{w.taskTitle}</span>
+            <span style={{ display: "block", fontSize: 11, color: T.inkMuted, marginBottom: 2 }}>{w.project}</span>
+            {w.changes.map((c) => (
+              <span key={c.field} style={{ display: "block", fontSize: 11.5, color: T.inkSecondary }}>
+                {c.field}: <span style={{ textDecoration: "line-through", color: T.inkMuted }}>{c.from}</span> →{" "}
+                <strong style={{ color: T.ink }}>{c.to}</strong>
+              </span>
+            ))}
+          </span>
+        </label>
+      ))}
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+        <button type="button" className="btn btn-primary" disabled={busy || chosen.length === 0} onClick={() => void run()}>
+          {busy ? "Sending…" : `Send to Kantata (${chosen.length}) →`}
+        </button>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>Every send is logged with who sent it and when.</span>
+      </div>
+
+      {result && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "8px 10px",
+            borderRadius: 6,
+            background: result.failed > 0 ? "#fdeced" : "#eaf6ee",
+            fontSize: 11.5,
+            color: T.ink,
+          }}
+        >
+          {result.dryRun ? (
+            <>
+              <strong>Preview only — nothing was sent.</strong> {result.reason ?? ""} The changes above are valid and will
+              go through once writing is switched on.
+            </>
+          ) : (
+            <>
+              <strong>
+                {result.applied} sent{result.failed > 0 ? `, ${result.failed} failed` : ""}.
+              </strong>{" "}
+              {result.failed > 0
+                ? result.results.filter((r) => !r.ok).map((r) => r.error).join(" · ")
+                : "Kantata now matches this plan."}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ImportReview({
@@ -2178,6 +2292,8 @@ export function ClientWorkspace({
   people = [],
   onAddMember,
   onAddNewMember,
+  pendingKantataWrites = [],
+  onPushToKantata,
 }: {
   account: ClientAccount;
   /** AGP roster to add to the account (plain data — guest-safe). */
@@ -2195,6 +2311,13 @@ export function ClientWorkspace({
   /** Open Kantata tasks not yet in the plan — user-gated, like campaigns. */
   taskCandidates?: TaskCandidate[];
   onImportTasks?: (selected: TaskCandidate[]) => void;
+  /**
+   * Workspace edits that Kantata hasn't got yet — the write-back's review
+   * queue. Computed in App from the mirror; rendered here as plain data.
+   */
+  pendingKantataWrites?: PendingWrite[];
+  /** Send the ticked changes. Resolves with what actually landed. */
+  onPushToKantata?: (refs: string[]) => Promise<WriteResponse>;
   /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
   onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
@@ -2418,6 +2541,10 @@ export function ClientWorkspace({
           onRelink={onRelink}
           onLinkProjects={onLinkProjects}
         />
+      )}
+
+      {pendingKantataWrites.length > 0 && onPushToKantata && (
+        <KantataPush writes={pendingKantataWrites} onPush={onPushToKantata} />
       )}
 
       {reviewOpen && onImportCampaigns && onRemoveCampaign && onClearCampaigns && (

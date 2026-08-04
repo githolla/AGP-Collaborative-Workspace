@@ -49,6 +49,17 @@ export interface Task {
    */
   clientVisible?: boolean;
   createdAt: string;
+  /**
+   * Kantata story id, present on tasks imported from Kantata. This is the
+   * handle the write-back uses: with it an edit here becomes
+   * `PUT /stories/{id}`; without it the task is workspace-only and a write
+   * would have to CREATE a story, so it never happens silently.
+   */
+  kantataStoryId?: string;
+  /** Kantata workspace id the story belongs to. */
+  kantataProjectId?: string;
+  /** ISO time of the last successful push of this task to Kantata. */
+  kantataSyncedAt?: string;
 }
 
 /** One line in the workspace "what's new" feed (Collab Hub Must). */

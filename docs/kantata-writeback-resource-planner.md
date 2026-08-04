@@ -30,32 +30,80 @@ already calendarizes package hours across ISO phase windows (see
 turns them into Kantata `workspace_allocations`, which is exactly what the
 planner reads.
 
-## Current state (honest)
+## Current state
 
 - **Read side is LIVE.** `api/mirror.ts` pulls stories, assignees,
   participants, posts, and the staff roster every 5 min; the workspace mirrors
   Kantata today.
-- **Write side is not wired yet.** Everything the write-back needs already
-  exists in the data model — tasks carry `ownerName`, `due`, `status`; the plan
-  carries per-person `hours` on dated phases; task IDs are deterministic
-  (`task-<personId>`) so a Kantata story id maps 1:1 with no lookup table.
+- **Write side is BUILT** (2026-08-04, once write scopes were granted):
 
-## What closing the loop requires
+  | Piece | Where |
+  | --- | --- |
+  | Kantata story id on every imported task | `Task.kantataStoryId` — threaded `api/mirror.ts` → `MirrorTask` → `LiveTask` → `TaskCandidate` → `Task` |
+  | Diff against the live mirror | `pendingWrites()` in `apps/tab/src/workspace/kantataWrite.ts` |
+  | Review-and-send UI | "Send these changes to Kantata" panel in `ClientWorkspace` |
+  | Server executor (holds the token) | `api/kantata-write.ts`, routed in `server.mts` |
+  | Sync stamp / provenance | `Task.kantataSyncedAt`, `store.markTasksSynced()` |
 
-1. **A write-scoped Kantata token** (server-only, never `VITE_`-exposed). The
-   current `KANTATA_API_TOKEN` is used read-only; write-back needs create/update
-   scope on stories and allocations. Confirm the tenant allows it.
-2. **A server write endpoint** — `api/writeback.ts`, same self-contained shape
-   as `api/mirror.ts` (auth-gated, rate-limited). It takes a small diff
-   {taskId, field, value} or a weekly-allocation set and issues the Kantata
-   call above.
-3. **Human-confirmed, never silent.** Writes fire only on an explicit action
-   (save a task, publish reservations) — the workspace never auto-mutates the
-   client's live Kantata. Same principle as import: nothing lands without
-   review, in either direction.
-4. **Idempotency + provenance.** Each write records the Kantata id it touched so
-   a re-pull reconciles instead of duplicating (the mirror already tags
-   Kantata-sourced rows).
+  The story id was the missing prerequisite: without it the only possible write
+  is `POST /stories`, which duplicates work Kantata already has. Imported tasks
+  now carry the id they came from, so an edit becomes `PUT /stories/{id}`.
+
+## How a write happens
+
+1. Someone edits a task in the workspace — owner, due date, status.
+2. `pendingWrites()` compares the workspace's tasks against what the mirror
+   last read from Kantata and produces a from → to list. **Only tasks carrying
+   a `kantataStoryId` are considered**, and only when the mirror still has that
+   story — a story deleted in Kantata is never resurrected.
+3. The workspace shows the list. A person ticks what should go.
+4. `POST /api/kantata-write` with the ticked intents. The endpoint re-validates
+   every one server-side (the browser is not trusted), then issues the calls
+   one at a time, reporting each result separately — a batch where one intent
+   fails still applies the rest.
+5. Applied refs are stamped `kantataSyncedAt` and logged to the account's
+   activity feed with who sent them.
+
+## Turning writes on
+
+The endpoint is **dry-run by default**. Without `KANTATA_WRITE_ENABLED=true`
+it validates the intents and describes the exact calls it would make, and
+sends nothing. That is deliberate: writing to a customer's system of record
+should not start happening because something was deployed.
+
+To go live:
+
+```
+KANTATA_API_TOKEN=<token with story + allocation write scope>   # already set, now write-scoped
+KANTATA_WRITE_ENABLED=true
+```
+
+Both are server-only — never `VITE_`-prefixed, never in the browser bundle.
+Recommended sequence: deploy with the flag OFF, exercise the panel on a real
+workspace and read the previewed calls, then set the flag.
+
+## Safety properties, and where each is enforced
+
+- **Never silent.** No timer, no auto-sync. `pushIntents()` is called from one
+  button. (`kantataWrite.ts`, `ClientWorkspace.tsx`)
+- **Never a guess at people.** An owner name resolves to a Kantata user id only
+  on an unambiguous match; two people with the same name, or a client contact
+  with no Kantata seat, produce no assignee write at all. (`resolveStaffId`)
+- **Never a downgrade.** Kantata's `accepted` already reads as done, so marking
+  a task complete here does not overwrite it with `completed`. (`statusMatches`)
+- **Narrow surface.** The endpoint accepts three intent kinds and a fixed field
+  list; anything else is rejected before a request is built. (`planCall`)
+- **Bounded.** 50 intents per request, hours capped at 168/week, 10s per call.
+- **Attributable.** Every response records the signed-in caller and timestamp;
+  applied changes land in the account activity feed.
+
+## Weekly capacity reservations
+
+`allocationIntent()` builds the `workspace_allocations` write — person,
+project, Monday–Sunday week, hours. This is the row the resource planner is
+actually built on. The intent and its validation are in place; the surface that
+chooses which weeks to publish is the next piece of UI, and it writes through
+the same endpoint and the same review gate.
 
 ## Why this is the right shape
 
@@ -65,7 +113,3 @@ planner reads.
   reads are the ones we write; no new data model.
 - **Safety holds.** Financials stay internal (allocations carry hours, not
   rates on any guest surface); write-back is gated and reviewed.
-
-Blocked only on item 1 (write-scoped credentials). Everything upstream —
-the tasks, owners, dates, and weekly hours to write — is already in the
-workspace.

@@ -21,6 +21,7 @@ import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus
 import { initTeams } from "./teams/teamsHost.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
+import { pendingWrites, pushIntents } from "./workspace/kantataWrite.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import type { ClientAccount } from "./workspace/types.js";
 import { T } from "./theme.js";
@@ -570,9 +571,19 @@ function Workspace() {
             status: taskColumn(t.state),
             ...(t.dueDate ? { due: t.dueDate } : {}),
             project: p.title,
+            kantataStoryId: t.id,
+            kantataProjectId: t.projectId,
           })),
       )
     : [];
+
+  // The write-back's review queue: workspace task edits Kantata hasn't got.
+  // Computed from the same mirror the workspace reads, so the diff shown is
+  // against what Kantata last told us — never against a stale local guess.
+  const pendingKantataWrites =
+    selectedAccount && selectedLiveCtx && liveStatus.live
+      ? pendingWrites(selectedAccount.tasks, selectedLiveCtx.projects, loadMirror().staff ?? [])
+      : [];
 
   const listView = route.view === "clients";
 
@@ -850,6 +861,22 @@ function Workspace() {
             taskCandidates={selectedTaskCandidates}
             onImportTasks={(selected) => ws.importTasks(selectedAccount.id, selected)}
             onImportAll={() => ws.importAllFromKantata(selectedAccount.id)}
+            pendingKantataWrites={pendingKantataWrites}
+            onPushToKantata={async (refs) => {
+              const chosen = pendingKantataWrites.filter((w) => refs.includes(w.ref));
+              const response = await pushIntents(chosen.map((w) => w.intent));
+              // Stamp ONLY what actually landed. A dry run changes nothing, so
+              // the queue stays put and the panel says why.
+              if (!response.dryRun) {
+                ws.markTasksSynced(
+                  selectedAccount.id,
+                  response.results
+                    .filter((r) => r.ok && !r.planned)
+                    .map((r) => ({ ref: r.ref, ...(r.createdId ? { createdId: r.createdId } : {}) })),
+                );
+              }
+              return response;
+            }}
             {...(selectedLiveCtx ? { liveContext: selectedLiveCtx } : {})}
             liveDataOn={liveStatus.live}
             linkSuggestions={selectedLinkSuggestions}
