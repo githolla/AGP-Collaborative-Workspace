@@ -102,7 +102,9 @@ export function DiscussLauncher({
         onClick={openModal}
         title="Start a discussion about anything, with whoever you choose"
         style={{
-          position: "fixed", right: 22, bottom: 22, zIndex: 80,
+          // Sit ABOVE the Feedback pill (bottom:18, ~44px tall) so the two
+          // fixed corner buttons don't overlap — Josh flagged Feedback hiding it.
+          position: "fixed", right: 22, bottom: 74, zIndex: 80,
           display: "flex", alignItems: "center", gap: 8,
           background: T.roi.navy, color: "#fff", border: "none", borderRadius: 999,
           padding: "12px 18px", fontSize: 13.5, fontWeight: 800, cursor: "pointer",

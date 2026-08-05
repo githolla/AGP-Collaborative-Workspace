@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
+import { TeamHoursEditor } from "./TeamHours.js";
 
 /** "2026-04-13" → "Apr 13" (UTC, no weekday) for compact due labels. */
 function shortDay(iso: string): string {
@@ -85,6 +86,10 @@ export function TasksCard({
   onToggleClientVisible,
   onOpenTask,
   onDiscuss,
+  onSetTaskAssignments,
+  onSetAssignmentHours,
+  onToggleAssignmentDone,
+  onSetAssignmentPrimary,
   focusTaskId,
 }: {
   tasks: Task[];
@@ -98,6 +103,12 @@ export function TasksCard({
   /** Start a discussion scoped to a project or task — Kellie's "route the
    * project-plan line straight to Discussions", context already set. */
   onDiscuss?: (topic: string) => void;
+  /** Seed the persisted team (idempotent) when the inline panel first opens. */
+  onSetTaskAssignments?: (taskId: string, names: string[]) => void;
+  /** Per-person hour/owner/done edits — power the inline team panel in a row. */
+  onSetAssignmentHours?: (taskId: string, name: string, hours: number | undefined) => void;
+  onToggleAssignmentDone?: (taskId: string, name: string, done: boolean) => void;
+  onSetAssignmentPrimary?: (taskId: string, name: string) => void;
   /**
    * Deep-link target: scroll to this task and flash it. Hours entry itself
    * lives on the Resourcing tab now; this stays as a plan-side landing fallback.
@@ -106,6 +117,9 @@ export function TasksCard({
 }) {
   const [view, setView] = useState<"list" | "board">("list");
   const [flashId, setFlashId] = useState<string | null>(null);
+  // Which task's team panel is expanded inline in the row (Josh: put the team
+  // in the row itself, not a clunky hover). One at a time.
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   // Land a deep link on the exact task: scroll it into view, flash it so the
   // eye catches it, and focus its hours field so the person can adjust
   // immediately. Keyed on task count so it fires once the plan has loaded.
@@ -134,14 +148,19 @@ export function TasksCard({
   const [newLabel, setNewLabel] = useState("");
   // Collapsed project sections — Kellie asked to fold away the phases/time-
   // tracking tasks nobody converses at, so the eye lands on what matters.
+  // DEFAULT COLLAPSED (Josh): the plan opens compact — a list of projects —
+  // and the PM expands the one they're working in.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (key: string) =>
+  const [userToggled, setUserToggled] = useState(false);
+  const toggleGroup = (key: string) => {
+    setUserToggled(true);
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+  };
 
   const labels = [...new Set(tasks.map((t) => t.label).filter((l): l is string => !!l))];
   // The real projects (Kantata milestones) present in this list. At AGP one
@@ -197,11 +216,22 @@ export function TasksCard({
     return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
   })();
 
+  // Open collapsed: until the PM expands something, every project section is
+  // folded, so the plan reads as a short list of projects. Re-seeds if the set
+  // of projects changes, but never fights a manual expand/collapse.
+  const groupKeys = projectGroups.map((g) => g.key).join("§");
+  useEffect(() => {
+    if (userToggled || !groupByProject) return;
+    setCollapsedGroups(new Set(groupKeys ? groupKeys.split("§") : []));
+  }, [groupKeys, userToggled, groupByProject]);
+
   const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
-  const taskLine = (t: Task, compact = false, showProject = false) => (
+  const taskLine = (t: Task, compact = false, showProject = false) => {
+    const teamOpen = !compact && expandedTeamId === t.id && !!t.assignments?.length;
+    return (
+    <Fragment key={t.id}>
     <div
-      key={t.id}
       id={`taskrow-${t.id}`}
       style={{
         display: "flex",
@@ -239,18 +269,30 @@ export function TasksCard({
         )}
         {t.assignments && t.assignments.length > 0 ? (
           (() => {
-            // Show the TEAM, not one person (Kellie's ask). The accountable
-            // owner leads; the rest ride in "+N", full roster on hover — with a
-            // per-person done count so progress reads at a glance.
+            // Show the TEAM, not one person (Kellie). The accountable owner
+            // leads; the rest ride in "+N" with a per-person done count. Click
+            // to expand the team + hours INLINE in the row (Josh) — no hover.
             const owner = t.assignments.find((x) => x.primary) ?? t.assignments[0]!;
             const others = t.assignments.length - 1;
             const doneN = t.assignments.filter((x) => x.done).length;
-            const roster = t.assignments.map((x) => `${x.done ? "✓ " : ""}${x.name}${x.primary ? " (owner)" : ""}`).join("\n");
+            const isOpen = expandedTeamId === t.id;
             return (
-              <span title={roster} style={{ fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}>
-                {owner.name}{others > 0 ? ` +${others}` : ""}
-                <span style={{ color: T.inkMuted }}> · {doneN}/{t.assignments.length} done</span>
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = isOpen ? null : t.id;
+                  // Persist the team the first time it's opened, so inline
+                  // hour/done/owner edits have something to write to.
+                  if (next && t.assignments?.length) onSetTaskAssignments?.(t.id, t.assignments.map((x) => x.name));
+                  setExpandedTeamId(next);
+                }}
+                title={isOpen ? "Hide the team" : "Show the team & hours"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}
+              >
+                <span aria-hidden style={{ fontSize: 8.5, color: T.inkMuted, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
+                <span style={{ fontWeight: 600 }}>{owner.name}{others > 0 ? ` +${others}` : ""}</span>
+                <span style={{ color: doneN === t.assignments.length ? "#116a43" : T.inkMuted }}>· {doneN}/{t.assignments.length} done</span>
+              </button>
             );
           })()
         ) : (
@@ -281,7 +323,22 @@ export function TasksCard({
         <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
       </span>
     </div>
-  );
+    {teamOpen && (
+      <div style={{ padding: "4px 10px 10px 24px", background: "#f7f9fd", borderBottom: `1px solid ${T.grid}` }}>
+        <div style={{ fontSize: 10, color: T.inkMuted, margin: "2px 0 2px", lineHeight: 1.5 }}>
+          Split the hours across the people (blank = even split). Tag the owner; each person checks off their own part.
+        </div>
+        <TeamHoursEditor
+          task={t}
+          {...(onSetAssignmentHours ? { onSetHours: onSetAssignmentHours } : {})}
+          {...(onToggleAssignmentDone ? { onToggleDone: onToggleAssignmentDone } : {})}
+          {...(onSetAssignmentPrimary ? { onSetPrimary: onSetAssignmentPrimary } : {})}
+        />
+      </div>
+    )}
+    </Fragment>
+    );
+  };
 
   return (
     <div style={card}>

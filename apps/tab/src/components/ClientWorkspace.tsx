@@ -963,6 +963,15 @@ function ResourcingView({
   const [flashId, setFlashId] = useState<string | null>(null);
   const [personFilter, setPersonFilter] = useState("");
   const [needsHoursOnly, setNeedsHoursOnly] = useState(false);
+  // Collapse the per-project hour groups too (Josh) — open collapsed, expand
+  // the project you're validating. A ref-guarded default so it doesn't fight
+  // a manual toggle or re-collapse on every keystroke.
+  const [collapsedRes, setCollapsedRes] = useState<Set<string>>(new Set());
+  const [resToggled, setResToggled] = useState(false);
+  const toggleRes = (key: string) => {
+    setResToggled(true);
+    setCollapsedRes((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  };
 
   // Land a deep link exactly on the task to adjust: scroll, flash, focus hours.
   useEffect(() => {
@@ -996,6 +1005,11 @@ function ResourcingView({
     groups.get(key)!.push(t);
   }
   const orderedGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const resKeys = orderedGroups.map(([k]) => k).join("§");
+  useEffect(() => {
+    if (resToggled) return;
+    setCollapsedRes(new Set(resKeys ? resKeys.split("§") : []));
+  }, [resKeys, resToggled]);
   const labelOf = (t: Task) => t.projectLabel ?? "No project";
 
   return (
@@ -1044,15 +1058,23 @@ function ResourcingView({
               : "Nothing matches — clear the filters above."}
           </div>
         ) : (
-          orderedGroups.map(([key, groupTasks]) => (
+          orderedGroups.map(([key, groupTasks]) => {
+            const resCollapsed = collapsedRes.has(key);
+            return (
             <div key={key} style={{ marginBottom: 6 }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "12px 0 2px", paddingBottom: 4, borderBottom: `2px solid ${T.roi.navy}` }}>
+              <button
+                type="button"
+                onClick={() => toggleRes(key)}
+                title={resCollapsed ? "Expand this project" : "Collapse this project"}
+                style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", cursor: "pointer", background: "none", border: "none", margin: "12px 0 2px", padding: "0 0 4px", borderBottom: `2px solid ${T.roi.navy}` }}
+              >
+                <span aria-hidden style={{ fontSize: 9, color: T.roi.navy, transform: resCollapsed ? "rotate(-90deg)" : "none", display: "inline-block", width: 10 }}>▼</span>
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{labelOf(groupTasks[0]!)}</span>
                 <span style={{ fontSize: 10.5, color: T.inkMuted }}>
                   {groupTasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0)}h across {groupTasks.length}
                 </span>
-              </div>
-              {groupTasks.map((t) => (
+              </button>
+              {!resCollapsed && groupTasks.map((t) => (
                 <div
                   key={t.id}
                   id={`res-${t.id}`}
@@ -1079,7 +1101,8 @@ function ResourcingView({
                 </div>
               ))}
             </div>
-          ))
+            );
+          })
         )}
 
         {blocked > 0 && (
@@ -3588,7 +3611,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
           {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
               <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
