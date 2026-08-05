@@ -661,6 +661,8 @@ function Workspace() {
             kantataStoryId: t.id,
             kantataProjectId: t.projectId,
             ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+            ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
+            ...(t.phaseId ? { phaseId: t.phaseId } : {}),
             ...(t.milestoneId ? { kantataMilestoneId: t.milestoneId } : {}),
             ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
             ...(t.startDate ? { startDate: t.startDate } : {}),
@@ -684,7 +686,7 @@ function Workspace() {
   // (scheduled hours, start date) so both flow onto stored tasks without
   // re-entry. Indexed on EVERY live task, not just labelled ones, so an
   // hours-only match still lands.
-  type LiveRef = { storyId: string; label?: string; milestoneId?: string; estimatedHours?: number; startDate?: string; assignees?: string[] };
+  type LiveRef = { storyId: string; label?: string; milestoneId?: string; phaseLabel?: string; phaseId?: string; estimatedHours?: number; startDate?: string; assignees?: string[] };
   const byStory = new Map<string, LiveRef>();
   const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
@@ -694,6 +696,8 @@ function Workspace() {
           storyId: t.id,
           ...(t.projectLabel ? { label: t.projectLabel } : {}),
           ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
+          ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
+          ...(t.phaseId ? { phaseId: t.phaseId } : {}),
           ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
           ...(t.startDate ? { startDate: t.startDate } : {}),
           ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
@@ -717,6 +721,8 @@ function Workspace() {
         const patched = {
           ...task,
           ...(!task.projectLabel && ref.label ? { projectLabel: ref.label } : {}),
+          ...(!task.phaseLabel && ref.phaseLabel ? { phaseLabel: ref.phaseLabel } : {}),
+          ...(!task.phaseId && ref.phaseId ? { phaseId: ref.phaseId } : {}),
           ...(!task.kantataMilestoneId && ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
           ...(!task.kantataStoryId ? { kantataStoryId: ref.storyId } : {}),
           ...(task.estimatedHours == null && ref.estimatedHours != null ? { estimatedHours: ref.estimatedHours } : {}),

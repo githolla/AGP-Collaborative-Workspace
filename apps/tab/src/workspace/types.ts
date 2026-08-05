@@ -99,6 +99,13 @@ export interface Task {
    * showing one flat list across a whole year's work.
    */
   projectLabel?: string;
+  /**
+   * The PHASE (nested Kantata milestone) this task sits under, when the job has
+   * phases — the child level below the project. Lets the plan nest tasks as
+   * project → phase → task instead of a flat list (Kellie's parent/child ask).
+   */
+  phaseLabel?: string;
+  phaseId?: string;
   kantataMilestoneId?: string;
   /** ISO time of the last successful push of this task to Kantata. */
   kantataSyncedAt?: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, milestoneResolver, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
+import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, milestoneResolver, projectPhaseResolver, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -503,6 +503,42 @@ describe("milestoneResolver — task → real project (Kantata milestone)", () =
       { id: "b", parentId: "a" },
     ];
     expect(milestoneResolver(milestones, cyclic)("a")).toBeUndefined();
+  });
+});
+
+describe("projectPhaseResolver — parent job → phase → task nesting", () => {
+  // The AGP shape Kellie described: the job (with its number) is the top-most
+  // milestone; the phases under it are also milestones; tasks hang off a phase.
+  const milestones = [
+    { id: "job", title: "44061.03 - Fall Program Analysis" },
+    { id: "ph1", title: "Phase 1: Strategy", parentId: "job" },
+    { id: "ph2", title: "Phase 2: Production", parentId: "job" },
+  ];
+  const tasks = [
+    { id: "t1", parentId: "ph1" }, // under phase 1
+    { id: "t2", parentId: "ph2" }, // under phase 2
+    { id: "sub", parentId: "t1" }, // sub-task under t1 → phase 1
+    { id: "direct", parentId: "job" }, // straight under the job, no phase
+  ];
+
+  it("puts the job number at the top and nests the phase under it", () => {
+    const r = projectPhaseResolver(milestones, tasks);
+    expect(r("t1")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" } });
+    expect(r("t2")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph2", title: "Phase 2: Production" } });
+  });
+
+  it("walks a sub-task up to its phase and job", () => {
+    expect(projectPhaseResolver(milestones, tasks)("sub")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" } });
+  });
+
+  it("a task straight under the job has a project but NO phase", () => {
+    const r = projectPhaseResolver(milestones, tasks)("direct");
+    expect(r.project).toEqual({ id: "job", title: "44061.03 - Fall Program Analysis" });
+    expect(r.phase).toBeUndefined();
+  });
+
+  it("no loop on a malformed cycle", () => {
+    expect(projectPhaseResolver(milestones, [{ id: "a", parentId: "b" }, { id: "b", parentId: "a" }])("a")).toEqual({});
   });
 });
 

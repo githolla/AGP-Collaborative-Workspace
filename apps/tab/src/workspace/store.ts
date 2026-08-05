@@ -1098,6 +1098,8 @@ export function useWorkspace() {
         kantataStoryId?: string;
         kantataProjectId?: string;
         projectLabel?: string;
+        phaseLabel?: string;
+        phaseId?: string;
         kantataMilestoneId?: string;
         estimatedHours?: number;
         startDate?: string;
@@ -1129,6 +1131,8 @@ export function useWorkspace() {
             ...(t.kantataStoryId ? { kantataStoryId: t.kantataStoryId, kantataSyncedAt: new Date().toISOString() } : {}),
             ...(t.kantataProjectId ? { kantataProjectId: t.kantataProjectId } : {}),
             ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+            ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
+            ...(t.phaseId ? { phaseId: t.phaseId } : {}),
             ...(t.kantataMilestoneId ? { kantataMilestoneId: t.kantataMilestoneId } : {}),
             // Scheduled hours + start pulled from Kantata — resourcing shows
             // them without re-entry; a PM edit overrides later.

@@ -340,6 +340,33 @@ export function TasksCard({
     );
   };
 
+  // Within a project section, nest tasks under their PHASE (nested milestone)
+  // so the plan reads project → phase → task, not a flat list (Kellie). Tasks
+  // with no phase render directly under the project. Phase order follows the
+  // first task's position (already date-sorted upstream).
+  const renderGroupTasks = (groupTasks: Task[]) => {
+    const phases: { label: string | null; tasks: Task[] }[] = [];
+    const idx = new Map<string, number>();
+    for (const t of groupTasks) {
+      const key = t.phaseLabel ?? " ";
+      if (!idx.has(key)) { idx.set(key, phases.length); phases.push({ label: t.phaseLabel ?? null, tasks: [] }); }
+      phases[idx.get(key)!]!.tasks.push(t);
+    }
+    // No real phases (everything sits straight under the job) → flat list.
+    if (phases.length === 1 && phases[0]!.label === null) return groupTasks.map((t) => taskLine(t));
+    return phases.map((ph) => (
+      <div key={ph.label ?? "__none"} style={{ marginLeft: ph.label ? 4 : 0 }}>
+        {ph.label && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "6px 0 0", padding: "3px 0 3px 10px", borderLeft: `3px solid ${T.roi.cyan}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.inkSecondary }}>{ph.label}</span>
+            <span style={{ fontSize: 10, color: T.inkMuted }}>{ph.tasks.filter((t) => t.status !== "done").length} open</span>
+          </div>
+        )}
+        <div style={ph.label ? { paddingLeft: 10 } : undefined}>{ph.tasks.map((t) => taskLine(t))}</div>
+      </div>
+    ));
+  };
+
   return (
     <div style={card}>
       <SectionTitle
@@ -440,7 +467,7 @@ export function TasksCard({
                       <button type="button" className="btn-link" style={{ fontSize: 11, whiteSpace: "nowrap" }} title={`Discuss ${g.label} — opens Discussions scoped to this project`} onClick={() => onDiscuss(g.label)}>💬 Discuss</button>
                     )}
                   </div>
-                  {!isCollapsed && g.tasks.map((t) => taskLine(t))}
+                  {!isCollapsed && renderGroupTasks(g.tasks)}
                 </div>
               );
             })}

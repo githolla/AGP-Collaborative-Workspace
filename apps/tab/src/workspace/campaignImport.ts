@@ -317,6 +317,55 @@ export function milestoneResolver(
   };
 }
 
+/**
+ * Two-level resolver — the parent→child hierarchy Kellie asked for. Walking the
+ * same parent chain, it separates:
+ *   - the PROJECT: the TOP-MOST milestone ancestor — the real job (with its job
+ *     number), the line that should head the section; and
+ *   - the PHASE: the NEAREST milestone ancestor when it's a different, deeper
+ *     milestone (phase one / phase two), which nests UNDER the project.
+ *
+ * So "phase one" no longer floats: it sits under its job. When a task hangs
+ * straight off the job with no phase in between, phase is undefined and the task
+ * sits directly under the project. Falls back to the top-most ancestor of any
+ * type when a workspace files work without milestones at all.
+ */
+export function projectPhaseResolver(
+  milestones: readonly { id: string; title: string; parentId?: string }[],
+  tasks: readonly { id: string; parentId?: string; title?: string }[],
+): (taskId: string) => { project?: { id: string; title: string }; phase?: { id: string; title: string } } {
+  const milestoneIds = new Set(milestones.map((m) => m.id));
+  const titleById = new Map<string, string>();
+  const parentOf = new Map<string, string | undefined>();
+  for (const m of milestones) { titleById.set(m.id, m.title); parentOf.set(m.id, m.parentId); }
+  for (const t of tasks) { if (t.title) titleById.set(t.id, t.title); parentOf.set(t.id, t.parentId); }
+
+  const cache = new Map<string, { project?: { id: string; title: string }; phase?: { id: string; title: string } }>();
+  return (taskId: string) => {
+    const hit = cache.get(taskId);
+    if (hit) return hit;
+    const seen = new Set<string>();
+    const milestoneChain: string[] = []; // nearest → top
+    let topMostAny: string | undefined;
+    let cur: string | undefined = parentOf.get(taskId);
+    while (cur && parentOf.has(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      if (milestoneIds.has(cur)) milestoneChain.push(cur);
+      topMostAny = cur;
+      cur = parentOf.get(cur);
+    }
+    const node = (id: string | undefined) => (id && titleById.has(id) ? { id, title: titleById.get(id)! } : undefined);
+    // Project = top-most milestone (the job); phase = nearest milestone if it's
+    // a deeper, different one. No milestones at all → top-most ancestor is the
+    // project so the task still groups somewhere sensible.
+    const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : topMostAny;
+    const phaseId = milestoneChain.length > 1 ? milestoneChain[0] : undefined;
+    const result = { ...(node(projectId) ? { project: node(projectId)! } : {}), ...(phaseId && phaseId !== projectId && node(phaseId) ? { phase: node(phaseId)! } : {}) };
+    cache.set(taskId, result);
+    return result;
+  };
+}
+
 export interface LiveTask {
   /**
    * Kantata story id. Carried so an imported task can be written BACK —
@@ -337,6 +386,10 @@ export interface LiveTask {
    */
   milestoneId?: string;
   projectLabel?: string;
+  /** The PHASE (nested milestone) this task sits under, when there is one —
+   * the child level below the project, so "phase one" nests under its job. */
+  phaseId?: string;
+  phaseLabel?: string;
   /** Raw Kantata parent story id — carried for diagnostics/resolution checks. */
   parentId?: string;
   /** Kantata owner(s) — who's accountable for the work. */
@@ -471,10 +524,10 @@ export function accountLiveContext(
   const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => {
     const projMilestones = mirror.milestones.filter((m) => m.projectId === p.id);
     const projTasks = (mirror.tasks ?? []).filter((t) => t.projectId === p.id);
-    // Resolve which milestone each task belongs to by walking the parent chain
-    // (milestone → task → sub-task). Precomputed once per project so the
-    // per-task lookup is O(depth), not O(tasks).
-    const resolveMilestone = milestoneResolver(projMilestones, projTasks);
+    // Resolve each task's PROJECT (the job, top-most milestone) and its PHASE
+    // (the nested milestone under it, if any) by walking the parent chain — the
+    // parent→child hierarchy. Precomputed once per project.
+    const resolveHierarchy = projectPhaseResolver(projMilestones, projTasks);
     return {
     id: p.id,
     title: p.title,
@@ -487,14 +540,15 @@ export function accountLiveContext(
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
       .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
     tasks: projTasks.map((t) => {
-      const ms = resolveMilestone(t.id);
+      const h = resolveHierarchy(t.id);
       return {
         id: t.id,
         projectId: t.projectId,
         title: t.title,
         state: t.state,
         ...(t.parentId ? { parentId: t.parentId } : {}),
-        ...(ms ? { milestoneId: ms.id, projectLabel: ms.title } : {}),
+        ...(h.project ? { milestoneId: h.project.id, projectLabel: h.project.title } : {}),
+        ...(h.phase ? { phaseId: h.phase.id, phaseLabel: h.phase.title } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
         ...(t.startDate ? { startDate: t.startDate } : {}),
         ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
