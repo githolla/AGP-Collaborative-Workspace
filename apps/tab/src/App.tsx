@@ -613,6 +613,29 @@ function Workspace() {
       )
     : [];
 
+  // Backfill the project (milestone) label onto tasks that were imported
+  // before the label existed. The live context knows each Kantata story's
+  // project; match by story id and fill it in at render, so existing
+  // workspaces group by project without anyone re-importing. Purely additive —
+  // a task that already carries a label, or has no Kantata story, is untouched.
+  const projectLabelByStory = new Map<string, { label: string; milestoneId?: string }>();
+  if (selectedLiveCtx) {
+    for (const p of selectedLiveCtx.projects) {
+      for (const t of p.tasks) {
+        if (t.projectLabel) projectLabelByStory.set(t.id, { label: t.projectLabel, ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}) });
+      }
+    }
+  }
+  const enrichedSharedTasks = selectedAccount
+    ? ws.sharedTasksFor(selectedAccount.id).map((entry) => {
+        if (entry.task.projectLabel || !entry.task.kantataStoryId) return entry;
+        const hit = projectLabelByStory.get(entry.task.kantataStoryId);
+        return hit
+          ? { ...entry, task: { ...entry.task, projectLabel: hit.label, ...(hit.milestoneId ? { kantataMilestoneId: hit.milestoneId } : {}) } }
+          : entry;
+      })
+    : [];
+
   // The write-back's review queue: workspace task edits Kantata hasn't got.
   // Computed from the same mirror the workspace reads, so the diff shown is
   // against what Kantata last told us — never against a stale local guess.
@@ -866,7 +889,7 @@ function Workspace() {
         {selectedAccount && (
           <ClientWorkspace
             account={selectedAccount}
-            sharedTasks={ws.sharedTasksFor(selectedAccount.id)}
+            sharedTasks={enrichedSharedTasks}
             userName={userName}
             onBack={() => setRoute({ view: "clients" })}
             onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
