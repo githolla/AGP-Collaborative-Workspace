@@ -94,6 +94,8 @@ export function TeamHoursEditor({
                 defaultValue={as.hours ?? ""}
                 placeholder={String(effH)}
                 disabled={!onSetHours}
+                onFocus={(e) => e.target.select()}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 onBlur={(e) => {
                   const v = e.target.value.trim();
                   onSetHours?.(task.id, as.name, v === "" ? undefined : Number(v));

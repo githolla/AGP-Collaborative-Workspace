@@ -233,7 +233,7 @@ export function TasksCard({
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const taskLine = (t: Task, compact = false, showProject = false) => {
-    const teamOpen = !compact && expandedTeamId === t.id && !!t.assignments?.length;
+    const teamOpen = !compact && expandedTeamId === t.id;
     const blockers = t.status !== "done" ? blockingDeps(t, (id) => taskById.get(id)) : [];
     return (
     <Fragment key={t.id}>
@@ -309,6 +309,28 @@ export function TasksCard({
               </button>
             );
           })()
+        ) : t.ownerName && !compact && onSetTaskAssignments ? (
+          // Single-owner tasks are interactive too: clicking seeds a one-person
+          // team so hours/done/status can be set in the row (add more people in
+          // the full card). No more dead, un-clickable owner names.
+          (() => {
+            const isOpen = expandedTeamId === t.id;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = isOpen ? null : t.id;
+                  if (next && t.ownerName) onSetTaskAssignments?.(t.id, [t.ownerName]);
+                  setExpandedTeamId(next);
+                }}
+                title={isOpen ? "Hide" : "Set hours, mark done, or split across a team"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}
+              >
+                <span aria-hidden style={{ fontSize: 8.5, color: T.inkMuted, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
+                {t.ownerName}
+              </button>
+            );
+          })()
         ) : (
           t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>
         )}
@@ -343,9 +365,27 @@ export function TasksCard({
       </span>
     </div>
     {teamOpen && (
-      <div style={{ padding: "4px 10px 10px 24px", background: "#f7f9fd", borderBottom: `1px solid ${T.grid}` }}>
-        <div style={{ fontSize: 10, color: T.inkMuted, margin: "2px 0 2px", lineHeight: 1.5 }}>
-          Split the hours across the people (blank = even split). Tag the owner; each person checks off their own part.
+      <div style={{ padding: "6px 10px 10px 24px", background: "#f7f9fd", borderBottom: `1px solid ${T.grid}` }}>
+        {/* Status, right here — move the task without leaving the plan. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Status</span>
+          {(["todo", "doing", "done"] as TaskStatus[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onStatus(t.id, s)}
+              className={t.status === s ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+              style={{ fontSize: 10.5, padding: "3px 10px" }}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+          {onOpenTask && (
+            <button type="button" className="btn-link" style={{ fontSize: 10.5, marginLeft: "auto" }} onClick={() => onOpenTask(t)} title="Open the full task card — handoffs, dependencies, discussion">Full card ↗</button>
+          )}
+        </div>
+        <div style={{ fontSize: 10, color: T.inkMuted, margin: "2px 0 3px", lineHeight: 1.5 }}>
+          Order the handoff (▲▼), split the hours (blank = even split), tag the owner; each person checks off their own part.
         </div>
         <TeamHoursEditor
           task={t}
