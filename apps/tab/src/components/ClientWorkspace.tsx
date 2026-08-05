@@ -15,7 +15,7 @@ import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/hando
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
-import { assignmentProgress, effectiveHours, primaryOwner } from "../workspace/taskAssignments.js";
+import { assignmentProgress, effectiveHours, isOnPersonList, primaryOwner } from "../workspace/taskAssignments.js";
 import {
   CHASE_AFTER_DAYS,
   needsAttention,
@@ -693,13 +693,20 @@ function WhatsNew({ account }: { account: ClientAccount }) {
 function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-  const open = tasks.filter((t) => t.status !== "done");
+  // MY tasks: the ones I actually carry hours on (or own) — the mechanism that
+  // makes a personal list meaningful instead of "every task I'm cc'd on"
+  // (Cara/Kellie). Falls back to all tasks for a viewer who's on none of them
+  // (e.g. a client), so the home never looks empty by accident.
+  const [mineOnly, setMineOnly] = useState(true);
+  const myTasks = tasks.filter((t) => isOnPersonList(t, userName));
+  const scoped = mineOnly && myTasks.length > 0 ? myTasks : tasks;
+  const open = scoped.filter((t) => t.status !== "done");
   // Actually THIS week: due from today through the next 7 days. (Past-due
   // tasks are overdue, not "due this week" — they surface on the plan, not here.)
   const dueThisWeek = open
     .filter((t) => t.due && t.due >= today && t.due <= weekOut)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-  const byStatus = (s: TaskStatus) => tasks.filter((t) => t.status === s);
+  const byStatus = (s: TaskStatus) => scoped.filter((t) => t.status === s);
   const milestones = account.campaigns
     .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
     .sort((a, b) => (a.nextMilestoneDate ?? "").localeCompare(b.nextMilestoneDate ?? ""))
@@ -748,9 +755,20 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
           ))}
         </div>
 
-        {/* Your tasks — mini board */}
+        {/* Your tasks — mini board, scoped to the tasks you actually own hours on */}
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
-          <SectionTitle>Your Tasks</SectionTitle>
+          <SectionTitle
+            right={
+              myTasks.length > 0 ? (
+                <span style={{ display: "flex", gap: 4 }}>
+                  <button type="button" onClick={() => setMineOnly(true)} className={`nav-pill${mineOnly ? " active" : ""}`} style={{ fontSize: 10, padding: "3px 9px" }} title="Only tasks you carry hours on">Mine</button>
+                  <button type="button" onClick={() => setMineOnly(false)} className={`nav-pill${!mineOnly ? " active" : ""}`} style={{ fontSize: 10, padding: "3px 9px" }} title="Everyone's tasks">All</button>
+                </span>
+              ) : undefined
+            }
+          >
+            Your Tasks
+          </SectionTitle>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             {boardCols.map((col) => (
               <div key={col.key}>
