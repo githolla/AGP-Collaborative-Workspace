@@ -40,6 +40,8 @@ export function Thread({
   topics = [],
   taskTitles = [],
   fileNames = [],
+  projectOptions = [],
+  projectOf,
   mentionRoster = [],
   onQuickAdd,
   onOpenTopic,
@@ -66,6 +68,19 @@ export function Thread({
   taskTitles?: readonly string[];
   /** File/doc names — so a discussion about a document is classified as a file. */
   fileNames?: readonly string[];
+  /**
+   * The real projects (Kantata milestones) for the primary "by project" filter.
+   * Kellie's decision: organize discussions at the PROJECT level only — no
+   * finer slicing — so this is the one dimension conversation is grouped by.
+   */
+  projectOptions?: readonly string[];
+  /**
+   * Roll a post's topic up to its project: a post already on a project returns
+   * that project; a post on a task returns the task's project; anything else
+   * returns undefined. This is what makes "show me the November CYE I Appeal"
+   * gather task-level replies too, instead of only posts filed on the project.
+   */
+  projectOf?: (topic: string | undefined) => string | undefined;
   /** Full AGP roster for @mention autocomplete (on- and off-account). */
   mentionRoster?: readonly MentionPerson[];
   /** Quick-add an off-account person to the account when they're mentioned. */
@@ -77,6 +92,7 @@ export function Thread({
   const [draft, setDraft] = useState("");
   const [postTopic, setPostTopic] = useState<string>("");
   const [filter, setFilter] = useState<string>("");
+  const [projectFilter, setProjectFilter] = useState<string>("");
   const [kindFilter, setKindFilter] = useState<"" | Kind>("");
   const [authorFilter, setAuthorFilter] = useState<string>("");
   const [timeFilter, setTimeFilter] = useState<"" | "7" | "30" | "90">("");
@@ -124,6 +140,9 @@ export function Thread({
   const cutoff = timeFilter ? Date.now() - Number(timeFilter) * 86_400_000 : 0;
   const needle = search.trim().toLowerCase();
   const scoped = messages.filter((m) => {
+    // Project is the lead scope (Kellie): selecting one gathers everything that
+    // rolls up to it — posts filed on the project AND replies on its tasks.
+    if (projectFilter && (projectOf?.(m.topic) ?? "") !== projectFilter) return false;
     if (filter && (m.topic ?? GENERAL) !== filter) return false;
     if (kindFilter && kindOf(m.topic) !== kindFilter) return false;
     if (authorFilter && m.author !== authorFilter) return false;
@@ -132,13 +151,16 @@ export function Thread({
     return true;
   });
   const canScope = topics.length > 0 || allTopics.length > 0;
-  const anyFilter = !!(filter || kindFilter || authorFilter || timeFilter || needle);
+  const anyFilter = !!(filter || projectFilter || kindFilter || authorFilter || timeFilter || needle);
   const selStyle: CSSProperties = { fontSize: 11, padding: "4px 7px" };
 
   const post = () => {
     const body = draft.trim();
     if (!body) return;
-    onPost(body, postTopic || undefined);
+    // Auto-tag by context: if you're viewing one project and haven't picked a
+    // topic, the post files under that project — so correspondence lands in the
+    // right place without anyone having to remember to set it.
+    onPost(body, postTopic || projectFilter || undefined);
     setDraft("");
   };
 
@@ -202,6 +224,29 @@ export function Thread({
         </div>
       )}
 
+      {/* By project — the primary way to see one project's correspondence
+          (Kellie). Selecting a project gathers its task replies too. */}
+      {projectOptions.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Project</span>
+          <select
+            value={projectFilter}
+            onChange={(e) => { setProjectFilter(e.target.value); setPostTopic(e.target.value); }}
+            className="select"
+            style={{ ...selStyle, minWidth: 200 }}
+            title="See all correspondence for one project"
+          >
+            <option value="">All projects</option>
+            {[...projectOptions].sort((a, b) => a.localeCompare(b)).map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          {projectFilter && (
+            <span style={{ fontSize: 10.5, color: T.inkMuted }}>New posts here file under “{projectFilter}”.</span>
+          )}
+        </div>
+      )}
+
       {/* View past discussions — author, timeframe, and free-text search. */}
       {messages.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
@@ -230,7 +275,7 @@ export function Thread({
             <option value="90">Last 90 days</option>
           </select>
           {anyFilter && (
-            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setFilter(""); setKindFilter(""); setAuthorFilter(""); setTimeFilter(""); setSearch(""); }}>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setFilter(""); setProjectFilter(""); setKindFilter(""); setAuthorFilter(""); setTimeFilter(""); setSearch(""); }}>
               Clear filters
             </button>
           )}

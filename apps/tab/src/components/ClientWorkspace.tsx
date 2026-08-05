@@ -2862,6 +2862,24 @@ export function ClientWorkspace({
       ...account.campaigns.map((c) => c.name),
     ]),
   ];
+  // The real projects (Kantata milestones) discussions are organized by, and a
+  // roll-up from any post's topic to its project. Kellie's call: project level
+  // only — a task's replies roll up to the task's project, nothing finer.
+  const discussionProjects = [
+    ...new Set([
+      ...(liveContext?.projects ?? []).flatMap((p) => p.milestones.map((m) => m.title)),
+      ...tasks.map((t) => t.projectLabel).filter((l): l is string => !!l),
+    ]),
+  ];
+  const projectSet = new Set(discussionProjects.map((p) => p.toLowerCase()));
+  const taskProject = new Map<string, string>();
+  for (const t of tasks) if (t.projectLabel) taskProject.set(t.title.toLowerCase(), t.projectLabel);
+  const projectOfTopic = (topic: string | undefined): string | undefined => {
+    if (!topic) return undefined;
+    const key = topic.toLowerCase();
+    if (projectSet.has(key)) return topic;
+    return taskProject.get(key);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3096,6 +3114,8 @@ export function ClientWorkspace({
             {...(onEditPost ? { onEdit: onEditPost } : {})}
             {...(onDeletePost ? { onDelete: onDeletePost } : {})}
             topics={projectTopics}
+            projectOptions={discussionProjects}
+            projectOf={projectOfTopic}
             taskTitles={tasks.map((t) => t.title)}
             fileNames={[...account.files, ...account.docs].map((f) => f.name)}
             mentionRoster={buildMentionRoster(account, people)}
