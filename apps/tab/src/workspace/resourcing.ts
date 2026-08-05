@@ -26,6 +26,13 @@ export type TaskStatus = "todo" | "doing" | "done";
 export interface ResourceTask {
   id: string;
   ownerName?: string;
+  /**
+   * Per-person hour split, when the task has been divided across its people
+   * (Cara's task-card vision). When present, EACH person's hours spread across
+   * the span independently — so the weekly grid reflects who actually owes what,
+   * not the whole task piled on one owner. Absent ⇒ the single-owner path below.
+   */
+  assignments?: readonly { name: string; hours: number }[];
   /** Start of the work window. With `due`, the span hours spread across. */
   start?: string;
   due?: string;
@@ -80,21 +87,30 @@ export interface WeekAllocation {
  */
 export function weeklyAllocations(tasks: readonly ResourceTask[]): WeekAllocation[] {
   const byKey = new Map<string, { personName: string; weekStart: string; hours: number; tasks: Set<string> }>();
-  for (const t of tasks) {
-    if (!isSchedulable(t)) continue;
-    const personName = t.ownerName!;
-    const end = t.due!;
-    // A start after the due date (or none) collapses to the due day.
-    const start = t.start && t.start <= end ? t.start : end;
+  const place = (personName: string, taskId: string, start: string, end: string, hours: number): void => {
+    if (!personName || !(hours > 0)) return;
     const days = daysInclusive(start, end);
-    const perDay = t.estimatedHours! / days.length;
+    const perDay = hours / days.length;
     for (const d of days) {
       const weekStart = weekStartOf(d);
       const key = `${personName}|${weekStart}`;
       const cur = byKey.get(key) ?? { personName, weekStart, hours: 0, tasks: new Set<string>() };
       cur.hours += perDay;
-      cur.tasks.add(t.id);
+      cur.tasks.add(taskId);
       byKey.set(key, cur);
+    }
+  };
+  for (const t of tasks) {
+    if (t.status === "done" || !t.due) continue;
+    const end = t.due;
+    // A start after the due date (or none) collapses to the due day.
+    const start = t.start && t.start <= end ? t.start : end;
+    if (t.assignments && t.assignments.length > 0) {
+      // Split task: each person's hours spread across the span independently.
+      for (const person of t.assignments) place(person.name, t.id, start, end, person.hours);
+    } else if (isSchedulable(t)) {
+      // Single-owner task: the whole estimate on the one owner.
+      place(t.ownerName!, t.id, start, end, t.estimatedHours!);
     }
   }
   return [...byKey.values()]

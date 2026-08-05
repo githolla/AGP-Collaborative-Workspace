@@ -59,6 +59,29 @@ describe("weeklyAllocations", () => {
     expect(after).toEqual([{ personName: "Kara Rachal", weekStart: "2026-08-24", hours: 10, taskCount: 1 }]);
   });
 
+  it("with a per-person split, spreads EACH person's hours independently across the span", () => {
+    // One task, two people, each with their own hours over the same 2-week span.
+    const out = weeklyAllocations([
+      t({
+        id: "split", ownerName: undefined, start: "2026-08-03", due: "2026-08-16", estimatedHours: undefined,
+        assignments: [{ name: "Heidi", hours: 42 }, { name: "Kellie", hours: 14 }],
+      }),
+    ]);
+    expect(out).toEqual([
+      { personName: "Heidi", weekStart: "2026-08-03", hours: 21, taskCount: 1 },
+      { personName: "Kellie", weekStart: "2026-08-03", hours: 7, taskCount: 1 },
+      { personName: "Heidi", weekStart: "2026-08-10", hours: 21, taskCount: 1 },
+      { personName: "Kellie", weekStart: "2026-08-10", hours: 7, taskCount: 1 },
+    ].sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName)));
+  });
+
+  it("a split person with zero hours contributes nothing", () => {
+    const out = weeklyAllocations([
+      t({ id: "z", ownerName: undefined, due: "2026-08-12", estimatedHours: undefined, assignments: [{ name: "Heidi", hours: 8 }, { name: "Informed", hours: 0 }] }),
+    ]);
+    expect(out).toEqual([{ personName: "Heidi", weekStart: "2026-08-10", hours: 8, taskCount: 1 }]);
+  });
+
   it("ignores done, unowned, undated, and zero-hour tasks", () => {
     expect(
       weeklyAllocations([

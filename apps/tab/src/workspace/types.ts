@@ -33,10 +33,44 @@ export interface Snapshot {
 export type TaskStatus = "todo" | "doing" | "done";
 
 /** Shared task (Collab Hub Must): owner, due date, label, status. */
+/**
+ * One person's stake in a task — the model behind Cara's task-card vision:
+ * assign the people, split the hours across them, name a primary owner, and set
+ * the handoff order. Crucially, each person marks THEIR OWN part done, so one
+ * person completing the task no longer completes it for everyone (the Kantata
+ * limitation Kellie flagged — the thing that makes people hesitate to mark
+ * anything complete). The task is done only when everyone on it is done.
+ */
+export interface TaskAssignment {
+  /** The person — matches a Kantata assignee / staff name. */
+  name: string;
+  /** Template role ("Data Developer"), when known — the resourcing anchor. */
+  role?: string;
+  /**
+   * This person's slice of the task's hours. When unset, the app shows an even
+   * split of the task's hours across everyone as the default (the PM edits from
+   * there); once edited, the explicit value sticks. Feeds weekly resourcing.
+   */
+  hours?: number;
+  /** This person has finished THEIR part. Per-person, not the whole task. */
+  done?: boolean;
+  /** The one accountable owner — drives whose list the task headlines. */
+  primary?: boolean;
+  /** Handoff order — 1 starts, higher numbers receive the handoff downstream. */
+  order?: number;
+}
+
 export interface Task {
   id: string;
   title: string;
   ownerName?: string;
+  /**
+   * Everyone on the task, with their hour slice, handoff order, primary flag,
+   * and per-person done state. When present this supersedes the single
+   * ownerName for resourcing and completion; ownerName stays as the display
+   * fallback and for tasks that were never split across people.
+   */
+  assignments?: TaskAssignment[];
   due?: string;
   label?: string;
   status: TaskStatus;

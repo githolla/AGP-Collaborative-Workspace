@@ -23,6 +23,7 @@ import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { allocationIntent, pendingWrites, pushIntents, resolveStaffId } from "./workspace/kantataWrite.js";
 import { weeklyAllocations } from "./workspace/resourcing.js";
+import { effectiveHours, reconcileAssignments } from "./workspace/taskAssignments.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import type { ClientAccount } from "./workspace/types.js";
 import { T } from "./theme.js";
@@ -663,6 +664,7 @@ function Workspace() {
             ...(t.milestoneId ? { kantataMilestoneId: t.milestoneId } : {}),
             ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
             ...(t.startDate ? { startDate: t.startDate } : {}),
+            ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
           })),
       )
     : [];
@@ -682,7 +684,7 @@ function Workspace() {
   // (scheduled hours, start date) so both flow onto stored tasks without
   // re-entry. Indexed on EVERY live task, not just labelled ones, so an
   // hours-only match still lands.
-  type LiveRef = { storyId: string; label?: string; milestoneId?: string; estimatedHours?: number; startDate?: string };
+  type LiveRef = { storyId: string; label?: string; milestoneId?: string; estimatedHours?: number; startDate?: string; assignees?: string[] };
   const byStory = new Map<string, LiveRef>();
   const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
@@ -694,6 +696,7 @@ function Workspace() {
           ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
           ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
           ...(t.startDate ? { startDate: t.startDate } : {}),
+          ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
         };
         byStory.set(t.id, ref);
         const key = `${t.title.toLowerCase()}|${t.dueDate ?? ""}`;
@@ -718,6 +721,15 @@ function Workspace() {
           ...(!task.kantataStoryId ? { kantataStoryId: ref.storyId } : {}),
           ...(task.estimatedHours == null && ref.estimatedHours != null ? { estimatedHours: ref.estimatedHours } : {}),
           ...(!task.startDate && ref.startDate ? { startDate: ref.startDate } : {}),
+          // Seed the team from Kantata's assignees for display on the task card —
+          // only when the PM hasn't already set up the split (persisted
+          // assignments always win). Single assignee just fills ownerName.
+          ...(!task.assignments && ref.assignees && ref.assignees.length > 1
+            ? { assignments: reconcileAssignments([], ref.assignees) }
+            : {}),
+          ...(!task.assignments && !task.ownerName && ref.assignees && ref.assignees.length === 1
+            ? { ownerName: ref.assignees[0]! }
+            : {}),
         };
         return { ...entry, task: patched };
       })
@@ -1058,14 +1070,20 @@ function Workspace() {
                 tasks.find((t) => t.kantataProjectId)?.kantataProjectId ??
                 "";
               const intents = weeklyAllocations(
-                tasks.map((t) => ({
-                  id: t.id,
-                  status: t.status,
-                  ...(t.ownerName ? { ownerName: t.ownerName } : {}),
-                  ...(t.startDate ? { start: t.startDate } : {}),
-                  ...(t.due ? { due: t.due } : {}),
-                  ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-                })),
+                tasks.map((t) => {
+                  // Split tasks book per person from the edited hour split; the
+                  // rest fall back to the single owner + estimate.
+                  const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
+                  return {
+                    id: t.id,
+                    status: t.status,
+                    ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+                    ...(t.startDate ? { start: t.startDate } : {}),
+                    ...(t.due ? { due: t.due } : {}),
+                    ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+                    ...(eff ? { assignments: [...eff].map(([name, hours]) => ({ name, hours })) } : {}),
+                  };
+                }),
               )
                 .map((a) => {
                   const userId = resolveStaffId(a.personName, staff);

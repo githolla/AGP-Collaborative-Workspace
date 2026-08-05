@@ -14,6 +14,8 @@ import { apiFetch } from "../auth/apiFetch.js";
 import { samePerson, type ShareableItem } from "./handover.js";
 import { decide, decisionSummary, shareRecord, shareSummary } from "./clientApproval.js";
 import { tasksFromPlan } from "./planner.js";
+import { applyPersonDone, reconcileAssignments } from "./taskAssignments.js";
+import type { TaskAssignment } from "./types.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
 
@@ -1099,6 +1101,7 @@ export function useWorkspace() {
         kantataMilestoneId?: string;
         estimatedHours?: number;
         startDate?: string;
+        assignees?: string[];
       }[],
     ) => {
       if (selected.length === 0) return;
@@ -1131,6 +1134,14 @@ export function useWorkspace() {
             // them without re-entry; a PM edit overrides later.
             ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
             ...(t.startDate ? { startDate: t.startDate } : {}),
+            // The team from Kantata's assignees — seeded so the task card shows
+            // everyone and per-person completion works out of the box. Single
+            // assignee stays as ownerName only (no split needed).
+            ...(t.assignees && t.assignees.length > 1
+              ? { assignments: reconcileAssignments([], t.assignees) }
+              : t.assignees && t.assignees.length === 1
+                ? { ownerName: t.assignees[0]! }
+                : {}),
           });
           added += 1;
         }
@@ -1271,6 +1282,81 @@ export function useWorkspace() {
           activity: [...a.activity, activityEvent(`"${task.title}" → ${status === "done" ? "completed" : status === "doing" ? "in progress" : "to do"}`, "task")],
         };
       });
+    },
+    [mutateAccount],
+  );
+
+  // Set (or clear) the people on a task, preserving hours/done/primary edits
+  // for those who stay — the store side of Cara's task card.
+  const setAccountTaskAssignments = useCallback(
+    (id: string, taskId: string, names: readonly string[]) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        tasks: a.tasks.map((t) => {
+          if (t.id !== taskId) return t;
+          const next = reconcileAssignments(t.assignments ?? [], names);
+          const { assignments: _drop, ...rest } = t;
+          return next.length > 0 ? { ...rest, assignments: next } : rest;
+        }),
+      }));
+    },
+    [mutateAccount],
+  );
+
+  // Set one person's hour slice on a task (undefined = back to the even-split
+  // default). Only touches that person's row.
+  const setAccountAssignmentHours = useCallback(
+    (id: string, taskId: string, name: string, hours: number | undefined) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        tasks: a.tasks.map((t) => {
+          if (t.id !== taskId || !t.assignments) return t;
+          const clean = hours != null && Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 10) / 10 : undefined;
+          return {
+            ...t,
+            assignments: t.assignments.map((as) => {
+              if (as.name !== name) return as;
+              const { hours: _drop, ...rest } = as;
+              return clean != null ? { ...rest, hours: clean } : rest;
+            }),
+          };
+        }),
+      }));
+    },
+    [mutateAccount],
+  );
+
+  // Mark ONE person's part done (or not). The whole task completes only when
+  // everyone is done — Kellie's "one click shouldn't complete for everyone".
+  const toggleAccountAssignmentDone = useCallback(
+    (id: string, taskId: string, name: string, done: boolean) => {
+      mutateAccount(id, (a) => {
+        const task = a.tasks.find((t) => t.id === taskId);
+        if (!task || !task.assignments) return a;
+        const { assignments, status } = applyPersonDone(task, name, done);
+        const completed = status === "done" && task.status !== "done";
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => (t.id === taskId ? { ...t, assignments, status } : t)),
+          ...(completed
+            ? { activity: [...a.activity, activityEvent(`"${task.title}" → completed (everyone done)`, "task")] }
+            : {}),
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  // Name the single accountable owner — clears primary elsewhere on the task.
+  const setAccountAssignmentPrimary = useCallback(
+    (id: string, taskId: string, name: string) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        tasks: a.tasks.map((t) => {
+          if (t.id !== taskId || !t.assignments) return t;
+          return { ...t, assignments: t.assignments.map((as) => ({ ...as, primary: as.name === name })) as TaskAssignment[] };
+        }),
+      }));
     },
     [mutateAccount],
   );
@@ -1958,6 +2044,10 @@ export function useWorkspace() {
     addAccountMemberNamed,
     setAccountTaskStatus,
     setAccountTaskHours,
+    setAccountTaskAssignments,
+    setAccountAssignmentHours,
+    toggleAccountAssignmentDone,
+    setAccountAssignmentPrimary,
     postAccountMessage,
     setAccountArchived,
     archiveAllAccounts,
