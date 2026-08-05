@@ -119,6 +119,15 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
     ...diagTemplates.slice(0, 20).map((tpl) => `  ${tpl.title.slice(0, 40).padEnd(40)}  ·  ${tpl.discipline ?? "—"}  ·  ${tpl.templateType ?? "—"}`),
     ...(rawTemplateSample.length ? [``, `raw template sample rows:`, ...rawTemplateSample.map((r) => `  ${JSON.stringify(r)}`)] : []),
     ``,
+    `=== KANTATA STORY TYPES (parent vs child signal) ===`,
+    (() => {
+      const byType = new Map<string, number>();
+      for (const t of diagTasks) { const k = t.storyType || "(none)"; byType.set(k, (byType.get(k) ?? 0) + 1); }
+      const parts = [...byType.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${n}`);
+      return `task story types → ${parts.length ? parts.join(" · ") : "(none reported)"}`;
+    })(),
+    `  ^ after re-typing a phase in Kantata, its new type shows here — that's the signal to nest parent vs child`,
+    ``,
     `=== TASK → PROJECT NESTING ===`,
     `milestones (project level): ${diagMilestones.length}`,
     `sample milestones:`,

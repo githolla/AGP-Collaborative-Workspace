@@ -4,6 +4,7 @@ import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { TeamHoursEditor } from "./TeamHours.js";
+import { blockingDeps } from "../workspace/taskAssignments.js";
 
 /** "2026-04-13" → "Apr 13" (UTC, no weekday) for compact due labels. */
 function shortDay(iso: string): string {
@@ -90,6 +91,7 @@ export function TasksCard({
   onSetAssignmentHours,
   onToggleAssignmentDone,
   onSetAssignmentPrimary,
+  onSetAssignmentOrder,
   focusTaskId,
 }: {
   tasks: Task[];
@@ -109,6 +111,8 @@ export function TasksCard({
   onSetAssignmentHours?: (taskId: string, name: string, hours: number | undefined) => void;
   onToggleAssignmentDone?: (taskId: string, name: string, done: boolean) => void;
   onSetAssignmentPrimary?: (taskId: string, name: string) => void;
+  /** Reorder the handoff sequence for a task's team. */
+  onSetAssignmentOrder?: (taskId: string, orderedNames: string[]) => void;
   /**
    * Deep-link target: scroll to this task and flash it. Hours entry itself
    * lives on the Resourcing tab now; this stays as a plan-side landing fallback.
@@ -227,8 +231,10 @@ export function TasksCard({
 
   const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
   const taskLine = (t: Task, compact = false, showProject = false) => {
     const teamOpen = !compact && expandedTeamId === t.id && !!t.assignments?.length;
+    const blockers = t.status !== "done" ? blockingDeps(t, (id) => taskById.get(id)) : [];
     return (
     <Fragment key={t.id}>
     <div
@@ -298,6 +304,11 @@ export function TasksCard({
         ) : (
           t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>
         )}
+        {blockers.length > 0 && (
+          <span title={`Waiting on: ${blockers.map((b) => b.title).join(", ")}`} style={{ fontSize: 9.5, fontWeight: 700, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
+            ⛓ waiting on {blockers.length}
+          </span>
+        )}
         {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
         {onToggleClientVisible && (
@@ -333,6 +344,7 @@ export function TasksCard({
           {...(onSetAssignmentHours ? { onSetHours: onSetAssignmentHours } : {})}
           {...(onToggleAssignmentDone ? { onToggleDone: onToggleAssignmentDone } : {})}
           {...(onSetAssignmentPrimary ? { onSetPrimary: onSetAssignmentPrimary } : {})}
+          {...(onSetAssignmentOrder ? { onSetOrder: onSetAssignmentOrder } : {})}
         />
       </div>
     )}

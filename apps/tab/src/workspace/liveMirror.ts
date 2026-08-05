@@ -313,6 +313,7 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
           title: str(t.title),
           state: str(t.state),
           ...(str(t.parent_id) ? { parentId: String(t.parent_id) } : {}),
+          ...(str(t.story_type) ? { storyType: str(t.story_type) } : {}),
           ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
           ...(str(t.start_date) ? { startDate: str(t.start_date).slice(0, 10) } : {}),
           ...(typeof t.estimated_minutes === "number" && t.estimated_minutes > 0

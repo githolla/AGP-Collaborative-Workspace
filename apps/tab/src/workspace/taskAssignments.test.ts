@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { Task, TaskAssignment } from "./types.js";
 import {
   allAssignmentsDone,
+  applyHandoffOrder,
   applyPersonDone,
   assignmentProgress,
+  blockingDeps,
+  currentHandoffStep,
   effectiveHours,
+  handoffSequence,
   hoursForPerson,
+  isBlocked,
   isOnPersonList,
   personDone,
   primaryOwner,
@@ -116,6 +121,55 @@ describe("reconcileAssignments — keep edits as Kantata assignees change", () =
     const next = reconcileAssignments([], ["Heidi", "Kellie"]);
     expect(next[0]).toMatchObject({ name: "Heidi", primary: true });
     expect(next[1]?.primary).toBeUndefined();
+  });
+});
+
+describe("handoff path — who starts → next → final", () => {
+  it("orders assignments by their handoff order, then array order", () => {
+    const t = task({ assignments: [a("Kellie", { order: 3 }), a("Heidi", { order: 1 }), a("Mackenzie", { order: 2 })] });
+    expect(handoffSequence(t).map((x) => x.name)).toEqual(["Heidi", "Mackenzie", "Kellie"]);
+  });
+
+  it("falls back to array order when no order is set", () => {
+    const t = task({ assignments: [a("Heidi"), a("Kellie"), a("Rob")] });
+    expect(handoffSequence(t).map((x) => x.name)).toEqual(["Heidi", "Kellie", "Rob"]);
+  });
+
+  it("current step is the first person in sequence not yet done", () => {
+    const t = task({ assignments: [a("Heidi", { order: 1, done: true }), a("Mackenzie", { order: 2 }), a("Kellie", { order: 3 })] });
+    expect(currentHandoffStep(t)?.name).toBe("Mackenzie");
+  });
+
+  it("current step is undefined once everyone is done", () => {
+    const t = task({ assignments: [a("Heidi", { done: true }), a("Kellie", { done: true })] });
+    expect(currentHandoffStep(t)).toBeUndefined();
+  });
+
+  it("applyHandoffOrder renumbers 1..n by the given sequence, keeping fields", () => {
+    const existing = [a("Heidi", { hours: 6, done: true }), a("Kellie", { hours: 4 })];
+    const next = applyHandoffOrder(existing, ["Kellie", "Heidi"]);
+    expect(next.find((x) => x.name === "Kellie")).toMatchObject({ order: 1, hours: 4 });
+    expect(next.find((x) => x.name === "Heidi")).toMatchObject({ order: 2, hours: 6, done: true });
+  });
+});
+
+describe("dependencies — a task waits on others", () => {
+  const byId = (map: Record<string, { title: string; status: string }>) => (id: string) => map[id];
+  const world = { d1: { title: "Data pull", status: "done" }, d2: { title: "Copy draft", status: "doing" } };
+
+  it("lists only the dependencies that aren't done", () => {
+    const t = task({ dependsOn: ["d1", "d2"] });
+    expect(blockingDeps(t, byId(world))).toEqual([{ id: "d2", title: "Copy draft" }]);
+  });
+
+  it("is blocked while any dependency is open, unblocked when all done", () => {
+    expect(isBlocked(task({ dependsOn: ["d1", "d2"] }), byId(world))).toBe(true);
+    expect(isBlocked(task({ dependsOn: ["d1"] }), byId(world))).toBe(false);
+    expect(isBlocked(task({ dependsOn: [] }), byId(world))).toBe(false);
+  });
+
+  it("ignores a dependency id that no longer exists", () => {
+    expect(isBlocked(task({ dependsOn: ["gone"] }), byId(world))).toBe(false);
   });
 });
 

@@ -15,7 +15,8 @@ import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/hando
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
-import { assignmentProgress, effectiveHours, isOnPersonList, primaryOwner } from "../workspace/taskAssignments.js";
+import { assignmentProgress, blockingDeps, isOnPersonList } from "../workspace/taskAssignments.js";
+import { TeamHoursEditor } from "./TeamHours.js";
 import {
   CHASE_AFTER_DAYS,
   needsAttention,
@@ -2198,8 +2199,13 @@ function TaskDetail({
   onSetAssignmentHours,
   onToggleAssignmentDone,
   onSetAssignmentPrimary,
+  onSetAssignmentOrder,
+  onSetTaskDependencies,
+  allTasks = [],
 }: {
   task: Task;
+  /** Every task in the account — the pool this task can depend on. */
+  allTasks?: Task[];
   /** The account thread — the task's own discussion history is filtered from it. */
   messages?: ThreadMessage[];
   /** The client — personalizes the handoff templates surfaced on this task. */
@@ -2216,6 +2222,8 @@ function TaskDetail({
   onSetAssignmentHours?: (taskId: string, name: string, hours: number | undefined) => void;
   onToggleAssignmentDone?: (taskId: string, name: string, done: boolean) => void;
   onSetAssignmentPrimary?: (taskId: string, name: string) => void;
+  onSetAssignmentOrder?: (taskId: string, orderedNames: string[]) => void;
+  onSetTaskDependencies?: (taskId: string, dependsOn: string[]) => void;
 }) {
   const [note, setNote] = useState("");
   const suggested = suggestHandoff(task.title);
@@ -2228,9 +2236,10 @@ function TaskDetail({
   // The team on this task (Cara's card): who, their hour slice, primary, done.
   const assigns = (task.assignments ?? []).map((a) => ({ ...a, id: a.name }));
   const hasTeam = assigns.length > 0;
-  const effHours = effectiveHours(task);
-  const primaryName = primaryOwner(task);
   const progress = assignmentProgress(task);
+  // What this task is waiting on — the open dependencies that block it.
+  const depById = new Map(allTasks.map((x) => [x.id, x]));
+  const blockers = task.status !== "done" ? blockingDeps(task, (id) => depById.get(id)) : [];
   // Persist the team (seeded from Kantata's assignees for display) the first
   // time a task with a team is opened, so per-person edits have something to
   // write to. Idempotent in the store — a no-op once the names already match.
@@ -2278,53 +2287,49 @@ function TaskDetail({
               </span>
             </div>
             <div style={{ fontSize: 10.5, color: T.inkMuted, lineHeight: 1.5, marginBottom: 8 }}>
-              Split the hours across the people (start = an even split you can tune). Tag the one accountable owner,
-              and each person checks off <b>their own</b> part — the task is done only when everyone is.
+              Order the handoff (▲▼), split the hours (blank = even split), tag the owner. Each person checks off
+              <b> their own</b> part — the task is done only when everyone is.
             </div>
-            {assigns.map((as) => {
-              const eff = effHours.get(as.name) ?? 0;
-              const isPrimary = primaryName === as.name;
-              return (
-                <div key={as.name} id={`assignee-${as.id ?? as.name}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.grid}` }}>
-                  <input
-                    type="checkbox"
-                    checked={as.done === true}
-                    disabled={!onToggleAssignmentDone}
-                    onChange={(e) => onToggleAssignmentDone?.(task.id, as.name, e.target.checked)}
-                    title={as.done ? "Mark this person's part not done" : "Mark this person's part done"}
-                    style={{ width: 16, height: 16, flexShrink: 0, cursor: onToggleAssignmentDone ? "pointer" : "default" }}
-                  />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, textDecoration: as.done ? "line-through" : "none" }}>{as.name}</span>
-                      {isPrimary ? (
-                        <span title="Accountable owner" style={{ fontSize: 9, fontWeight: 800, color: navy, background: "#eef2fb", borderRadius: 4, padding: "1px 5px", textTransform: "uppercase", letterSpacing: 0.4 }}>Owner</span>
-                      ) : onSetAssignmentPrimary ? (
-                        <button type="button" className="btn-link" style={{ fontSize: 10 }} onClick={() => onSetAssignmentPrimary(task.id, as.name)} title="Make this person the accountable owner">make owner</button>
-                      ) : null}
-                    </span>
-                    {as.role && <span style={{ fontSize: 10.5, color: T.inkMuted }}>{as.role}</span>}
-                  </span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+            <TeamHoursEditor
+              task={task}
+              {...(onSetAssignmentHours ? { onSetHours: onSetAssignmentHours } : {})}
+              {...(onToggleAssignmentDone ? { onToggleDone: onToggleAssignmentDone } : {})}
+              {...(onSetAssignmentPrimary ? { onSetPrimary: onSetAssignmentPrimary } : {})}
+              {...(onSetAssignmentOrder ? { onSetOrder: onSetAssignmentOrder } : {})}
+            />
+          </div>
+        )}
+
+        {/* Dependencies — what this task is WAITING ON before it can move. */}
+        {onSetTaskDependencies && allTasks.length > 1 && (
+          <div style={{ margin: "8px 0 4px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, marginBottom: 4 }}>Waiting on</div>
+            {blockers.length > 0 && (
+              <div style={{ fontSize: 11, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 6, padding: "6px 9px", marginBottom: 6 }}>
+                ⛓ Blocked until {blockers.length === 1 ? "this finishes" : "these finish"}: {blockers.map((b) => b.title).join(", ")}
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 168, overflowY: "auto" }}>
+              {allTasks.filter((o) => o.id !== task.id).map((o) => {
+                const on = (task.dependsOn ?? []).includes(o.id);
+                return (
+                  <label key={o.id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.ink, cursor: "pointer", padding: "2px 0" }}>
                     <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      defaultValue={as.hours ?? ""}
-                      placeholder={String(eff)}
-                      disabled={!onSetAssignmentHours}
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        onSetAssignmentHours?.(task.id, as.name, v === "" ? undefined : Number(v));
+                      type="checkbox"
+                      checked={on}
+                      onChange={(e) => {
+                        const cur = task.dependsOn ?? [];
+                        onSetTaskDependencies(task.id, e.target.checked ? [...cur, o.id] : cur.filter((d) => d !== o.id));
                       }}
-                      title={as.hours == null ? `Even-split default: ${eff}h — type to override` : "This person's hours"}
-                      style={{ width: 54, textAlign: "right", fontSize: 12, padding: "4px 6px", border: `1px solid ${as.hours == null ? T.grid : T.roi.navy}`, borderRadius: 6, color: as.hours == null ? T.inkMuted : T.ink }}
+                      style={{ width: 14, height: 14, flexShrink: 0 }}
                     />
-                    <span style={{ fontSize: 11, color: T.inkMuted }}>h</span>
-                  </span>
-                </div>
-              );
-            })}
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: o.status === "done" ? T.inkMuted : T.ink }}>
+                      {o.status === "done" ? "✓ " : ""}{o.title}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         )}
         {task.label && field("Label", fromKantata ? <KantataChip /> : <TagChip>{task.label}</TagChip>)}
@@ -3249,6 +3254,8 @@ export function ClientWorkspace({
   onSetAssignmentHours,
   onToggleAssignmentDone,
   onSetAssignmentPrimary,
+  onSetAssignmentOrder,
+  onSetTaskDependencies,
   initialTab,
   focusTaskId,
   showResourcing = true,
@@ -3312,6 +3319,10 @@ export function ClientWorkspace({
   onToggleAssignmentDone?: (taskId: string, name: string, done: boolean) => void;
   /** Name the single accountable owner on a task. */
   onSetAssignmentPrimary?: (taskId: string, name: string) => void;
+  /** Reorder a task's handoff sequence (who starts → next → last). */
+  onSetAssignmentOrder?: (taskId: string, orderedNames: string[]) => void;
+  /** Set which tasks this one waits on (dependencies). */
+  onSetTaskDependencies?: (taskId: string, dependsOn: string[]) => void;
   /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
   onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
@@ -3629,7 +3640,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(onSetAssignmentOrder ? { onSetAssignmentOrder } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
           {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
               <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
@@ -3742,10 +3753,13 @@ export function ClientWorkspace({
           goTo={setTab}
           onClose={() => setOpenTask(null)}
           onDiscuss={startDiscussion}
+          allTasks={tasks}
           {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})}
           {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})}
           {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})}
           {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})}
+          {...(onSetAssignmentOrder ? { onSetAssignmentOrder } : {})}
+          {...(onSetTaskDependencies ? { onSetTaskDependencies } : {})}
         />
       )}
     </div>

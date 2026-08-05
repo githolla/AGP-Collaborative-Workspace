@@ -106,6 +106,12 @@ export interface Task {
    */
   phaseLabel?: string;
   phaseId?: string;
+  /**
+   * Other tasks this one waits on — Cara's "indicate dependencies". A task is
+   * BLOCKED until every task it depends on is done, so a resource isn't chasing
+   * work that can't start yet. Stored as task ids within the same account.
+   */
+  dependsOn?: string[];
   kantataMilestoneId?: string;
   /** ISO time of the last successful push of this task to Kantata. */
   kantataSyncedAt?: string;

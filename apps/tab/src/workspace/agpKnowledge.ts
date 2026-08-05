@@ -254,6 +254,9 @@ export interface MirrorTask {
   estimatedHours?: number;
   /** Start of the work window — with dueDate, the span hours spread across. */
   startDate?: string;
+  /** Kantata classification (task/deliverable/bug/…) — the parent-vs-child
+   * signal for the plan hierarchy once phases are re-typed on AGP's side. */
+  storyType?: string;
 }
 
 /**

@@ -428,6 +428,10 @@ async function pullKantata(token: string): Promise<{
         workspace_id: String(s.workspace_id ?? ""),
         due_date: s.due_date ?? "",
         state: s.state ?? "",
+        // Kantata classification (task / deliverable / bug …) — the parent-vs-
+        // child signal Cara raised. Carried so the hierarchy can lean on the
+        // explicit type once Kellie re-types phases, not only the parent chain.
+        ...(s.story_type ? { story_type: s.story_type } : {}),
         // The milestone (real project) this task hangs under — see parent_id.
         ...(s.parent_id != null ? { parent_id: String(s.parent_id) } : {}),
         ...(s.start_date ? { start_date: s.start_date } : {}),

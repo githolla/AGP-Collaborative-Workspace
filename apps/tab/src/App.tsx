@@ -1068,6 +1068,8 @@ function Workspace() {
             onSetAssignmentHours={(taskId, name, hours) => ws.setAccountAssignmentHours(selectedAccount.id, taskId, name, hours)}
             onToggleAssignmentDone={(taskId, name, done) => ws.toggleAccountAssignmentDone(selectedAccount.id, taskId, name, done)}
             onSetAssignmentPrimary={(taskId, name) => ws.setAccountAssignmentPrimary(selectedAccount.id, taskId, name)}
+            onSetAssignmentOrder={(taskId, orderedNames) => ws.setAccountAssignmentOrder(selectedAccount.id, taskId, orderedNames)}
+            onSetTaskDependencies={(taskId, dependsOn) => ws.setAccountTaskDependencies(selectedAccount.id, taskId, dependsOn)}
             onPublishResourcing={async () => {
               // Derive weekly reservations from the CURRENT plan (hours + due
               // dates) and push them per person, per week. Accurate per person —

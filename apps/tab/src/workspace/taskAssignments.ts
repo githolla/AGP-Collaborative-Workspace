@@ -113,6 +113,61 @@ export function applyPersonDone(
 }
 
 /**
+ * The handoff path — Cara's "who starts, who it passes to, who marks it done".
+ * Assignments in `order` (1 starts, ascending), falling back to array order for
+ * any without one. This is the sequence the work moves through.
+ */
+export function handoffSequence(task: Pick<Task, "assignments">): TaskAssignment[] {
+  const people = [...(task.assignments ?? [])];
+  return people
+    .map((a, i) => ({ a, i, order: typeof a.order === "number" ? a.order : i + 1 }))
+    .sort((x, y) => x.order - y.order || x.i - y.i)
+    .map((x) => x.a);
+}
+
+/**
+ * Whose turn it is: the first person in the handoff sequence who hasn't marked
+ * their part done. Undefined when everyone is done (the task is complete).
+ */
+export function currentHandoffStep(task: Pick<Task, "assignments">): TaskAssignment | undefined {
+  return handoffSequence(task).find((a) => a.done !== true);
+}
+
+/**
+ * Reorder the handoff: given the names in the new sequence, return assignments
+ * with `order` set 1..n to match, preserving every other field.
+ */
+export function applyHandoffOrder(existing: readonly TaskAssignment[], orderedNames: readonly string[]): TaskAssignment[] {
+  const rank = new Map(orderedNames.map((n, i) => [n, i + 1]));
+  return existing.map((a) => ({ ...a, order: rank.get(a.name) ?? a.order ?? orderedNames.length + 1 }));
+}
+
+/**
+ * Which of a task's dependencies are still open — the tasks it's WAITING on.
+ * A task is blocked while any of these aren't done. Missing ids (a dependency
+ * that was deleted) are ignored rather than treated as permanently blocking.
+ */
+export function blockingDeps(
+  task: Pick<Task, "dependsOn">,
+  byId: (id: string) => { title: string; status: string } | undefined,
+): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = [];
+  for (const id of task.dependsOn ?? []) {
+    const dep = byId(id);
+    if (dep && dep.status !== "done") out.push({ id, title: dep.title });
+  }
+  return out;
+}
+
+/** A task is blocked when it's still waiting on at least one dependency. */
+export function isBlocked(
+  task: Pick<Task, "dependsOn">,
+  byId: (id: string) => { title: string; status: string } | undefined,
+): boolean {
+  return blockingDeps(task, byId).length > 0;
+}
+
+/**
  * Normalize an incoming set of assignee names into assignment rows, preserving
  * any edits already made (hours, done, primary, order) and dropping people no
  * longer on the task. New people arrive un-set (they'll take the even-split

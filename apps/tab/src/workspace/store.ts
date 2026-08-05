@@ -14,7 +14,7 @@ import { apiFetch } from "../auth/apiFetch.js";
 import { samePerson, type ShareableItem } from "./handover.js";
 import { decide, decisionSummary, shareRecord, shareSummary } from "./clientApproval.js";
 import { tasksFromPlan } from "./planner.js";
-import { applyPersonDone, reconcileAssignments } from "./taskAssignments.js";
+import { applyHandoffOrder, applyPersonDone, reconcileAssignments } from "./taskAssignments.js";
 import type { TaskAssignment } from "./types.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
@@ -1375,6 +1375,37 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  // Set which tasks this one waits on (Cara's dependencies). Ids are validated
+  // against the account's own tasks; a task never depends on itself.
+  const setAccountTaskDependencies = useCallback(
+    (id: string, taskId: string, dependsOn: string[]) => {
+      mutateAccount(id, (a) => {
+        const valid = new Set(a.tasks.map((t) => t.id));
+        const clean = [...new Set(dependsOn)].filter((d) => d !== taskId && valid.has(d));
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            const { dependsOn: _drop, ...rest } = t;
+            return clean.length > 0 ? { ...rest, dependsOn: clean } : rest;
+          }),
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  // Reorder the handoff sequence — the order the work passes through people.
+  const setAccountAssignmentOrder = useCallback(
+    (id: string, taskId: string, orderedNames: string[]) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        tasks: a.tasks.map((t) => (t.id === taskId && t.assignments ? { ...t, assignments: applyHandoffOrder(t.assignments, orderedNames) } : t)),
+      }));
+    },
+    [mutateAccount],
+  );
+
   const postAccountMessage = useCallback(
     (id: string, body: string, author = "You", topic?: string) => {
       mutateAccount(id, (a) => {
@@ -2062,6 +2093,8 @@ export function useWorkspace() {
     setAccountAssignmentHours,
     toggleAccountAssignmentDone,
     setAccountAssignmentPrimary,
+    setAccountTaskDependencies,
+    setAccountAssignmentOrder,
     postAccountMessage,
     setAccountArchived,
     archiveAllAccounts,
