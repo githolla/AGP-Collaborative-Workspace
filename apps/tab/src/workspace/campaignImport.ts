@@ -260,44 +260,60 @@ export interface LiveMilestone {
 }
 
 /**
- * Build a task→milestone resolver for one project.
+ * Build a task→project resolver for one Kantata workspace.
  *
- * At AGP a Kantata workspace is a fiscal-year contract; the milestones inside
- * it are the real projects, and work is nested under a milestone (milestone →
- * task → sub-task) via each story's parent id. Given a task, we walk up parent
- * ids until we hit a milestone — that milestone is the project the task is
- * part of. Returns undefined for a task with no milestone ancestor (a
- * top-level task in a workspace that isn't run the fiscal-year way), so those
- * simply stay ungrouped rather than being forced under a wrong label.
+ * At AGP a workspace is a fiscal-year contract and the FIRST level of stories
+ * inside it are the real projects, with phases and tasks nested under them via
+ * each story's parent id. Tenants file that first level two ways: some as a
+ * Kantata "milestone" story, some as an ordinary parent task/deliverable. This
+ * resolver handles both, so we don't depend on a single Kantata convention:
+ *
+ *   - Walk up the parent chain from the task.
+ *   - If a MILESTONE is found on the way up, that's the project (nearest wins).
+ *   - Otherwise the TOP-MOST ancestor within the workspace is the project —
+ *     the first-level story the task ultimately hangs under.
+ *
+ * A task with no ancestor in the set (filed straight under the workspace) has
+ * no project and stays ungrouped, rather than being forced under a wrong label.
  */
 export function milestoneResolver(
   milestones: readonly { id: string; title: string; parentId?: string }[],
-  tasks: readonly { id: string; parentId?: string }[],
+  tasks: readonly { id: string; parentId?: string; title?: string }[],
 ): (taskId: string) => { id: string; title: string } | undefined {
-  const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+  const milestoneIds = new Set(milestones.map((m) => m.id));
+  const titleById = new Map<string, string>();
   const parentOf = new Map<string, string | undefined>();
-  for (const m of milestones) parentOf.set(m.id, m.parentId);
-  for (const t of tasks) parentOf.set(t.id, t.parentId);
+  for (const m of milestones) {
+    titleById.set(m.id, m.title);
+    parentOf.set(m.id, m.parentId);
+  }
+  // Tasks after milestones so a real title always wins if an id somehow appears
+  // in both buckets.
+  for (const t of tasks) {
+    if (t.title) titleById.set(t.id, t.title);
+    parentOf.set(t.id, t.parentId);
+  }
 
   const cache = new Map<string, { id: string; title: string } | undefined>();
   return (taskId: string) => {
     if (cache.has(taskId)) return cache.get(taskId);
     const seen = new Set<string>();
+    let nearestMilestone: string | undefined;
+    let topMost: string | undefined;
+    // Only climb through ancestors that are actually stories in this workspace;
+    // a parent id pointing outside the set (or absent) means we've reached the
+    // top. Bounded by `seen` so a malformed cycle can't loop forever.
     let cur: string | undefined = parentOf.get(taskId);
-    // Bounded walk — cycles can't happen in Kantata, but a malformed parent
-    // chain must not loop forever.
-    while (cur && !seen.has(cur)) {
+    while (cur && parentOf.has(cur) && !seen.has(cur)) {
       seen.add(cur);
-      const ms = milestoneById.get(cur);
-      if (ms) {
-        const hit = { id: ms.id, title: ms.title };
-        cache.set(taskId, hit);
-        return hit;
-      }
+      if (nearestMilestone === undefined && milestoneIds.has(cur)) nearestMilestone = cur;
+      topMost = cur;
       cur = parentOf.get(cur);
     }
-    cache.set(taskId, undefined);
-    return undefined;
+    const pick = nearestMilestone ?? topMost;
+    const result = pick && titleById.has(pick) ? { id: pick, title: titleById.get(pick)! } : undefined;
+    cache.set(taskId, result);
+    return result;
   };
 }
 

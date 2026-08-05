@@ -104,16 +104,20 @@ describe("mapLivePayload", () => {
     });
   });
 
-  it("maps Kantata milestones to their projects and drops dateless ones", () => {
+  it("maps Kantata milestones to their projects, KEEPING dateless ones for the hierarchy", () => {
     const mirror = mapLivePayload(
       payload({
         kantataMilestones: [
           { id: "s1", workspace_id: 900, title: "Fall pledge drive launch", due_date: "2026-10-01T00:00:00Z", state: "not_started" },
+          // A project-level milestone with no date of its own — the dates live
+          // on the phases under it. It must survive so tasks can resolve to it.
           { id: "s2", workspace_id: 900, title: "No date yet", due_date: "", state: "not_started" },
+          { id: "s3", workspace_id: 900, title: "   ", due_date: "2026-11-01", state: "not_started" }, // blank title: still dropped
         ],
       }),
     );
-    expect(mirror.milestones).toHaveLength(1);
+    expect(mirror.milestones).toHaveLength(2);
+    expect(mirror.milestones.map((m) => m.id)).toEqual(["s1", "s2"]);
     expect(mirror.milestones[0]).toMatchObject({
       id: "s1",
       projectId: "900",
@@ -121,6 +125,7 @@ describe("mapLivePayload", () => {
       dueDate: "2026-10-01",
       state: "not_started",
     });
+    expect(mirror.milestones[1]).toMatchObject({ id: "s2", title: "No date yet", dueDate: "" });
   });
 
   it("joins projects to clients via workspace groups and maps custom-field service lines", () => {

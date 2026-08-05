@@ -466,6 +466,31 @@ describe("milestoneResolver — task → real project (Kantata milestone)", () =
     expect(milestoneResolver(milestones, tasks)("s1")).toEqual({ id: "m1", title: "44061.10 - August Appeal DM" });
   });
 
+  it("uses the top-most ancestor when the project level is a TASK, not a milestone", () => {
+    // Some tenants file the project as an ordinary parent task/deliverable, not
+    // a Kantata milestone. The top-most ancestor is still the project.
+    const taskProjects = [
+      { id: "p1", title: "44061.10 - August Appeal DM" }, // a task, not in `milestones`
+      { id: "phase", parentId: "p1", title: "Copy phase" },
+      { id: "leaf", parentId: "phase", title: "Create Copy Document" },
+    ];
+    expect(milestoneResolver([], taskProjects)("leaf")).toEqual({ id: "p1", title: "44061.10 - August Appeal DM" });
+  });
+
+  it("prefers a milestone ancestor over a higher non-milestone ancestor", () => {
+    // grp is the top-most story but is NOT a milestone; ms in the middle IS.
+    // The nearest milestone should win over the higher plain ancestor.
+    const stories = [
+      { id: "grp", title: "Program group" },
+      { id: "ms", parentId: "grp", title: "Real Milestone" },
+      { id: "leaf", parentId: "ms", title: "A task" },
+    ];
+    expect(milestoneResolver([{ id: "ms", title: "Real Milestone" }], stories)("leaf")).toEqual({
+      id: "ms",
+      title: "Real Milestone",
+    });
+  });
+
   it("returns undefined for a task with no milestone ancestor", () => {
     const resolve = milestoneResolver(milestones, tasks);
     expect(resolve("orphan")).toBeUndefined();

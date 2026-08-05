@@ -323,7 +323,11 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         ...(str(d.closedate) ? { closeDate: str(d.closedate) } : {}),
       })),
     milestones: (p.kantataMilestones ?? [])
-      .filter((m) => str(m.title).trim().length > 0 && str(m.due_date).length > 0)
+      // A milestone with no due date is still a real node in the project
+      // hierarchy — at AGP the project-level milestone often carries no date of
+      // its own (the dates live on the phases under it). Keep it so a task can
+      // still resolve to its project; date-based views filter by date anyway.
+      .filter((m) => str(m.title).trim().length > 0)
       .map((m) => ({
         id: String(m.id),
         projectId: String(m.workspace_id),

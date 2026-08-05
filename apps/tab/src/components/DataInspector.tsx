@@ -164,6 +164,29 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
         </div>
         <div>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+            Task → project nesting (does Kantata send parent links?)
+          </div>
+          {(() => {
+            // The one diagnostic behind "why aren't tasks grouped by project":
+            // if few tasks carry a parent id, Kantata isn't sending the nesting
+            // and grouping can't work; if most do, the resolver has what it
+            // needs. Milestones are the project level, so count them too.
+            const tasks = mirror.tasks ?? [];
+            const withParent = tasks.filter((t) => !!t.parentId).length;
+            const ms = mirror.milestones ?? [];
+            return (
+              <div style={mono}>
+                {`tasks: ${tasks.length}\n`}
+                {`  with a parent link: ${withParent} (${tasks.length ? Math.round((withParent / tasks.length) * 100) : 0}%)\n`}
+                {`milestones (project level): ${ms.length}\n`}
+                {`\nsample (first 8 tasks):\n`}
+                {tasks.slice(0, 8).map((t) => `  ${t.title.slice(0, 34).padEnd(34)}  parent=${t.parentId ?? "—"}`).join("\n") || "  — none —"}
+              </div>
+            );
+          })()}
+        </div>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
             Group names on projects ({groups.length} distinct)
           </div>
           <div style={mono}>
