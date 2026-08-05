@@ -1058,6 +1058,10 @@ function Workspace() {
             onUnshareFromClient={(linkId) => ws.unshareFileFromClient(selectedAccount.id, linkId)}
             onClientDecision={(linkId, decision, note) => ws.recordClientDecision(selectedAccount.id, linkId, decision, userName, note)}
             onSetTaskHours={(taskId, hours) => ws.setAccountTaskHours(selectedAccount.id, taskId, hours)}
+            onSetTaskAssignments={(taskId, names) => ws.setAccountTaskAssignments(selectedAccount.id, taskId, names)}
+            onSetAssignmentHours={(taskId, name, hours) => ws.setAccountAssignmentHours(selectedAccount.id, taskId, name, hours)}
+            onToggleAssignmentDone={(taskId, name, done) => ws.toggleAccountAssignmentDone(selectedAccount.id, taskId, name, done)}
+            onSetAssignmentPrimary={(taskId, name) => ws.setAccountAssignmentPrimary(selectedAccount.id, taskId, name)}
             onPublishResourcing={async () => {
               // Derive weekly reservations from the CURRENT plan (hours + due
               // dates) and push them per person, per week. Accurate per person —

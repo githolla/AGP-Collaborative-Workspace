@@ -1290,15 +1290,25 @@ export function useWorkspace() {
   // for those who stay — the store side of Cara's task card.
   const setAccountTaskAssignments = useCallback(
     (id: string, taskId: string, names: readonly string[]) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        tasks: a.tasks.map((t) => {
-          if (t.id !== taskId) return t;
-          const next = reconcileAssignments(t.assignments ?? [], names);
-          const { assignments: _drop, ...rest } = t;
-          return next.length > 0 ? { ...rest, assignments: next } : rest;
-        }),
-      }));
+      mutateAccount(id, (a) => {
+        const task = a.tasks.find((t) => t.id === taskId);
+        if (!task) return a;
+        // Idempotent seed: if the task already carries exactly these people,
+        // don't churn state — this lets the task card seed on every open
+        // cheaply, persisting only the first time (legacy tasks).
+        const have = new Set((task.assignments ?? []).map((x) => x.name));
+        const want = new Set(names);
+        if (task.assignments && have.size === want.size && [...want].every((n) => have.has(n))) return a;
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            const next = reconcileAssignments(t.assignments ?? [], names);
+            const { assignments: _drop, ...rest } = t;
+            return next.length > 0 ? { ...rest, assignments: next } : rest;
+          }),
+        };
+      });
     },
     [mutateAccount],
   );

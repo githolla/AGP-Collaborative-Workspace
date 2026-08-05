@@ -233,7 +233,25 @@ export function TasksCard({
         {showProject && t.projectLabel && (
           <span title={`Project: ${t.projectLabel}`} style={{ fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>
         )}
-        {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
+        {t.assignments && t.assignments.length > 0 ? (
+          (() => {
+            // Show the TEAM, not one person (Kellie's ask). The accountable
+            // owner leads; the rest ride in "+N", full roster on hover — with a
+            // per-person done count so progress reads at a glance.
+            const owner = t.assignments.find((x) => x.primary) ?? t.assignments[0]!;
+            const others = t.assignments.length - 1;
+            const doneN = t.assignments.filter((x) => x.done).length;
+            const roster = t.assignments.map((x) => `${x.done ? "✓ " : ""}${x.name}${x.primary ? " (owner)" : ""}`).join("\n");
+            return (
+              <span title={roster} style={{ fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}>
+                {owner.name}{others > 0 ? ` +${others}` : ""}
+                <span style={{ color: T.inkMuted }}> · {doneN}/{t.assignments.length} done</span>
+              </span>
+            );
+          })()
+        ) : (
+          t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>
+        )}
         {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
         {onToggleClientVisible && (
