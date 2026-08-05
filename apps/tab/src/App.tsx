@@ -242,19 +242,19 @@ const TOUR_STEPS: TourStep[] = [
     },
   },
   {
-    key: "resource-sync",
+    key: "resourcing",
     route: "",
-    title: "The plan feeds capacity — through Kantata",
-    quote: { text: "Weekly reservations are created in Kantata — and recalculated as the plan changes.", from: "Kellie — Resource capacity planner" },
-    body: "The loop closes through Kantata: change an owner, a date, or a status here and the workspace shows you exactly what differs from Kantata, field by field. Tick what should go, send it, and the capacity planner reads it from Kantata — one source of truth, by person, by week. Nothing is ever sent without someone approving it.",
+    title: "Resourcing that keeps itself current",
+    quote: { text: "As soon as that timeline shifts, that initial resourcing is now outdated… is there a way to keep our resourcing up to date as timelines shift?", from: "Kellie — on the resourcing pain" },
+    body: "Inside a client, the Resourcing tab pulls the scheduled hours your team already put in Kantata — you just validate or fine-tune them, never re-type. It spreads each task's hours across its dates into a week-by-week view per person, so you see where the work piles up. When a timeline moves, it re-figures on its own — no expand-all-and-redistribute every Thursday — then sends the weekly reservations back to Kantata. Setting who's overloaded down stays a higher-level call; this just keeps the numbers honest.",
     question: {
-      prompt: "The plan here feeding Kantata capacity — how much does that matter to you?",
+      prompt: "Would this keep your weekly resourcing current as timelines shift?",
       options: [
-        { key: "a", label: "Critical — it's the reason to use this" },
-        { key: "b", label: "Useful, not decisive" },
-        { key: "c", label: "Not part of my job" },
+        { key: "a", label: "Yes — this saves the weekly redo" },
+        { key: "b", label: "Partly — I'd still tweak a lot" },
+        { key: "c", label: "No — this doesn't fit how we resource" },
       ],
-      placeholder: "What would you want written back that isn't? (optional)",
+      placeholder: "What would have to be true to trust these numbers into Kantata? (optional)",
     },
   },
   {
