@@ -889,45 +889,6 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
 // ---------------------------------------------------------------------------
 
 /**
- * TEMP diagnostic: shows, for THIS workspace's live context, whether Kantata's
- * task→project nesting is resolving. It's the definitive read on "why is the
- * plan flat" — CWS-specific, not the global mirror. Copyable so it can be
- * pasted back. Remove once project grouping is confirmed on live data.
- */
-function ProjectResolveDiag({ liveContext }: { liveContext: AccountLiveContext }) {
-  const [open, setOpen] = useState(false);
-  const projs = liveContext.projects;
-  const allTasks = projs.flatMap((p) => p.tasks);
-  const allMs = projs.flatMap((p) => p.milestones);
-  const resolved = allTasks.filter((t) => t.projectLabel).length;
-  const withParent = allTasks.filter((t) => t.parentId).length;
-  const lines = [
-    `=== CWS PROJECT RESOLVE (this workspace) ===`,
-    `live projects in scope: ${projs.length} — ${projs.map((p) => p.title).join(" | ") || "(none)"}`,
-    `tasks: ${allTasks.length} · with parentId: ${withParent} · resolved to a project: ${resolved}`,
-    `milestones in scope: ${allMs.length}`,
-    `sample tasks:`,
-    ...allTasks.slice(0, 10).map((t) => `  ${t.title.slice(0, 40)}  ·  parent=${t.parentId ?? "—"}  ·  project=${t.projectLabel ?? "NONE"}`),
-    `sample milestones:`,
-    ...allMs.slice(0, 10).map((m) => `  ${m.title.slice(0, 50)}`),
-  ].join("\n");
-  return (
-    <div style={{ ...card, padding: "10px 14px", background: "#fffef5", border: `1px solid #e7c66f` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 11.5, fontWeight: 700, color: "#8a6d1a" }}>
-          Diagnostic — {resolved}/{allTasks.length} tasks mapped to a project · {allMs.length} milestones in scope
-        </span>
-        <button type="button" className="btn-link" style={{ fontSize: 11, marginLeft: "auto" }} onClick={() => setOpen((o) => !o)}>
-          {open ? "hide" : "details"}
-        </button>
-        <button type="button" className="btn btn-sm" style={{ fontSize: 10.5 }} onClick={() => void navigator.clipboard?.writeText(lines)}>Copy</button>
-      </div>
-      {open && <pre style={{ fontSize: 10.5, whiteSpace: "pre-wrap", marginTop: 8, color: T.ink }}>{lines}</pre>}
-    </div>
-  );
-}
-
-/**
  * The client-facing document surface: what's been shared with the client, and
  * anything waiting on their decision. Approval requests lead; the client can
  * approve or ask for changes with a note. Opens light up only once SharePoint
@@ -3107,7 +3068,6 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          {liveContext && <ProjectResolveDiag liveContext={liveContext} />}
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
