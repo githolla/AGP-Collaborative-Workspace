@@ -73,6 +73,28 @@ export const TEMPLATES: WorkspaceTemplate[] = [
     ],
   },
   {
+    key: "web-development",
+    name: "Website Design & Development",
+    serviceLine: "Web Development",
+    description: "Discovery → IA & design → build → content → QA & accessibility → UAT → launch → hypercare.",
+    tasks: [
+      // Cara flagged web-dev as the one engagement the standard playbooks don't
+      // fit — a design/build lifecycle with client sign-off gates, not a
+      // mail/campaign cadence. The dates are the typical AGP mid-size build.
+      { title: "Kickoff, goals & success metrics", offsetDays: 0 },
+      { title: "Discovery & requirements workshop", offsetDays: 7 },
+      { title: "Information architecture & sitemap — client sign-off", offsetDays: 18 },
+      { title: "Wireframes — client review", offsetDays: 28 },
+      { title: "Visual design comps — client sign-off", offsetDays: 42 },
+      { title: "Front-end build & CMS setup", offsetDays: 63 },
+      { title: "Content migration & entry", offsetDays: 77 },
+      { title: "QA, cross-browser & accessibility (WCAG) audit", offsetDays: 84 },
+      { title: "Client UAT & revisions", offsetDays: 91 },
+      { title: "Launch & DNS cutover", offsetDays: 98 },
+      { title: "Post-launch hypercare & handoff", offsetDays: 112 },
+    ],
+  },
+  {
     key: "mid-major-gifts",
     name: "Mid-Major Gifts Sprint",
     serviceLine: "Mid-Major Gifts",

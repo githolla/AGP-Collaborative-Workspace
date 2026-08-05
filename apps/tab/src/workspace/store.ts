@@ -12,6 +12,7 @@ import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, t
 import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
 import { apiFetch } from "../auth/apiFetch.js";
 import { samePerson, type ShareableItem } from "./handover.js";
+import { decide, decisionSummary, shareRecord, shareSummary } from "./clientApproval.js";
 import { tasksFromPlan } from "./planner.js";
 import { TEMPLATES, instantiateTemplate } from "./templates.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
@@ -1378,6 +1379,79 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  // ---- client-facing document sharing & approval (Cara's ask) ----
+
+  /**
+   * Share a document into the client space — to read ("fyi") or for a decision
+   * ("approval"). Re-sharing a previously decided doc starts a CLEAN request,
+   * because that's a new round of review, not a continuation of the old one.
+   */
+  const shareFileWithClient = useCallback(
+    (id: string, linkId: string, purpose: "fyi" | "approval", by = "You") => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
+        if (!target) return a;
+        const record = shareRecord(purpose, by, at);
+        const patch = (l: ClientFileLink): ClientFileLink => (l.id === linkId ? { ...l, clientShare: record } : l);
+        return {
+          ...a,
+          files: a.files.map(patch),
+          docs: a.docs.map(patch),
+          activity: [...a.activity, activityEvent(shareSummary(target.name, record), "workspace")],
+          notifications: [...a.notifications, { id: newId("n"), text: shareSummary(target.name, record), at }],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Stop sharing a document with the client. The file itself is untouched. */
+  const unshareFileFromClient = useCallback(
+    (id: string, linkId: string) => {
+      mutateAccount(id, (a) => {
+        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
+        if (!target?.clientShare) return a;
+        const strip = (l: ClientFileLink): ClientFileLink => {
+          if (l.id !== linkId) return l;
+          const { clientShare: _drop, ...rest } = l;
+          return rest;
+        };
+        return {
+          ...a,
+          files: a.files.map(strip),
+          docs: a.docs.map(strip),
+          activity: [...a.activity, activityEvent(`Stopped sharing with client — ${target.name}`, "workspace")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /**
+   * Record the client's decision on a shared document — approve, or ask for
+   * changes with a note. Only meaningful on an approval share that's pending.
+   */
+  const recordClientDecision = useCallback(
+    (id: string, linkId: string, decision: "approved" | "changes", by = "Client", note?: string) => {
+      const at = new Date().toISOString();
+      mutateAccount(id, (a) => {
+        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
+        if (!target?.clientShare) return a;
+        const updated = decide(target.clientShare, decision, by, at, note);
+        const patch = (l: ClientFileLink): ClientFileLink => (l.id === linkId ? { ...l, clientShare: updated } : l);
+        return {
+          ...a,
+          files: a.files.map(patch),
+          docs: a.docs.map(patch),
+          activity: [...a.activity, activityEvent(decisionSummary(target.name, updated), "workspace")],
+          notifications: [...a.notifications, { id: newId("n"), text: decisionSummary(target.name, updated), at }],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   /** Flag a task as a client-facing deliverable (or hide it again). Only
    * flagged tasks show on the client's dashboard — the "limited view" Kellie
    * asked for, so clients see deliverables, not every internal step. */
@@ -1840,6 +1914,9 @@ export function useWorkspace() {
     archiveAllAccounts,
     applyTemplate,
     addAccountLink,
+    shareFileWithClient,
+    unshareFileFromClient,
+    recordClientDecision,
     setAccountLinkUrl,
     removeAccountLink,
     toggleAccountTaskClientVisible,

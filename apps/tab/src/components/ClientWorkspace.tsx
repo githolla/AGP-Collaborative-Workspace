@@ -13,6 +13,7 @@ import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
+import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import {
   CHASE_AFTER_DAYS,
   needsAttention,
@@ -63,6 +64,18 @@ const TABS: { key: ClientTab; label: string }[] = [
 ];
 
 const navy = T.roi.navy;
+
+/** Colour for a client-share status chip. */
+function clientShareChip(state: ApprovalState): React.CSSProperties {
+  const map: Record<ApprovalState, [string, string, string]> = {
+    fyi: [T.inkSecondary, "#eef2f8", T.grid],
+    pending: ["#8a6d1a", "#faf3dc", "#e7c66f"],
+    approved: ["#116a43", "#e8f5ee", "#bfe3d0"],
+    changes: ["#9b2c2c", "#fdeced", "#f3c2c4"],
+  };
+  const [color, background, border] = map[state];
+  return { color, background, border: `1px solid ${border}`, fontSize: 10, fontWeight: 700, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" };
+}
 
 function fmtDay(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
@@ -875,7 +888,66 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
 
-function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
+/**
+ * The client-facing document surface: what's been shared with the client, and
+ * anything waiting on their decision. Approval requests lead; the client can
+ * approve or ask for changes with a note. Opens light up only once SharePoint
+ * is connected — until then the card says so rather than implying silence.
+ */
+function ClientDocuments({ account, onDecision }: { account: ClientAccount; onDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void }) {
+  const [changingId, setChangingId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const { awaiting, shared } = partitionForClient([...account.files, ...account.docs]);
+  if (shared.length === 0) return null;
+
+  const row = (f: ClientFileLink) => {
+    const share = f.clientShare!;
+    const st = approvalState(share);
+    const canDecide = onDecision && st === "pending";
+    return (
+      <div key={f.id} style={{ padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
+          {f.url ? (
+            <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
+          ) : (
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
+          )}
+          <span style={clientShareChip(st)}>{approvalLabel(share)}</span>
+          {share.note && st === "changes" && <span style={{ fontSize: 11, color: "#9b2c2c" }}>“{share.note}”</span>}
+          {canDecide && (
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button type="button" className="btn btn-primary btn-sm" style={{ fontSize: 10.5 }} onClick={() => onDecision(f.id, "approved")}>Approve</button>
+              <button type="button" className="btn btn-sm" style={{ fontSize: 10.5 }} onClick={() => { setChangingId(f.id); setNote(""); }}>Request changes</button>
+            </span>
+          )}
+        </div>
+        {changingId === f.id && canDecide && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, paddingLeft: 22 }}>
+            <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="What should change?" className="input" style={{ flex: 1, minWidth: 160, fontSize: 11.5, padding: "4px 8px" }} />
+            <button type="button" className="btn btn-primary btn-sm" disabled={!note.trim()} onClick={() => { onDecision(f.id, "changes", note.trim()); setChangingId(null); setNote(""); }}>Send</button>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setChangingId(null)}>Cancel</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...card, ...(awaiting.length > 0 ? { borderLeft: `3px solid #e7c66f` } : {}) }}>
+      <SectionTitle right={awaiting.length > 0 ? <span style={clientShareChip("pending")}>{awaiting.length} awaiting you</span> : undefined}>
+        Documents shared with you
+      </SectionTitle>
+      {shared.map(row)}
+      <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8, lineHeight: 1.5 }}>
+        Approvals and change requests are recorded with who and when. Whether a document has been
+        opened will show here once the SharePoint connection is switched on.
+      </div>
+    </div>
+  );
+}
+
+function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, onClientDecision, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const today = AS_OF_TODAY();
@@ -917,6 +989,11 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
           workspaces — by rule, not by discipline.
         </span>
       </div>
+
+      {/* Documents shared with the client — leads the dashboard, because it's
+          the thing a client actually acts on (Cara: files shared with the
+          client, some for approval). Delivery progress sits below it. */}
+      <ClientDocuments account={account} {...(onClientDecision ? { onDecision: onClientDecision } : {})} />
 
       {/* Status summary — the "job tracker" read the client wanted at a glance. */}
       {deliverables.length > 0 && (
@@ -2024,7 +2101,44 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
-function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onDiscuss?: (name: string, note: string) => void }) {
+function ClientShareControl({ f, onShareToClient, onUnshare }: { f: ClientFileLink; onShareToClient: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare: (linkId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const share = f.clientShare;
+  if (share) {
+    const st = approvalState(share);
+    const style = clientShareChip(st);
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span title={share.purpose === "approval" ? "Shared with the client for approval" : "Shared with the client to review"} style={style}>
+          {approvalLabel(share)}
+        </span>
+        <button type="button" className="btn-link" style={{ fontSize: 10.5 }} title="Stop sharing this with the client" onClick={() => onUnshare(f.id)}>
+          Unshare
+        </button>
+      </span>
+    );
+  }
+  if (!open) {
+    return (
+      <button type="button" className="btn-link" style={{ fontSize: 11, fontWeight: 700 }} title="Share this document into the client space" onClick={() => setOpen(true)}>
+        → Share to client
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <button type="button" className="btn btn-sm" style={{ fontSize: 10.5 }} title="Share to read / collaborate" onClick={() => { onShareToClient(f.id, "fyi"); setOpen(false); }}>
+        To review
+      </button>
+      <button type="button" className="btn btn-primary btn-sm" style={{ fontSize: 10.5 }} title="Ask the client to approve or request changes" onClick={() => { onShareToClient(f.id, "approval"); setOpen(false); }}>
+        For approval
+      </button>
+      <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => setOpen(false)}>Cancel</button>
+    </span>
+  );
+}
+
+function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUnshare, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
   const [linking, setLinking] = useState(false);
   const [draft, setDraft] = useState("");
   const [discussing, setDiscussing] = useState(false);
@@ -2060,6 +2174,7 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onDiscuss }: { f: Clie
       {!linking && (
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
+          {onShareToClient && onUnshare && <ClientShareControl f={f} onShareToClient={onShareToClient} onUnshare={onUnshare} />}
           {onDiscuss && (
             <button type="button" onClick={() => { setDiscussing((d) => !d); setPosted(false); }} title={`Discuss “${f.name}” — files it under this document in Discussions`} className="btn-link" style={{ fontSize: 11, fontWeight: 700 }}>💬 Discuss</button>
           )}
@@ -2087,7 +2202,7 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onDiscuss }: { f: Clie
   );
 }
 
-function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
+function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onShareToClient, onUnshare, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
@@ -2103,6 +2218,8 @@ function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, 
           // Opening the link is the one open we can observe without Microsoft:
           // the store records it only if THIS viewer holds a live share for it.
           {...(onOpenItem ? { onOpen: () => onOpenItem(f.kind, f.id) } : {})}
+          {...(onShareToClient ? { onShareToClient } : {})}
+          {...(onUnshare ? { onUnshare } : {})}
           onDiscuss={onDiscussFile}
         />
       ))}
@@ -2603,6 +2720,9 @@ export function ClientWorkspace({
   onRevokeShare,
   onRevokeAllForPerson,
   onOpenItem,
+  onShareToClient,
+  onUnshareFromClient,
+  onClientDecision,
 }: {
   account: ClientAccount;
   /** AGP roster to add to the account (plain data — guest-safe). */
@@ -2635,6 +2755,12 @@ export function ClientWorkspace({
   onRevokeAllForPerson?: (personName: string) => void;
   /** Record that the signed-in person opened a file/doc from in here. */
   onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void;
+  /** Share a document into the client space — to review, or for approval. */
+  onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void;
+  /** Stop sharing a document with the client. */
+  onUnshareFromClient?: (linkId: string) => void;
+  /** The client's decision on a shared document — approve or request changes. */
+  onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void;
   /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
   onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
@@ -2957,8 +3083,8 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />

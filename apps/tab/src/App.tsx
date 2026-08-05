@@ -953,6 +953,9 @@ function Workspace() {
             onRevokeShare={(shareId) => ws.revokeShare(selectedAccount.id, shareId, userName)}
             onRevokeAllForPerson={(personName) => ws.revokeAllForPerson(selectedAccount.id, personName, userName)}
             onOpenItem={(itemKind, itemId) => ws.recordItemOpened(selectedAccount.id, userName, itemKind, itemId)}
+            onShareToClient={(linkId, purpose) => ws.shareFileWithClient(selectedAccount.id, linkId, purpose, userName)}
+            onUnshareFromClient={(linkId) => ws.unshareFileFromClient(selectedAccount.id, linkId)}
+            onClientDecision={(linkId, decision, note) => ws.recordClientDecision(selectedAccount.id, linkId, decision, userName, note)}
             sandboxCount={selectedAccountIdeas.length}
             sandboxContent={
               <Sandbox

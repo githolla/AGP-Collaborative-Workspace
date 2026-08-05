@@ -118,6 +118,35 @@ export interface ClientFileLink {
   url?: string;
   kind: "file" | "doc";
   addedAt: string;
+  /**
+   * Client-facing share state. Cara's ask: share a document into the client
+   * space — sometimes just to read (a living strategy doc), sometimes FOR
+   * APPROVAL — and let the client approve or ask for changes, without it
+   * having to hang off a task. Absent = internal only, never shown to a client.
+   * See workspace/clientApproval.ts.
+   */
+  clientShare?: ClientShare;
+}
+
+/** A document shared with the client, and where its approval stands. */
+export interface ClientShare {
+  /** "fyi" = shared to read/collaborate; "approval" = a decision is requested. */
+  purpose: "fyi" | "approval";
+  sharedAt: string;
+  sharedBy: string;
+  /**
+   * The client's decision on an approval request. Absent while pending.
+   * "changes" carries a note saying what to change.
+   */
+  decision?: "approved" | "changes";
+  decidedAt?: string;
+  decidedBy?: string;
+  note?: string;
+  /**
+   * First time the client opened it. Observed directly only once SharePoint is
+   * connected (BLOCKERS #5); until then it stays absent — we don't fake it.
+   */
+  openedAt?: string;
 }
 
 export interface ClientNotification {

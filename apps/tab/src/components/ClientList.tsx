@@ -653,6 +653,12 @@ function ClientDirectory({
         </span>
       </div>
 
+      {/* Purpose line — Cara asked to "review the purpose of this view". It's a
+          findability bar: get to the client you need to collaborate on fast,
+          by where the activity is. Stated so it isn't mistaken for a report. */}
+      <div style={{ padding: "0 16px 8px", fontSize: 11, color: T.inkMuted }}>
+        Find the account you need to work in — sort by where collaboration is happening, filter to your slice of the book.
+      </div>
       {/* Sort tab strip + collaboration filter dropdowns — the Client-Health control bar. */}
       <div data-tour="sort" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 12px", borderBottom: `1px solid ${T.grid}` }}>
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Sort</span>
