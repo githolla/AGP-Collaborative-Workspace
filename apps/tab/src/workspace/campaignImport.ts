@@ -337,6 +337,8 @@ export interface LiveTask {
    */
   milestoneId?: string;
   projectLabel?: string;
+  /** Raw Kantata parent story id — carried for diagnostics/resolution checks. */
+  parentId?: string;
   /** Kantata owner(s) — who's accountable for the work. */
   assignees?: string[];
   percent?: number;
@@ -470,6 +472,7 @@ export function accountLiveContext(
         projectId: t.projectId,
         title: t.title,
         state: t.state,
+        ...(t.parentId ? { parentId: t.parentId } : {}),
         ...(ms ? { milestoneId: ms.id, projectLabel: ms.title } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
         ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
