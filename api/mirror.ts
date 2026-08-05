@@ -57,6 +57,16 @@ interface MirrorPayload {
    * mirrored as the weekly grid.
    */
   kantataAllocationsSample: Record<string, unknown>[];
+  /**
+   * AGP's Kantata PROJECT TEMPLATES — the role-and-task blueprints Kellie's
+   * team applies to spin up a timeline ("direct mail" → the standard phases,
+   * roles, and tasks). This is the backbone of the resourcing model: roles map
+   * to people, and the default hour split rides on the template's structure.
+   */
+  kantataTemplates: Record<string, unknown>[];
+  /** Raw template sample + the endpoint it came from — the diagnostic that
+   * pins down where Kantata exposes templates and in what shape. */
+  kantataTemplatesSample: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -86,6 +96,8 @@ async function pullKantata(token: string): Promise<{
   staff: Record<string, unknown>[];
   allocations: Record<string, unknown>[];
   allocationsSample: Record<string, unknown>[];
+  templates: Record<string, unknown>[];
+  templatesSample: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
@@ -201,6 +213,21 @@ async function pullKantata(token: string): Promise<{
     percent_of_capacity?: number;
   };
 
+  // A Kantata project template — the blueprint Kellie's team applies to create
+  // a timeline. Fields read defensively: the title may be `title` or `name`,
+  // and the discipline/role hint could arrive under several names. Exposure
+  // varies by tenant/API version, so the pull tries a few endpoints (below).
+  type KantataTemplate = {
+    id: string;
+    title?: string;
+    name?: string;
+    description?: string;
+    discipline?: string;
+    template_type?: string;
+    updated_at?: string;
+    archived?: boolean;
+  };
+
   // Users side-bucket harvested from `include=participants` — id → full name.
   const userNames = new Map<string, string>();
   const harvestUsers = (json: Record<string, unknown>): void => {
@@ -239,7 +266,29 @@ async function pullKantata(token: string): Promise<{
   // groups (the client↔project join, SPEC §7), custom-field taxonomy, recent
   // time entries, and recent posts (the project conversation). Each degrades
   // independently; only a workspaces failure is fatal.
-  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult, membersResult, allocResult] = await Promise.allSettled([
+  // Kantata exposes project templates differently across tenants/API
+  // versions. Try the known collections in order; the first that returns rows
+  // wins, and its name is reported so we know which one the tenant uses. A
+  // FLAGGED-WORKSPACE fallback (templates modeled as workspaces) is handled
+  // after the pull, from the workspaces already fetched.
+  const pullTemplates = async (): Promise<{ rows: KantataTemplate[]; source: string }> => {
+    const candidates: [string, string][] = [
+      ["https://api.mavenlink.com/api/v1/workspace_templates?per_page=200", "workspace_templates"],
+      ["https://api.mavenlink.com/api/v1/story_templates?per_page=200", "story_templates"],
+      ["https://api.mavenlink.com/api/v1/templates?per_page=200", "templates"],
+    ];
+    for (const [url, collection] of candidates) {
+      try {
+        const rows = await pullKantataPaged<KantataTemplate>(url, collection, 500);
+        if (rows.length > 0) return { rows, source: collection };
+      } catch {
+        // endpoint absent on this tenant — try the next candidate
+      }
+    }
+    return { rows: [], source: "none" };
+  };
+
+  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult, membersResult, allocResult, templatesResult] = await Promise.allSettled([
     pullKantataPaged<KantataWorkspace>(
       "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc&include=participants",
       "workspaces",
@@ -326,6 +375,9 @@ async function pullKantata(token: string): Promise<{
         harvestUsers,
       ),
     ),
+    // AGP project templates — the role/task blueprints. Endpoint varies, so
+    // this cascades through candidates and reports which one answered.
+    pullTemplates(),
   ]);
 
   if (wsResult.status === "rejected") {
@@ -530,7 +582,44 @@ async function pullKantata(token: string): Promise<{
     notes.push(allocResult.reason instanceof Error ? allocResult.reason.message : "allocations failed");
   }
 
-  return { projects, milestones, tasks, groups, customFields, hours, posts, staff, allocations, allocationsSample, note: notes.join(" · ") };
+  // Project templates → the role/task blueprints. Primary source is whichever
+  // template endpoint answered; if none did, fall back to workspaces that carry
+  // a template flag (some tenants model templates as flagged workspaces).
+  let templates: Record<string, unknown>[] = [];
+  let templatesSample: Record<string, unknown>[] = [];
+  if (templatesResult.status === "fulfilled") {
+    const { rows, source } = templatesResult.value;
+    let raw: KantataTemplate[] = rows;
+    let via = source;
+    if (raw.length === 0) {
+      // Fallback: a workspace flagged as a template (defensive key check — the
+      // flag name varies). AGP files templates under a Templates tab, so this
+      // only fires if the dedicated endpoints are all absent.
+      const flagged = (wsResult.status === "fulfilled" ? wsResult.value : []).filter((w) => {
+        const r = w as Record<string, unknown>;
+        return r.template === true || r.is_template === true || r.workspace_template === true;
+      }) as unknown as KantataTemplate[];
+      if (flagged.length > 0) {
+        raw = flagged;
+        via = "workspaces[template-flag]";
+      }
+    }
+    templates = raw
+      .filter((tpl) => !tpl.archived && (tpl.title || tpl.name))
+      .map((tpl) => ({
+        id: String(tpl.id),
+        title: String(tpl.title ?? tpl.name ?? ""),
+        ...(tpl.description ? { description: String(tpl.description).slice(0, 500) } : {}),
+        ...(tpl.discipline ? { discipline: String(tpl.discipline) } : {}),
+        ...(tpl.template_type ? { template_type: String(tpl.template_type) } : {}),
+      }));
+    templatesSample = raw.slice(0, 3).map((tpl) => ({ ...(tpl as Record<string, unknown>) }));
+    notes.push(`${templates.length} templates (via ${via})`);
+  } else {
+    notes.push(templatesResult.reason instanceof Error ? templatesResult.reason.message : "templates failed");
+  }
+
+  return { projects, milestones, tasks, groups, customFields, hours, posts, staff, allocations, allocationsSample, templates, templatesSample, note: notes.join(" · ") };
 }
 
 /**
@@ -664,6 +753,8 @@ export default async function handler(
     kantataStaff: [],
     kantataAllocations: [],
     kantataAllocationsSample: [],
+    kantataTemplates: [],
+    kantataTemplatesSample: [],
   };
 
   const [kantataResult] = await Promise.allSettled([
@@ -683,6 +774,8 @@ export default async function handler(
       payload.kantataStaff = k.staff;
       payload.kantataAllocations = k.allocations;
       payload.kantataAllocationsSample = k.allocationsSample;
+      payload.kantataTemplates = k.templates;
+      payload.kantataTemplatesSample = k.templatesSample;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } else {
       payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;

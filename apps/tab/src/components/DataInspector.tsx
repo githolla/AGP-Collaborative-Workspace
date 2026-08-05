@@ -83,13 +83,17 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
   // Raw sample rides in the cached live payload (financial keys already
   // stripped server-side) — the only place the untouched field names show.
   let rawAllocSample: Record<string, unknown>[] = [];
+  let rawTemplateSample: Record<string, unknown>[] = [];
   try {
-    const wrapped = JSON.parse(window.localStorage.getItem("agp-live-mirror-v1") ?? "{}") as { payload?: { kantataAllocationsSample?: Record<string, unknown>[] } };
+    const wrapped = JSON.parse(window.localStorage.getItem("agp-live-mirror-v1") ?? "{}") as { payload?: { kantataAllocationsSample?: Record<string, unknown>[]; kantataTemplatesSample?: Record<string, unknown>[] } };
     rawAllocSample = wrapped.payload?.kantataAllocationsSample ?? [];
+    rawTemplateSample = wrapped.payload?.kantataTemplatesSample ?? [];
   } catch {
     // no cache / parse error — the derived rows below still tell the story
   }
   const allocFieldNames = rawAllocSample.length ? [...new Set(rawAllocSample.flatMap((r) => Object.keys(r)))] : [];
+  const diagTemplates = mirror.templates ?? [];
+  const templateFieldNames = rawTemplateSample.length ? [...new Set(rawTemplateSample.flatMap((r) => Object.keys(r)))] : [];
 
   const asText = [
     `=== TASK RESOURCING FIELDS (from Kantata) ===`,
@@ -107,6 +111,13 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
     `sample allocations (person · hours · start → end · ws · story):`,
     ...diagAllocs.slice(0, 14).map((a) => `  ${(a.userName || a.userId).slice(0, 24).padEnd(24)}  ·  ${a.hours}h  ·  ${a.startDate || "—"} → ${a.endDate || "—"}  ·  ws=${a.projectId}  ·  story=${a.storyId ?? "—"}`),
     ...(rawAllocSample.length ? [``, `raw sample rows (financial keys stripped):`, ...rawAllocSample.map((r) => `  ${JSON.stringify(r)}`)] : []),
+    ``,
+    `=== AGP PROJECT TEMPLATES (role/task blueprints) ===`,
+    `templates pulled: ${diagTemplates.length}`,
+    `raw template field names Kantata sent: ${templateFieldNames.length ? templateFieldNames.join(", ") : "— (no live sample cached — check the note above for 'templates via …')"}`,
+    `sample templates (title · discipline · type):`,
+    ...diagTemplates.slice(0, 20).map((tpl) => `  ${tpl.title.slice(0, 40).padEnd(40)}  ·  ${tpl.discipline ?? "—"}  ·  ${tpl.templateType ?? "—"}`),
+    ...(rawTemplateSample.length ? [``, `raw template sample rows:`, ...rawTemplateSample.map((r) => `  ${JSON.stringify(r)}`)] : []),
     ``,
     `=== TASK → PROJECT NESTING ===`,
     `milestones (project level): ${diagMilestones.length}`,

@@ -282,6 +282,20 @@ export interface MirrorAllocation {
   percentage?: number;
 }
 
+/**
+ * An AGP Kantata project template — the role/task blueprint the PM team applies
+ * to spin up a timeline. The role structure inside it is what the resourcing
+ * model leans on (roles → people → a default hour split), so it's pulled to
+ * ground that feature in AGP's real templates rather than a guessed shape.
+ */
+export interface MirrorTemplate {
+  id: string;
+  title: string;
+  description?: string;
+  discipline?: string;
+  templateType?: string;
+}
+
 /** Kantata post — a comment on a workspace/story: the project conversation. */
 export interface MirrorPost {
   id: string;
@@ -359,6 +373,8 @@ export interface AgpMirror {
   /** Resource Center allocations — the reserved-hours grid. Optional so older
    * cached mirrors and minimal test fixtures stay valid. */
   allocations?: MirrorAllocation[];
+  /** AGP project templates — role/task blueprints. Optional for the same reason. */
+  templates?: MirrorTemplate[];
 }
 
 /**

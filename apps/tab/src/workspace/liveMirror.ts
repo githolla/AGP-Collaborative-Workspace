@@ -41,6 +41,9 @@ export interface RawMirrorPayload {
   kantataAllocations?: Record<string, unknown>[];
   /** Raw allocation sample (financial keys stripped) — diagnostics only. */
   kantataAllocationsSample?: Record<string, unknown>[];
+  kantataTemplates?: Record<string, unknown>[];
+  /** Raw template sample + source endpoint — diagnostics only. */
+  kantataTemplatesSample?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -49,7 +52,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 12; // 12: + Resource Center allocations (reserved-hours grid)
+const CACHE_SCHEMA = 13; // 13: + AGP project templates (role/task blueprints)
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -373,6 +376,15 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         ...(typeof a.percentage === "number" ? { percentage: num(a.percentage) } : {}),
       }))
       .filter((a) => a.hours > 0 && a.projectId && a.userId),
+    templates: (p.kantataTemplates ?? [])
+      .filter((tpl) => str(tpl.title).trim().length > 0)
+      .map((tpl) => ({
+        id: String(tpl.id),
+        title: str(tpl.title),
+        ...(str(tpl.description) ? { description: str(tpl.description) } : {}),
+        ...(str(tpl.discipline) ? { discipline: str(tpl.discipline) } : {}),
+        ...(str(tpl.template_type) ? { templateType: str(tpl.template_type) } : {}),
+      })),
   };
 }
 
