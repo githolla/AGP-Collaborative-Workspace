@@ -1061,7 +1061,14 @@ function ResourcingView({
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{t.title}</span>
                     <span style={{ fontSize: 11, color: T.inkSecondary }}>
-                      {t.ownerName}{t.due ? ` · due ${fmtDay(t.due)}` : ""}
+                      {t.ownerName}
+                      {/* Show the START→DUE bracket the hours spread across, not
+                          just the due date — that's how Kellie's team scopes it. */}
+                      {t.startDate && t.due
+                        ? ` · ${fmtDay(t.startDate)} → ${fmtDay(t.due)}`
+                        : t.due
+                          ? ` · due ${fmtDay(t.due)}`
+                          : ""}
                     </span>
                   </span>
                   <BigHoursInput {...(t.estimatedHours != null ? { hours: t.estimatedHours } : {})} onSet={(h) => onSetHours(t.id, h)} autoFocusMe={false} />

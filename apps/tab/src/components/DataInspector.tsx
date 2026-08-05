@@ -70,14 +70,22 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
   // be pasted back: the one signal for "why aren't tasks grouped by project".
   const diagTasks = mirror.tasks ?? [];
   const diagWithParent = diagTasks.filter((t) => !!t.parentId).length;
+  const diagWithHours = diagTasks.filter((t) => (t.estimatedHours ?? 0) > 0).length;
+  const diagWithStart = diagTasks.filter((t) => !!t.startDate).length;
   const diagMilestones = mirror.milestones ?? [];
+  const pct = (n: number) => (diagTasks.length ? Math.round((n / diagTasks.length) * 100) : 0);
 
   const asText = [
+    `=== TASK RESOURCING FIELDS (from Kantata) ===`,
+    `tasks pulled: ${diagTasks.length}`,
+    `  with a parent link:      ${diagWithParent} (${pct(diagWithParent)}%)`,
+    `  with scheduled HOURS:    ${diagWithHours} (${pct(diagWithHours)}%)   <- if ~0, hours live in another Kantata field`,
+    `  with a START date:       ${diagWithStart} (${pct(diagWithStart)}%)   <- needed to spread hours across the span`,
+    `sample tasks (title · hours · start → due · ws):`,
+    ...diagTasks.slice(0, 14).map((t) => `  ${t.title.slice(0, 38).padEnd(38)}  ·  ${t.estimatedHours ?? "—"}h  ·  ${t.startDate ?? "—"} → ${t.dueDate ?? "—"}  ·  ws=${t.projectId}`),
+    ``,
     `=== TASK → PROJECT NESTING ===`,
-    `tasks pulled: ${diagTasks.length} · with a parent link: ${diagWithParent} (${diagTasks.length ? Math.round((diagWithParent / diagTasks.length) * 100) : 0}%)`,
     `milestones (project level): ${diagMilestones.length}`,
-    `sample tasks:`,
-    ...diagTasks.slice(0, 12).map((t) => `  ${t.title.slice(0, 44)}  ·  parent=${t.parentId ?? "—"}  ·  ws=${t.projectId}`),
     `sample milestones:`,
     ...diagMilestones.slice(0, 12).map((m) => `  ${m.title.slice(0, 44)}  ·  id=${m.id}  ·  ws=${m.projectId}`),
     ``,
