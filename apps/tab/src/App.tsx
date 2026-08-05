@@ -376,8 +376,19 @@ function Workspace() {
     label: "Demo data",
     detail: "checking /api/mirror…",
   });
+  // Per-workspace deepen guard (declared here so the auto-refresh below can
+  // clear it). Cleared on each background refresh so the open workspace re-loads
+  // its full tree against the fresh pull.
+  const deepenedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     void initLiveMirror(setLiveStatus);
+    // Keep data current on its own — no manual refresh. Re-pull from Kantata
+    // every 5 minutes (matches the server cache).
+    const id = setInterval(() => {
+      deepenedRef.current = new Set();
+      void refreshLiveMirror(setLiveStatus);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
   }, []);
 
   // Auto-populate on open: the moment a live client workspace is opened, fill
@@ -390,7 +401,6 @@ function Workspace() {
   // Bumped when a deepen finishes, to recompute the live context (which reads
   // the module-level mirror the deepen just enriched) — a plain re-render.
   const [, setDeepTick] = useState(0);
-  const deepenedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!liveStatus.live || route.view !== "account") return;
     const acct = ws.accounts.find((a) => a.id === route.id);
@@ -756,12 +766,6 @@ function Workspace() {
         live={liveStatus.live}
         liveLabel={liveStatus.label}
         liveDetail={liveStatus.detail}
-        onRefreshData={() => {
-          // A fresh tenant pull drops per-workspace deep data, so let the open
-          // workspace re-deepen after it: clear the guard.
-          deepenedRef.current = new Set();
-          void refreshLiveMirror(setLiveStatus);
-        }}
         onHome={() => setRoute({ view: "clients" })}
         {...(!ssoConfigured ? { onSettings: () => setTeamOpen(true) } : {})}
         signedIn={signedIn}
