@@ -123,7 +123,7 @@ const TOUR_STEPS: TourStep[] = [
     placement: "top",
     title: "Who's collaborating, and on what",
     quote: { text: "Communication, tasks, files, and visibility across internal teams, clients, and contractors.", from: "Cara — features doc" },
-    body: "“Who's collaborating” is the real Kantata delivery team booked on that client — with their role — and “Working on” is the live campaigns in flight. Both come from Kantata's participants and projects, so the list shows the actual working picture, not a guess.",
+    body: "“Who's collaborating” is who's actually assigned open work right now — the people owning live Kantata tasks, with their role — and “Working on” is the real projects those tasks sit under (the milestones inside a fiscal-year contract, not the contract itself). It's the working picture, not the whole roster booked on the year.",
     question: {
       prompt: "Does “who's collaborating” match who is really on that work?",
       options: [
@@ -480,18 +480,45 @@ function Workspace() {
           }
         }
       }
-      // Who's collaborating — the REAL Kantata delivery team on this client's
-      // projects (participants), deduped. Role from the live staff roster.
-      const teamNames = [...new Set(ctx.projects.flatMap((p) => p.team ?? []))];
-      const collaborators = teamNames.map((n) => ({ name: n, role: staffTitle.get(n) ?? "" }));
-      // What they're working on — the live campaigns in flight for this client.
-      const areas = [
+      // Who's collaborating — the people actually assigned OPEN work, not
+      // everyone booked on the fiscal-year contract. Kellie's feedback: the
+      // participant roster on a year-long workspace "doesn't really mean
+      // anything to the team members working on it." So the working picture is
+      // who owns live tasks; only when nothing is assigned do we fall back to
+      // the participant list rather than show an empty row.
+      const activeAssignees = [
         ...new Set(
-          campaignsFromMirror(mirror, name, today, account?.kantataProjectIds)
-            .filter((c) => c.status !== "complete")
-            .map((c) => c.name),
+          ctx.projects
+            .flatMap((p) => p.tasks)
+            .filter((t) => !taskIsDone(t.state))
+            .flatMap((t) => t.assignees ?? []),
         ),
       ];
+      const teamNames = activeAssignees.length > 0 ? activeAssignees : [...new Set(ctx.projects.flatMap((p) => p.team ?? []))];
+      const collaborators = teamNames.map((n) => ({ name: n, role: staffTitle.get(n) ?? "" }));
+      // What they're working on — the real projects with OPEN work. At AGP
+      // those are the Kantata milestones inside the fiscal-year workspace, so
+      // "on what" should read "November CYE I Appeal", not "CWS: FY27". Fall
+      // back to campaign names only when no task carries a project label.
+      const activeProjects = [
+        ...new Set(
+          ctx.projects
+            .flatMap((p) => p.tasks)
+            .filter((t) => !taskIsDone(t.state))
+            .map((t) => t.projectLabel)
+            .filter((l): l is string => !!l),
+        ),
+      ];
+      const areas =
+        activeProjects.length > 0
+          ? activeProjects
+          : [
+              ...new Set(
+                campaignsFromMirror(mirror, name, today, account?.kantataProjectIds)
+                  .filter((c) => c.status !== "complete")
+                  .map((c) => c.name),
+              ),
+            ];
       // Most-recent collaboration on this client — LIVE (Kantata posts + last
       // time entry) and local (the workspace thread/activity), so the list can
       // float the freshest work to the top.

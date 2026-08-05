@@ -713,7 +713,7 @@ function ClientDirectory({
                       {r.accountId ? s.open : "—"}
                     </span>
                   </td>
-                  {/* Who's collaborating — the LIVE Kantata delivery team */}
+                  {/* Who's collaborating — who owns OPEN Kantata tasks now */}
                   <td style={{ padding: "9px 12px", minWidth: 190 }}>
                     {collabOf(r).length > 0 ? (
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -733,7 +733,7 @@ function ClientDirectory({
                       <span style={{ fontSize: 11, color: T.inkMuted }}>—</span>
                     )}
                   </td>
-                  {/* Working on — the live Kantata campaigns in flight */}
+                  {/* Working on — the real projects (milestones) with open work */}
                   <td style={{ padding: "9px 12px", minWidth: 170, maxWidth: 260 }}>
                     {areasOf(r).length > 0 ? (
                       <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
