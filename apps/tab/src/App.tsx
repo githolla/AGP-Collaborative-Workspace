@@ -38,7 +38,13 @@ type Route =
   | { view: "clients" }
   | { view: "initiative"; id: string }
   | { view: "idea"; id: string }
-  | { view: "account"; id: string }
+  /**
+   * A client workspace. `tab` and `focus` make it DEEP-LINKABLE: a Teams/email
+   * message ("Janine is over-booked — adjust these tasks") can drop the person
+   * straight on the Project Plan with the exact task highlighted and its hours
+   * field focused, instead of the app's front door. See taskDeepLink().
+   */
+  | { view: "account"; id: string; tab?: ClientTab; focus?: string }
   /** Tour-feedback admin. Deliberately unlinked — reachable by URL only. */
   | { view: "admin" }
   /** Teams' own tab-setup screen. Teams opens it; people never navigate here. */
@@ -52,8 +58,17 @@ function parseHash(): Route {
   if (initiative?.[1]) return { view: "initiative", id: initiative[1] };
   const idea = hash.match(/^#s\/(.+)$/);
   if (idea?.[1]) return { view: "idea", id: idea[1] };
-  const account = hash.match(/^#c\/(.+)$/);
-  if (account?.[1]) return { view: "account", id: account[1] };
+  // #c/<id>  ·  #c/<id>/<tab>  ·  #c/<id>/<tab>/<taskId>  — ids carry no slash.
+  const account = hash.match(/^#c\/([^/]+)(?:\/([^/]+))?(?:\/(.+))?$/);
+  if (account?.[1]) {
+    const tab = account[2] as ClientTab | undefined;
+    return {
+      view: "account",
+      id: account[1],
+      ...(tab ? { tab } : {}),
+      ...(account[3] ? { focus: account[3] } : {}),
+    };
+  }
   // Legacy "#sandbox" links land on Clients — the sandbox is per-client now.
   return { view: "clients" };
 }
@@ -65,7 +80,7 @@ function hashOf(route: Route): string {
     case "idea":
       return `s/${route.id}`;
     case "account":
-      return `c/${route.id}`;
+      return `c/${route.id}${route.tab ? `/${route.tab}` : ""}${route.focus ? `/${route.focus}` : ""}`;
     case "admin":
       return "admin/feedback";
     case "teams-config":
@@ -73,6 +88,15 @@ function hashOf(route: Route): string {
     default:
       return "";
   }
+}
+
+/**
+ * The canonical deep link to one task's hours on the Project Plan — the URL a
+ * Teams/email exception message points at so the person lands exactly where
+ * they need to adjust. Absolute so it works from outside the app.
+ */
+export function taskDeepLink(origin: string, accountId: string, taskId: string): string {
+  return `${origin.replace(/\/+$/, "")}/#c/${accountId}/plan/${taskId}`;
 }
 
 const TOUR_KEY = "agp-collab-tour-v1";
@@ -933,6 +957,8 @@ function Workspace() {
             account={selectedAccount}
             sharedTasks={enrichedSharedTasks}
             userName={userName}
+            {...(route.view === "account" && route.tab ? { initialTab: route.tab } : {})}
+            {...(route.view === "account" && route.focus ? { focusTaskId: route.focus } : {})}
             onBack={() => setRoute({ view: "clients" })}
             onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
             onTaskStatus={(taskId, status) => ws.setSharedTaskStatus(selectedAccount.id, taskId, status)}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
@@ -90,12 +90,13 @@ function HoursInput({ hours, onSet }: { hours?: number; onSet: (h: number | unde
   };
   return (
     <input
+      data-hours="1"
       value={val}
       onChange={(e) => setVal(e.target.value.replace(/[^0-9.]/g, ""))}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") { commit(); (e.target as HTMLInputElement).blur(); } }}
       title="Estimated hours for this task's owner — feeds weekly resourcing"
-      placeholder="—"
+      placeholder="hrs"
       inputMode="decimal"
       style={{
         width: 42, textAlign: "right", fontSize: 11, padding: "2px 5px", borderRadius: 5,
@@ -114,6 +115,7 @@ export function TasksCard({
   onToggleClientVisible,
   onOpenTask,
   onSetHours,
+  focusTaskId,
 }: {
   tasks: Task[];
   owners: string[];
@@ -128,8 +130,31 @@ export function TasksCard({
    * the internal plan; the resourcing view derives weekly allocations from it.
    */
   onSetHours?: (taskId: string, hours: number | undefined) => void;
+  /**
+   * Deep-link target: scroll to this task, flash it, and focus its hours field.
+   * This is what a Teams/email "adjust these tasks" message lands on.
+   */
+  focusTaskId?: string;
 }) {
   const [view, setView] = useState<"list" | "board">("list");
+  const [flashId, setFlashId] = useState<string | null>(null);
+  // Land a deep link on the exact task: scroll it into view, flash it so the
+  // eye catches it, and focus its hours field so the person can adjust
+  // immediately. Keyed on task count so it fires once the plan has loaded.
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const el = document.getElementById(`taskrow-${focusTaskId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashId(focusTaskId);
+    const input = el.querySelector<HTMLInputElement>('input[data-hours="1"]');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+    const timer = setTimeout(() => setFlashId(null), 2800);
+    return () => clearTimeout(timer);
+  }, [focusTaskId, tasks.length]);
   const [ownerFilter, setOwnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
   const [labelFilter, setLabelFilter] = useState("");
@@ -199,6 +224,7 @@ export function TasksCard({
   const taskLine = (t: Task, compact = false, showProject = false) => (
     <div
       key={t.id}
+      id={`taskrow-${t.id}`}
       style={{
         display: "flex",
         alignItems: compact ? "flex-start" : "center",
@@ -206,9 +232,12 @@ export function TasksCard({
         gap: compact ? 4 : 10,
         padding: compact ? "8px 10px" : "8px 2px",
         borderTop: compact ? "none" : `1px solid ${T.grid}`,
-        background: compact ? T.surface : "transparent",
-        border: compact ? `1px solid ${T.border}` : undefined,
-        borderRadius: compact ? 8 : 0,
+        // Deep-link flash: a soft highlight + ring so the person's eye lands on
+        // the exact task the Teams message sent them to.
+        background: flashId === t.id ? "#fff7d6" : compact ? T.surface : "transparent",
+        border: flashId === t.id ? `1px solid ${T.roi.cyan}` : compact ? `1px solid ${T.border}` : undefined,
+        borderRadius: flashId === t.id || compact ? 8 : 0,
+        transition: "background 400ms ease",
       }}
     >
       {onOpenTask ? (
@@ -283,6 +312,15 @@ export function TasksCard({
       >
         Tasks
       </SectionTitle>
+
+      {/* Tell the PM what the hours box is for — otherwise it reads as a stray
+          input. One line, only when hours are in play. */}
+      {onSetHours && tasks.length > 0 && (
+        <div style={{ fontSize: 11, color: T.inkSecondary, background: "#eef8fc", border: `1px solid ${T.roi.cyan}`, borderRadius: 6, padding: "6px 10px", marginBottom: 8, lineHeight: 1.5 }}>
+          <strong style={{ color: "#16708f" }}>Hours (the “hrs” box on each task):</strong> enter the time you expect the owner to need. The
+          Weekly Resourcing view below builds from these and re-figures itself when a due date moves — so you set it once, not every week.
+        </div>
+      )}
 
       {/* Filters only make sense once there are tasks to filter. */}
       {tasks.length > 0 && (

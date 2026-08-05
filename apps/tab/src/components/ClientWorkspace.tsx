@@ -941,6 +941,11 @@ function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () =
       <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>hours by person · by week — derived, always current</span>}>
         Weekly resourcing
       </SectionTitle>
+      <div style={{ fontSize: 11.5, color: T.inkSecondary, marginBottom: 10, lineHeight: 1.5 }}>
+        Built from the hours you set on tasks above, placed in the week each task is due. Move a timeline and this
+        re-figures on its own — no weekly redistribute. Heavier weeks are shaded so peaks stand out; leveling anyone
+        who’s overloaded is handled separately, not here.
+      </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480 }}>
           <thead>
@@ -2838,8 +2843,14 @@ export function ClientWorkspace({
   onClientDecision,
   onSetTaskHours,
   onPublishResourcing,
+  initialTab,
+  focusTaskId,
 }: {
   account: ClientAccount;
+  /** Deep-link target: open on this tab (Teams/email drives people here). */
+  initialTab?: ClientTab;
+  /** Deep-link target: highlight this task and focus its hours field. */
+  focusTaskId?: string;
   /** AGP roster to add to the account (plain data — guest-safe). */
   people?: { id: string; name: string; title: string }[];
   /** Add an AGP teammate to this account from anywhere in the workspace. */
@@ -2930,7 +2941,12 @@ export function ClientWorkspace({
    * inside this component depends on anyone listening. */
   onTabChange?: (tab: ClientTab) => void;
 }) {
-  const [tab, setTab] = useState<ClientTab>("home");
+  const [tab, setTab] = useState<ClientTab>(initialTab ?? "home");
+  // Follow a deep link that changes target while the workspace is already open
+  // (e.g. a second Teams message points at a different tab/task).
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab, focusTaskId]);
   useEffect(() => {
     onTabChange?.(tab);
   }, [tab, onTabChange]);
@@ -3187,7 +3203,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onSetTaskHours ? { onSetHours: onSetTaskHours } : {})} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onSetTaskHours ? { onSetHours: onSetTaskHours } : {})} {...(focusTaskId ? { focusTaskId } : {})} />
           {onPublishResourcing && <WeeklyResourcing tasks={tasks} onPublish={onPublishResourcing} />}
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
