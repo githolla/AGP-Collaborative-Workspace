@@ -2234,6 +2234,7 @@ function TaskDetail({
   onSetTaskDependencies?: (taskId: string, dependsOn: string[]) => void;
 }) {
   const [note, setNote] = useState("");
+  const [tab, setTab] = useState<"work" | "handoff" | "discussion">("work");
   const suggested = suggestHandoff(task.title);
   // Append "@Name" so a person is on the handoff/note (add one or several).
   const addPerson = (name: string) => setNote((n) => (new RegExp(`@${name.split(" ")[0]}\\b`, "i").test(n) ? n : `${n}${n && !n.endsWith(" ") ? " " : ""}@${name} `));
@@ -2262,197 +2263,279 @@ function TaskDetail({
     if (teamKey) seedRef.current?.(task.id, teamKey.split("|"));
   }, [task.id, teamKey]);
   const statusLabel: Record<TaskStatus, string> = { todo: "To do", doing: "In progress", done: "Done" };
-  const field = (k: string, v: React.ReactNode) => (
-    <div style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
-      <span style={{ width: 92, flexShrink: 0, fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>{k}</span>
-      <span style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>{v}</span>
-    </div>
-  );
+  const sourceLabel = fromKantata ? "Synced from Kantata" : task.source === "plan" ? "From a linked build plan" : "Added here";
+  const draftHandoff = (h: (typeof HANDOFFS)[number]) => {
+    setNote(personalizeHandoff(h, { clientName, taskTitle: task.title, ...(task.due ? { dueDate: task.due } : {}), ...(task.ownerName ? { ownerName: task.ownerName } : {}) }));
+    setTab("discussion");
+  };
+  const tabs: { key: typeof tab; label: string; badge?: React.ReactNode }[] = [
+    { key: "work", label: "Work", ...(blockers.length > 0 ? { badge: <span style={{ color: "#b8791a" }}> ⛓</span> } : {}) },
+    { key: "handoff", label: "Handoff" },
+    { key: "discussion", label: "Discussion", ...(history.length > 0 ? { badge: <span style={{ color: T.inkMuted }}> {history.length}</span> } : {}) },
+  ];
+
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,21,46,0.28)", zIndex: 60 }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,21,46,0.32)", zIndex: 60 }} />
       <div
         role="dialog"
         aria-label={`Task — ${task.title}`}
-        style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: 380, maxWidth: "94vw", background: "#fff", color: T.ink, boxShadow: "-14px 0 40px rgba(16,21,46,0.22)", zIndex: 61, padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}
+        style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: 480, maxWidth: "96vw", background: "#fff", color: T.ink, boxShadow: "-14px 0 40px rgba(16,21,46,0.22)", zIndex: 61, display: "flex", flexDirection: "column" }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted }}>Task</span>
-          <button type="button" className="btn-link" style={{ fontSize: 12 }} onClick={onClose}>Close ✕</button>
-        </div>
-        <h3 style={{ fontSize: 16, fontWeight: 800, color: navy, margin: "2px 0 10px", lineHeight: 1.3 }}>{task.title}</h3>
-
-        {field("Status", statusLabel[task.status])}
-        {!hasTeam && field("Owner", task.ownerName || <span style={{ color: T.inkMuted }}>Unassigned</span>)}
-        {field("Due", task.due ? <span style={{ color: overdue ? T.status.critical : T.ink, fontWeight: overdue ? 700 : 400 }}>{overdue ? "⚠ " : ""}{fmtDay(task.due)}</span> : <span style={{ color: T.inkMuted }}>No date</span>)}
-
-        {hasTeam && (
-          <div style={{ margin: "14px 0 4px" }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>Team &amp; hours</span>
-              <span style={{ fontSize: 10.5, color: progress.done === progress.total && progress.total > 0 ? "#116a43" : T.inkMuted, fontWeight: 700 }}>
-                {progress.done}/{progress.total} done{task.estimatedHours != null ? ` · ${task.estimatedHours}h total` : ""}
-              </span>
-            </div>
-            <div style={{ fontSize: 10.5, color: T.inkMuted, lineHeight: 1.5, marginBottom: 8 }}>
-              Order the handoff (▲▼), split the hours (blank = even split), tag the owner. Each person checks off
-              <b> their own</b> part — the task is done only when everyone is.
-            </div>
-            <TeamHoursEditor
-              task={task}
-              {...(onSetAssignmentHours ? { onSetHours: onSetAssignmentHours } : {})}
-              {...(onToggleAssignmentDone ? { onToggleDone: onToggleAssignmentDone } : {})}
-              {...(onSetAssignmentPrimary ? { onSetPrimary: onSetAssignmentPrimary } : {})}
-              {...(onSetAssignmentOrder ? { onSetOrder: onSetAssignmentOrder } : {})}
-            />
-          </div>
-        )}
-
-        {/* Dependencies — what this task is WAITING ON before it can move. */}
-        {onSetTaskDependencies && allTasks.length > 1 && (
-          <div style={{ margin: "8px 0 4px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, marginBottom: 4 }}>Waiting on</div>
-            {blockers.length > 0 && (
-              <div style={{ fontSize: 11, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 6, padding: "6px 9px", marginBottom: 6 }}>
-                ⛓ Blocked until {blockers.length === 1 ? "this finishes" : "these finish"}: {blockers.map((b) => b.title).join(", ")}
-              </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 168, overflowY: "auto" }}>
-              {allTasks.filter((o) => o.id !== task.id).map((o) => {
-                const on = (task.dependsOn ?? []).includes(o.id);
-                return (
-                  <label key={o.id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.ink, cursor: "pointer", padding: "2px 0" }}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={(e) => {
-                        const cur = task.dependsOn ?? [];
-                        onSetTaskDependencies(task.id, e.target.checked ? [...cur, o.id] : cur.filter((d) => d !== o.id));
-                      }}
-                      style={{ width: 14, height: 14, flexShrink: 0 }}
-                    />
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: o.status === "done" ? T.inkMuted : T.ink }}>
-                      {o.status === "done" ? "✓ " : ""}{o.title}
+        {/* ── Header: identity, key facts, and status-as-control ── */}
+        <div style={{ padding: "16px 20px 14px", borderBottom: `1px solid ${T.grid}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              {(task.projectLabel || fromKantata) && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 5 }}>
+                  {task.projectLabel && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px" }}>
+                      {task.projectLabel}{task.phaseLabel ? ` · ${task.phaseLabel}` : ""}
                     </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {task.label && field("Label", fromKantata ? <KantataChip /> : <TagChip>{task.label}</TagChip>)}
-        {task.phaseKey && field("Phase", <TagChip>{task.phaseKey}</TagChip>)}
-        {field("Source", fromKantata ? "Synced from Kantata" : task.source === "plan" ? "From a linked build plan" : "Added here")}
-
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "14px 0 6px" }}>Move to</div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {(["todo", "doing", "done"] as TaskStatus[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onStatus(task.id, s)}
-              className={task.status === s ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
-              style={{ flex: 1 }}
-            >
-              {statusLabel[s]}
-            </button>
-          ))}
-        </div>
-
-        {/* Auto-fire on hit: mark the step done and it prompts the handoff to
-            the next person — "milestone hit → here's the email to send". */}
-        {task.status === "done" && suggested && (
-          <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#e9f6ef", border: "1px solid #cfe9da", borderRadius: 8, padding: "9px 12px" }}>
-            <span style={{ fontSize: 11.5, color: "#1c5a3c", flex: 1, minWidth: 150 }}>
-              ✓ This step is done — send the <b>{suggested.name}</b> handoff to the next person?
-            </span>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setNote(personalizeHandoff(suggested, { clientName, taskTitle: task.title, ...(task.due ? { dueDate: task.due } : {}), ...(task.ownerName ? { ownerName: task.ownerName } : {}) }))}>Draft the handoff</button>
-          </div>
-        )}
-
-        {/* Handoff templates, right on the task — the email for this step,
-            pre-filled and personalized. Pick one; it drops into the box below. */}
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, margin: "16px 0 6px" }}>
-          Send a handoff{suggested ? " — suggested for this task" : ""}
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[...(suggested ? [suggested] : []), ...HANDOFFS.filter((h) => h.key !== suggested?.key)].map((h) => (
-            <button
-              key={h.key}
-              type="button"
-              title={h.when}
-              onClick={() => setNote(personalizeHandoff(h, { clientName, taskTitle: task.title, ...(task.due ? { dueDate: task.due } : {}), ...(task.ownerName ? { ownerName: task.ownerName } : {}) }))}
-              className="btn btn-secondary btn-sm"
-              style={h.key === suggested?.key ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700 } : {}}
-            >
-              {h.key === suggested?.key ? "★ " : ""}{h.name}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 10, color: T.inkMuted, margin: "6px 0 0" }}>
-          Fills the box below with the email for this step — personalized to this task, with the links to include. Adjust and post.
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 6px" }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>Discussion for this task</span>
-          {history.length > 0 && (
-            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { onClose(); if (onDiscuss) onDiscuss(task.title); else goTo("discussions"); }}>See all {history.length} in Discussions →</button>
-          )}
-        </div>
-
-        {/* This task's own conversation history — tied back by topic. */}
-        {history.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto", marginBottom: 8 }}>
-            {history.map((m) => (
-              <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid ${T.grid}`, borderRadius: 6, padding: "7px 9px" }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
-                  <span style={{ fontSize: 10, color: T.inkMuted }}>{m.at.slice(0, 10)}</span>
+                  )}
+                  {fromKantata && <KantataChip />}
                 </div>
-                <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
+              )}
+              <h3 style={{ fontSize: 16.5, fontWeight: 800, color: navy, margin: 0, lineHeight: 1.3 }}>{task.title}</h3>
+              <div style={{ fontSize: 11.5, color: T.inkMuted, marginTop: 5 }}>
+                <span style={{ color: overdue ? T.status.critical : T.inkMuted, fontWeight: overdue ? 700 : 400 }}>
+                  {task.due ? <>{overdue ? "⚠ " : ""}Due {fmtDay(task.due)}</> : "No due date"}
+                </span>
+                {hasTeam ? ` · ${progress.done}/${progress.total} done` : task.ownerName ? ` · ${task.ownerName}` : ""}
+                {` · ${sourceLabel}`}
               </div>
+            </div>
+            <button type="button" onClick={onClose} title="Close" style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", fontSize: 18, color: T.inkMuted, lineHeight: 1, padding: 2 }}>✕</button>
+          </div>
+          {/* Status is the primary action — the pills ARE the move-to control. */}
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            {(["todo", "doing", "done"] as TaskStatus[]).map((s) => (
+              <button key={s} type="button" onClick={() => onStatus(task.id, s)} className={task.status === s ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"} style={{ flex: 1 }}>
+                {statusLabel[s]}
+              </button>
             ))}
           </div>
-        ) : (
-          <div style={{ fontSize: 11.5, color: T.inkMuted, marginBottom: 8 }}>No discussion yet — start one below. It stays tied to this task.</div>
-        )}
+        </div>
 
-        <MentionTextarea
-          value={note}
-          onChange={setNote}
-          roster={mentionRoster}
-          rows={3}
-          placeholder={`Ask a question, flag a blocker, or send a handoff on “${task.title.slice(0, 34)}”… (@ to mention)`}
-        />
-        {mentionRoster.length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Add people</span>
-            {mentionRoster.slice(0, 8).map((p) => {
-              const on = new RegExp(`@${(p.name.split(" ")[0] ?? p.name)}\\b`, "i").test(note);
-              return (
-                <button key={p.name} type="button" onClick={() => addPerson(p.name)} title={p.sub} className="btn btn-secondary btn-sm" style={on ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700 } : { padding: "3px 9px", fontSize: 11 }}>
-                  {on ? "✓ " : "+ "}{p.name}
+        {/* ── Tabs: one section at a time, not a wall ── */}
+        <div style={{ display: "flex", gap: 4, padding: "8px 16px 0", borderBottom: `1px solid ${T.grid}` }}>
+          {tabs.map((tb) => (
+            <button key={tb.key} type="button" onClick={() => setTab(tb.key)} className={`nav-pill${tab === tb.key ? " active" : ""}`} style={{ fontSize: 11.5, padding: "5px 12px" }}>
+              {tb.label}{tb.badge}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Content ── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 22px" }}>
+          {tab === "work" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>Team &amp; hours</span>
+                  {hasTeam && (
+                    <span style={{ fontSize: 10.5, color: progress.done === progress.total && progress.total > 0 ? "#116a43" : T.inkMuted, fontWeight: 700 }}>
+                      {progress.done}/{progress.total} done{task.estimatedHours != null ? ` · ${task.estimatedHours}h` : ""}
+                    </span>
+                  )}
+                </div>
+                {hasTeam ? (
+                  <TeamHoursEditor
+                    task={task}
+                    {...(onSetAssignmentHours ? { onSetHours: onSetAssignmentHours } : {})}
+                    {...(onToggleAssignmentDone ? { onToggleDone: onToggleAssignmentDone } : {})}
+                    {...(onSetAssignmentPrimary ? { onSetPrimary: onSetAssignmentPrimary } : {})}
+                    {...(onSetAssignmentOrder ? { onSetOrder: onSetAssignmentOrder } : {})}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1.5 }}>
+                    {task.ownerName ? <>Owned by <b style={{ color: T.ink }}>{task.ownerName}</b>. Add teammates below to split the hours and track a handoff.</> : "No one is assigned yet."}
+                    {mentionRoster.length > 0 && onSetTaskAssignments && (
+                      <div style={{ marginTop: 8 }}>
+                        <AddPeopleControl roster={mentionRoster} onAdd={(name) => onSetTaskAssignments(task.id, [...(task.ownerName ? [task.ownerName] : []), name])} />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {hasTeam && mentionRoster.length > 0 && onSetTaskAssignments && (
+                  <div style={{ marginTop: 10 }}>
+                    <AddPeopleControl
+                      roster={mentionRoster.filter((p) => !assigns.some((a) => a.name === p.name))}
+                      onAdd={(name) => onSetTaskAssignments(task.id, [...assigns.map((a) => a.name), name])}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {onSetTaskDependencies && allTasks.length > 1 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted, marginBottom: 6 }}>Waiting on</div>
+                  {blockers.length > 0 && (
+                    <div style={{ fontSize: 11.5, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 8, padding: "7px 10px", marginBottom: 8, lineHeight: 1.5 }}>
+                      ⛓ Blocked until {blockers.length === 1 ? "this finishes" : "these finish"}: {blockers.map((b) => b.title).join(", ")}
+                    </div>
+                  )}
+                  <DependencyPicker task={task} allTasks={allTasks} onSet={onSetTaskDependencies} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "handoff" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {task.status === "done" && suggested && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#e9f6ef", border: "1px solid #cfe9da", borderRadius: 8, padding: "10px 12px" }}>
+                  <span style={{ fontSize: 12, color: "#1c5a3c", flex: 1, minWidth: 150, lineHeight: 1.4 }}>
+                    ✓ This step is done — send the <b>{suggested.name}</b> handoff to the next person?
+                  </span>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => draftHandoff(suggested)}>Draft it</button>
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.5 }}>
+                Pick the email for this step — it drops a personalized draft into the Discussion tab, ready to adjust and post.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {[...(suggested ? [suggested] : []), ...HANDOFFS.filter((h) => h.key !== suggested?.key)].map((h) => (
+                  <button
+                    key={h.key}
+                    type="button"
+                    onClick={() => draftHandoff(h)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, textAlign: "left", padding: "9px 12px", borderRadius: 8, border: `1px solid ${h.key === suggested?.key ? T.roi.navy : T.grid}`, background: h.key === suggested?.key ? "#f3f6fd" : "#fff", cursor: "pointer" }}
+                  >
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: h.key === suggested?.key ? T.roi.navy : T.ink }}>{h.key === suggested?.key ? "★ " : ""}{h.name}</span>
+                    <span style={{ fontSize: 10.5, color: T.inkMuted }}>{h.when}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === "discussion" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>On this task</span>
+                {history.length > 0 && (
+                  <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { onClose(); if (onDiscuss) onDiscuss(task.title); else goTo("discussions"); }}>Open in Discussions →</button>
+                )}
+              </div>
+              {history.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+                  {history.map((m) => (
+                    <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid ${T.grid}`, borderRadius: 6, padding: "8px 10px" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
+                        <span style={{ fontSize: 10, color: T.inkMuted }}>{m.at.slice(0, 10)}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: T.inkMuted }}>No discussion yet — start one below. It stays tied to this task.</div>
+              )}
+              <MentionTextarea
+                value={note}
+                onChange={setNote}
+                roster={mentionRoster}
+                rows={3}
+                placeholder={`Ask a question, flag a blocker, or send a handoff on “${task.title.slice(0, 30)}”… (@ to mention)`}
+              />
+              {mentionRoster.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Mention</span>
+                  {mentionRoster.slice(0, 6).map((p) => {
+                    const on = new RegExp(`@${(p.name.split(" ")[0] ?? p.name)}\\b`, "i").test(note);
+                    return (
+                      <button key={p.name} type="button" onClick={() => addPerson(p.name)} title={p.sub} className="btn btn-secondary btn-sm" style={on ? { borderColor: T.roi.navy, color: T.roi.navy, fontWeight: 700, padding: "3px 9px", fontSize: 11 } : { padding: "3px 9px", fontSize: 11 }}>
+                        {on ? "✓ " : "+ "}{p.name.split(" ")[0]}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button type="button" className="btn btn-primary btn-sm" disabled={!note.trim()} onClick={() => { onPost(note.trim(), task.title); setNote(""); }}>
+                  Post
                 </button>
-              );
-            })}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={!note.trim()}
-            onClick={() => {
-              onPost(note.trim(), task.title);
-              setNote("");
-            }}
-          >
-            Post to this task's discussion
-          </button>
-          <span style={{ fontSize: 10.5, color: T.inkMuted }}>Filed under this task — @mentioned people are notified.</span>
+                <span style={{ fontSize: 10.5, color: T.inkMuted }}>Filed under this task — @mentioned people are notified.</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * A compact "+ add a person" dropdown — replaces the wall of teammate chips.
+ * One control that opens a short searchable list, instead of ten buttons.
+ */
+function AddPeopleControl({ roster, onAdd }: { roster: readonly MentionPerson[]; onAdd: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  if (roster.length === 0) return null;
+  const matches = roster.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => setOpen((o) => !o)}>+ Add a person</button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 62 }} />
+          <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 63, width: 220, background: "#fff", border: `1px solid ${T.grid}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(16,21,46,0.18)", padding: 6 }}>
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the team…" style={{ width: "100%", fontSize: 12, padding: "5px 8px", border: `1px solid ${T.grid}`, borderRadius: 6, marginBottom: 4 }} />
+            <div style={{ maxHeight: 200, overflowY: "auto" }}>
+              {matches.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "6px 8px" }}>No match</div>
+              ) : (
+                matches.map((p) => (
+                  <button key={p.name} type="button" onClick={() => { onAdd(p.name); setOpen(false); setQ(""); }} className="table-row-hover" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", borderRadius: 6, fontSize: 12, color: T.ink }}>
+                    {p.name}{p.sub ? <span style={{ color: T.inkMuted, fontSize: 10.5 }}> · {p.sub}</span> : ""}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The dependency picker, folded to a searchable popover so it isn't a long
+ * always-open checklist competing with the rest of the card. */
+function DependencyPicker({ task, allTasks, onSet }: { task: Task; allTasks: Task[]; onSet: (taskId: string, dependsOn: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const current = task.dependsOn ?? [];
+  const chosen = allTasks.filter((o) => current.includes(o.id));
+  const candidates = allTasks.filter((o) => o.id !== task.id && !current.includes(o.id) && o.title.toLowerCase().includes(q.toLowerCase())).slice(0, 6);
+  return (
+    <div>
+      {chosen.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 6 }}>
+          {chosen.map((o) => (
+            <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: o.status === "done" ? T.inkMuted : T.ink }}>{o.status === "done" ? "✓ " : "○ "}{o.title}</span>
+              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => onSet(task.id, current.filter((d) => d !== o.id))}>remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a task this waits on…" style={{ width: "100%", fontSize: 12, padding: "5px 8px", border: `1px solid ${T.grid}`, borderRadius: 6 }} />
+      {q && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+          {candidates.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "4px 2px" }}>No match</div>
+          ) : (
+            candidates.map((o) => (
+              <button key={o.id} type="button" onClick={() => { onSet(task.id, [...current, o.id]); setQ(""); }} className="table-row-hover" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "5px 6px", borderRadius: 6, fontSize: 12, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                + {o.title}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
