@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
+import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, milestoneResolver, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -438,5 +438,74 @@ describe("accountLiveContext — project scope", () => {
   it("scopes the import the same way, so the plan matches the workspace", () => {
     const camps = campaignsFromMirror(scopedMirror(), "PATNC", "2026-07-31", ["p2"], true);
     expect(camps.map((c) => c.name)).toEqual(["PATNC: Design and Development"]);
+  });
+});
+
+describe("milestoneResolver — task → real project (Kantata milestone)", () => {
+  // The AGP shape: one workspace (fiscal-year contract), milestones = projects,
+  // tasks nested under a milestone, sub-tasks nested under a task.
+  const milestones = [
+    { id: "m1", title: "44061.10 - August Appeal DM" },
+    { id: "m2", title: "44061.16 - November CYE I Appeal DM" },
+  ];
+  const tasks = [
+    { id: "t1", parentId: "m1" }, // task directly under a milestone
+    { id: "t2", parentId: "m2" },
+    { id: "s1", parentId: "t1" }, // sub-task under t1 → still project m1
+    { id: "orphan" }, // no parent — a top-level task, no project
+    { id: "loose", parentId: "ghost" }, // parent isn't in the set
+  ];
+
+  it("maps a task to the milestone it hangs under", () => {
+    const resolve = milestoneResolver(milestones, tasks);
+    expect(resolve("t1")).toEqual({ id: "m1", title: "44061.10 - August Appeal DM" });
+    expect(resolve("t2")).toEqual({ id: "m2", title: "44061.16 - November CYE I Appeal DM" });
+  });
+
+  it("walks up through a sub-task to the milestone", () => {
+    expect(milestoneResolver(milestones, tasks)("s1")).toEqual({ id: "m1", title: "44061.10 - August Appeal DM" });
+  });
+
+  it("returns undefined for a task with no milestone ancestor", () => {
+    const resolve = milestoneResolver(milestones, tasks);
+    expect(resolve("orphan")).toBeUndefined();
+    expect(resolve("loose")).toBeUndefined();
+  });
+
+  it("does not loop on a malformed parent cycle", () => {
+    const cyclic = [
+      { id: "a", parentId: "b" },
+      { id: "b", parentId: "a" },
+    ];
+    expect(milestoneResolver(milestones, cyclic)("a")).toBeUndefined();
+  });
+});
+
+describe("accountLiveContext — tasks carry their project label", () => {
+  const mirror = {
+    clients: [{ id: "c1", name: "CWS", serviceLines: [], verticals: [] }],
+    projects: [
+      { id: "ws1", title: "CWS: FY27", serviceLine: "", vertical: "", model: "" },
+    ],
+    milestones: [
+      { id: "m1", projectId: "ws1", title: "44061.10 - August Appeal DM", dueDate: "2026-08-15", state: "active" },
+      { id: "m2", projectId: "ws1", title: "44061.16 - November CYE I Appeal DM", dueDate: "2026-11-20", state: "active" },
+    ],
+    tasks: [
+      { id: "t1", projectId: "ws1", title: "Create Copy Document", state: "not started", parentId: "m1" },
+      { id: "t2", projectId: "ws1", title: "Create Copy Document", state: "not started", parentId: "m2" },
+    ],
+    campaigns: [],
+    posts: [],
+    staff: [],
+  } as unknown as Parameters<typeof accountLiveContext>[0];
+
+  it("labels two same-named tasks with their different projects", () => {
+    const ctx = accountLiveContext(mirror, "CWS");
+    const byId = new Map(ctx.projects[0]!.tasks.map((t) => [t.id, t]));
+    expect(byId.get("t1")?.projectLabel).toBe("44061.10 - August Appeal DM");
+    expect(byId.get("t2")?.projectLabel).toBe("44061.16 - November CYE I Appeal DM");
+    // Same title, different project — the whole point.
+    expect(byId.get("t1")?.title).toBe(byId.get("t2")?.title);
   });
 });

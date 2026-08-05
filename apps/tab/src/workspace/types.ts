@@ -58,6 +58,14 @@ export interface Task {
   kantataStoryId?: string;
   /** Kantata workspace id the story belongs to. */
   kantataProjectId?: string;
+  /**
+   * The milestone (real project) this task belongs to. At AGP a Kantata
+   * workspace is a fiscal-year contract and its milestones are the projects,
+   * so this is what lets the plan group and filter tasks by project instead of
+   * showing one flat list across a whole year's work.
+   */
+  projectLabel?: string;
+  kantataMilestoneId?: string;
   /** ISO time of the last successful push of this task to Kantata. */
   kantataSyncedAt?: string;
 }

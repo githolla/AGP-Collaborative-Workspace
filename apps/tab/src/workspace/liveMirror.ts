@@ -306,6 +306,7 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
           projectId: String(t.workspace_id),
           title: str(t.title),
           state: str(t.state),
+          ...(str(t.parent_id) ? { parentId: String(t.parent_id) } : {}),
           ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
           ...(assignees.length > 0 ? { assignees } : {}),
           ...(typeof t.percent === "number" ? { percent: num(t.percent) } : {}),
@@ -329,6 +330,7 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         title: str(m.title),
         dueDate: str(m.due_date).slice(0, 10),
         state: str(m.state),
+        ...(str(m.parent_id) ? { parentId: String(m.parent_id) } : {}),
       })),
     posts: (p.kantataPosts ?? [])
       .filter((post) => str(post.message).trim().length > 0)

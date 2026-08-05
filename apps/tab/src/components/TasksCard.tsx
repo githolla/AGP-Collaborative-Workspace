@@ -98,6 +98,7 @@ export function TasksCard({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
   const [dueFilter, setDueFilter] = useState<"" | "overdue" | "week">("");
   const [newTitle, setNewTitle] = useState("");
   const [newOwner, setNewOwner] = useState("");
@@ -105,6 +106,10 @@ export function TasksCard({
   const [newLabel, setNewLabel] = useState("");
 
   const labels = [...new Set(tasks.map((t) => t.label).filter((l): l is string => !!l))];
+  // The real projects (Kantata milestones) present in this list. At AGP one
+  // workspace is a fiscal-year contract, so a plan routinely spans 10+ of
+  // these — grouping by them is what makes the list legible (Kellie's ask).
+  const projects = [...new Set(tasks.map((t) => t.projectLabel).filter((p): p is string => !!p))].sort();
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
@@ -113,6 +118,7 @@ export function TasksCard({
       (!ownerFilter || t.ownerName === ownerFilter) &&
       (!statusFilter || t.status === statusFilter) &&
       (!labelFilter || t.label === labelFilter) &&
+      (!projectFilter || t.projectLabel === projectFilter) &&
       (!dueFilter ||
         (dueFilter === "overdue" && !!t.due && t.due < today && t.status !== "done") ||
         (dueFilter === "week" && !!t.due && t.due >= today && t.due <= weekOut)),
@@ -139,9 +145,23 @@ export function TasksCard({
     return 0;
   });
 
+  // Group when there's more than one project and the person hasn't already
+  // narrowed to one. A single-project plan reads fine as a flat list.
+  const groupByProject = view === "list" && projects.length > 1 && !projectFilter;
+  const projectGroups = (() => {
+    if (!groupByProject) return [];
+    const groups = new Map<string, { key: string; label: string; tasks: Task[] }>();
+    for (const t of ordered) {
+      const key = t.projectLabel ?? "\u{10FFFF}"; // undated project sorts last
+      if (!groups.has(key)) groups.set(key, { key, label: t.projectLabel ?? "No project", tasks: [] });
+      groups.get(key)!.tasks.push(t);
+    }
+    return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
+  })();
+
   const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
-  const taskLine = (t: Task, compact = false) => (
+  const taskLine = (t: Task, compact = false, showProject = false) => (
     <div
       key={t.id}
       style={{
@@ -172,6 +192,9 @@ export function TasksCard({
         </span>
       )}
       <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {showProject && t.projectLabel && (
+          <span title={`Project: ${t.projectLabel}`} style={{ fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>
+        )}
         {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>}
         {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}
         {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
@@ -249,6 +272,16 @@ export function TasksCard({
           <option value="overdue">Overdue</option>
           <option value="week">Due this week</option>
         </select>
+        {projects.length > 1 && (
+          <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="select" style={controls} title="Filter to one project (Kantata milestone)">
+            <option value="">All projects</option>
+            {projects.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
         {labels.length > 0 && (
           <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} className="select" style={controls}>
             <option value="">All labels</option>
@@ -263,7 +296,26 @@ export function TasksCard({
       )}
 
       {view === "list" ? (
-        <div>{ordered.map((t) => taskLine(t))}</div>
+        groupByProject ? (
+          // Grouped by project (Kantata milestone): a fiscal-year contract runs
+          // many projects at once, so a flat list is unreadable. Each project
+          // is a headed section; tasks keep their within-section date order.
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {projectGroups.map((g) => (
+              <div key={g.key}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "12px 0 2px", paddingBottom: 4, borderBottom: `2px solid ${T.roi.navy}` }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{g.label}</span>
+                  <span style={{ fontSize: 10.5, color: T.inkMuted }}>
+                    {g.tasks.filter((t) => t.status !== "done").length} open · {g.tasks.length} total
+                  </span>
+                </div>
+                {g.tasks.map((t) => taskLine(t))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div>{ordered.map((t) => taskLine(t, false, projects.length > 0))}</div>
+        )
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           {(Object.keys(STATUS_LABEL) as TaskStatus[]).map((status) => (
@@ -271,7 +323,7 @@ export function TasksCard({
               <div style={{ fontSize: 10.5, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
                 {STATUS_LABEL[status]} ({filtered.filter((t) => t.status === status).length})
               </div>
-              {filtered.filter((t) => t.status === status).map((t) => taskLine(t, true))}
+              {filtered.filter((t) => t.status === status).map((t) => taskLine(t, true, true))}
             </div>
           ))}
         </div>
@@ -302,6 +354,7 @@ export function TasksCard({
               setOwnerFilter("");
               setStatusFilter("");
               setLabelFilter("");
+              setProjectFilter("");
               setDueFilter("");
             }}
           >

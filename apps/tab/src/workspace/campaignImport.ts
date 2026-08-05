@@ -259,6 +259,48 @@ export interface LiveMilestone {
   hard?: boolean;
 }
 
+/**
+ * Build a task→milestone resolver for one project.
+ *
+ * At AGP a Kantata workspace is a fiscal-year contract; the milestones inside
+ * it are the real projects, and work is nested under a milestone (milestone →
+ * task → sub-task) via each story's parent id. Given a task, we walk up parent
+ * ids until we hit a milestone — that milestone is the project the task is
+ * part of. Returns undefined for a task with no milestone ancestor (a
+ * top-level task in a workspace that isn't run the fiscal-year way), so those
+ * simply stay ungrouped rather than being forced under a wrong label.
+ */
+export function milestoneResolver(
+  milestones: readonly { id: string; title: string; parentId?: string }[],
+  tasks: readonly { id: string; parentId?: string }[],
+): (taskId: string) => { id: string; title: string } | undefined {
+  const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+  const parentOf = new Map<string, string | undefined>();
+  for (const m of milestones) parentOf.set(m.id, m.parentId);
+  for (const t of tasks) parentOf.set(t.id, t.parentId);
+
+  const cache = new Map<string, { id: string; title: string } | undefined>();
+  return (taskId: string) => {
+    if (cache.has(taskId)) return cache.get(taskId);
+    const seen = new Set<string>();
+    let cur: string | undefined = parentOf.get(taskId);
+    // Bounded walk — cycles can't happen in Kantata, but a malformed parent
+    // chain must not loop forever.
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const ms = milestoneById.get(cur);
+      if (ms) {
+        const hit = { id: ms.id, title: ms.title };
+        cache.set(taskId, hit);
+        return hit;
+      }
+      cur = parentOf.get(cur);
+    }
+    cache.set(taskId, undefined);
+    return undefined;
+  };
+}
+
 export interface LiveTask {
   /**
    * Kantata story id. Carried so an imported task can be written BACK —
@@ -271,6 +313,14 @@ export interface LiveTask {
   title: string;
   state: string;
   dueDate?: string;
+  /**
+   * The milestone (real project) this task hangs under, resolved by walking
+   * the Kantata parent chain. At AGP a workspace is a fiscal-year contract and
+   * its milestones are the projects, so this is the label that tells a viewer
+   * WHICH project a task belongs to — the thing Kellie's team needs.
+   */
+  milestoneId?: string;
+  projectLabel?: string;
   /** Kantata owner(s) — who's accountable for the work. */
   assignees?: string[];
   percent?: number;
@@ -379,34 +429,44 @@ export function accountLiveContext(
   const belongs = (p: (typeof mirror.projects)[number]): boolean =>
     scopeOnly ? linked.has(p.id) : linked.has(p.id) || matcherBelongs(p);
 
-  const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => ({
+  const projects: LiveProject[] = mirror.projects.filter(belongs).map((p) => {
+    const projMilestones = mirror.milestones.filter((m) => m.projectId === p.id);
+    const projTasks = (mirror.tasks ?? []).filter((t) => t.projectId === p.id);
+    // Resolve which milestone each task belongs to by walking the parent chain
+    // (milestone → task → sub-task). Precomputed once per project so the
+    // per-task lookup is O(depth), not O(tasks).
+    const resolveMilestone = milestoneResolver(projMilestones, projTasks);
+    return {
     id: p.id,
     title: p.title,
     ...(p.status ? { status: p.status } : {}),
     ...(p.startDate ? { startDate: p.startDate } : {}),
     ...(p.dueDate ? { dueDate: p.dueDate } : {}),
     ...(p.clientGroup ? { clientGroup: p.clientGroup } : {}),
-    milestones: mirror.milestones
-      .filter((m) => m.projectId === p.id)
+    milestones: projMilestones
+      .slice()
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
       .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
-    tasks: (mirror.tasks ?? [])
-      .filter((t) => t.projectId === p.id)
-      .map((t) => ({
+    tasks: projTasks.map((t) => {
+      const ms = resolveMilestone(t.id);
+      return {
         id: t.id,
         projectId: t.projectId,
         title: t.title,
         state: t.state,
+        ...(ms ? { milestoneId: ms.id, projectLabel: ms.title } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
         ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
         ...(t.percent != null ? { percent: t.percent } : {}),
-      })),
+      };
+    }),
     ...(p.team && p.team.length > 0 ? { team: p.team } : {}),
     ...(p.minutes30d != null ? { minutes30d: p.minutes30d } : {}),
     ...(p.minutesRecent != null ? { minutesRecent: p.minutesRecent } : {}),
     ...(p.lastEntryDate ? { lastEntryDate: p.lastEntryDate } : {}),
     ...(p.people30d != null ? { people30d: p.people30d } : {}),
-  }));
+    };
+  });
 
   const deals: LiveDeal[] = mirror.campaigns
     .filter((c) => c.kind === "deal" && normName(c.clientName) === normName(canonical) && c.stage !== "closedlost")

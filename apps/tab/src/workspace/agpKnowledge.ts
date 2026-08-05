@@ -240,6 +240,12 @@ export interface MirrorTask {
   title: string;
   state: string;
   dueDate?: string;
+  /**
+   * Parent story id — the milestone (real project) this task hangs under.
+   * At AGP one Kantata workspace is a fiscal-year contract and its milestones
+   * are the projects, so this is what tells a task which project it's part of.
+   */
+  parentId?: string;
   /** Owner(s) — resolved from Kantata assignees. Turns the plan accountable. */
   assignees?: string[];
   /** 0–100 progress from Kantata. */
@@ -271,6 +277,8 @@ export interface MirrorMilestone {
   dueDate: string;
   state: string;
   hard?: boolean;
+  /** Parent story, on the rare nested milestone — used to walk task→milestone. */
+  parentId?: string;
 }
 
 export interface MirrorCampaign {

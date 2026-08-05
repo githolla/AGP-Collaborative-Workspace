@@ -565,7 +565,14 @@ function Workspace() {
     ? selectedLiveCtx.projects.flatMap((p) =>
         p.tasks
           .filter((t) => !taskIsDone(t.state))
-          .filter((t) => !selectedAccount.tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase()))
+          // Already imported? Match on Kantata story id, not title — identical
+          // phase names repeat across every milestone in a fiscal-year
+          // contract, so a title match would hide real, un-imported tasks.
+          .filter((t) =>
+            !selectedAccount.tasks.some((e) =>
+              e.kantataStoryId ? e.kantataStoryId === t.id : e.title.toLowerCase() === t.title.toLowerCase(),
+            ),
+          )
           .map((t) => ({
             title: t.title,
             status: taskColumn(t.state),
@@ -573,6 +580,8 @@ function Workspace() {
             project: p.title,
             kantataStoryId: t.id,
             kantataProjectId: t.projectId,
+            ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+            ...(t.milestoneId ? { kantataMilestoneId: t.milestoneId } : {}),
           })),
       )
     : [];

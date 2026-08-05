@@ -747,6 +747,9 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
                       style={{ fontSize: 11.5, textAlign: "left", background: "none", border: "none", padding: "2px 3px", borderRadius: 4, cursor: "pointer" }}
                     >
                       <div style={{ fontWeight: 600, color: col.key === "done" ? T.inkMuted : navy, lineHeight: 1.3 }}>{t.title}</div>
+                      {t.projectLabel && (
+                        <div style={{ color: T.roi.navy, fontSize: 9.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</div>
+                      )}
                       {col.key !== "done" && (
                         <div style={{ color: T.inkMuted, fontSize: 10.5 }}>
                           {t.ownerName} {t.due ? `· Due ${fmtDay(t.due).split(", ")[1]}` : ""}
@@ -769,10 +772,15 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
           <SectionTitle>Due This Week</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {dueThisWeek.map((t, i) => (
-              <RowButton key={t.id} onClick={() => onOpenTask(t)} title="See everything about this task" style={{ padding: "9px 4px" }}>
-                <span aria-hidden style={{ width: 11, height: 11, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
-                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap" }}>{t.due ? fmtDay(t.due) : ""}</span>
+              <RowButton key={t.id} onClick={() => onOpenTask(t)} title="See everything about this task" style={{ padding: "9px 4px", alignItems: "flex-start" }}>
+                <span aria-hidden style={{ width: 11, height: 11, marginTop: 3, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  {/* Which real project (Kantata milestone) — so a task from a
+                      year-long contract isn't floating with no context. */}
+                  {t.projectLabel && <span style={{ display: "block", fontSize: 10.5, color: T.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>}
+                </span>
+                <span style={{ fontSize: 11.5, color: T.inkSecondary, whiteSpace: "nowrap", marginTop: 1 }}>{t.due ? fmtDay(t.due) : ""}</span>
               </RowButton>
             ))}
             {/* Nothing due → the next real dates: campaign milestones. */}
@@ -1174,6 +1182,9 @@ export interface TaskCandidate {
   /** Kantata story id — carried so edits after import can be written back. */
   kantataStoryId?: string;
   kantataProjectId?: string;
+  /** The milestone (real project) this task belongs to. */
+  projectLabel?: string;
+  kantataMilestoneId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,8 +1320,13 @@ function ImportReview({
 }) {
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
   const [tasksDeselected, setTasksDeselected] = useState<Set<string>>(new Set());
+  // A task's identity is its Kantata story id, NOT its title. At AGP every
+  // milestone under a fiscal-year contract carries the same phase names
+  // ("Create Copy Document" ×10), so keying by title would collapse ten real
+  // tasks into one. Fall back to project+title only for tasks with no id.
+  const taskKey = (t: TaskCandidate): string => t.kantataStoryId ?? `${t.projectLabel ?? t.project}::${t.title}`;
   const selected = candidates.filter((c) => !deselected.has(c.name));
-  const selectedTasks = taskCandidates.filter((t) => !tasksDeselected.has(t.title));
+  const selectedTasks = taskCandidates.filter((t) => !tasksDeselected.has(taskKey(t)));
   const toggle = (name: string) =>
     setDeselected((prev) => {
       const next = new Set(prev);
@@ -1318,11 +1334,11 @@ function ImportReview({
       else next.add(name);
       return next;
     });
-  const toggleTask = (title: string) =>
+  const toggleTask = (key: string) =>
     setTasksDeselected((prev) => {
       const next = new Set(prev);
-      if (next.has(title)) next.delete(title);
-      else next.add(title);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
@@ -1406,15 +1422,18 @@ function ImportReview({
           </div>
           {taskCandidates.map((t) => (
             <label
-              key={t.title}
+              key={taskKey(t)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
             >
-              <input type="checkbox" checked={!tasksDeselected.has(t.title)} onChange={() => toggleTask(t.title)} />
+              <input type="checkbox" checked={!tasksDeselected.has(taskKey(t))} onChange={() => toggleTask(taskKey(t))} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.inkSecondary }}>
                   {t.status === "doing" ? "in progress" : "to do"}
-                  {t.due ? ` · due ${fmtDay(t.due)}` : ""} · {t.project}
+                  {t.due ? ` · due ${fmtDay(t.due)}` : ""}
+                  {/* Prefer the real project (milestone) over the workspace
+                      title, so an imported task carries the project it's under. */}
+                  {" · "}{t.projectLabel ?? t.project}
                 </span>
               </span>
             </label>
@@ -2706,6 +2725,18 @@ export function ClientWorkspace({
   );
   const owners = [...new Set(tasks.map((t) => t.ownerName).filter((o): o is string => !!o))];
 
+  // Topics a discussion can be filed under. Kellie's ask: file conversation by
+  // PROJECT, not just campaign — at AGP the projects are the Kantata
+  // milestones. So the list is the real projects (milestone titles + any
+  // project label a task carries) with campaign names after, deduped.
+  const projectTopics = [
+    ...new Set([
+      ...(liveContext?.projects ?? []).flatMap((p) => p.milestones.map((m) => m.title)),
+      ...tasks.map((t) => t.projectLabel).filter((l): l is string => !!l),
+      ...account.campaigns.map((c) => c.name),
+    ]),
+  ];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
@@ -2931,14 +2962,14 @@ export function ClientWorkspace({
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
-          <HandoffComposer account={account} topics={account.campaigns.map((c) => c.name)} mentionRoster={buildMentionRoster(account, people)} onPost={onPost} />
+          <HandoffComposer account={account} topics={projectTopics} mentionRoster={buildMentionRoster(account, people)} onPost={onPost} />
           <Thread
             messages={account.thread}
             onPost={onPost}
             userName={userName}
             {...(onEditPost ? { onEdit: onEditPost } : {})}
             {...(onDeletePost ? { onDelete: onDeletePost } : {})}
-            topics={account.campaigns.map((c) => c.name)}
+            topics={projectTopics}
             taskTitles={tasks.map((t) => t.title)}
             fileNames={[...account.files, ...account.docs].map((f) => f.name)}
             mentionRoster={buildMentionRoster(account, people)}

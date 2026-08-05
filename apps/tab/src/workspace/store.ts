@@ -1072,14 +1072,28 @@ export function useWorkspace() {
   const importTasks = useCallback(
     (
       id: string,
-      selected: { title: string; status: TaskStatus; due?: string; kantataStoryId?: string; kantataProjectId?: string }[],
+      selected: {
+        title: string;
+        status: TaskStatus;
+        due?: string;
+        kantataStoryId?: string;
+        kantataProjectId?: string;
+        projectLabel?: string;
+        kantataMilestoneId?: string;
+      }[],
     ) => {
       if (selected.length === 0) return;
       mutateAccount(id, (a) => {
         const tasks = [...a.tasks];
         let added = 0;
         for (const t of selected) {
-          if (tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase())) continue;
+          // Dedup by Kantata story id when we have it — identical phase names
+          // repeat across milestones, so a title-only check would silently
+          // drop real tasks. Fall back to title for id-less manual entries.
+          const dup = t.kantataStoryId
+            ? tasks.some((e) => e.kantataStoryId === t.kantataStoryId)
+            : tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase());
+          if (dup) continue;
           tasks.push({
             id: newId("task"),
             title: t.title,
@@ -1092,6 +1106,8 @@ export function useWorkspace() {
             // tasks are already in sync at the moment they land.
             ...(t.kantataStoryId ? { kantataStoryId: t.kantataStoryId, kantataSyncedAt: new Date().toISOString() } : {}),
             ...(t.kantataProjectId ? { kantataProjectId: t.kantataProjectId } : {}),
+            ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+            ...(t.kantataMilestoneId ? { kantataMilestoneId: t.kantataMilestoneId } : {}),
           });
           added += 1;
         }
