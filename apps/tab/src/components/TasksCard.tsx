@@ -84,6 +84,7 @@ export function TasksCard({
   onStatus,
   onToggleClientVisible,
   onOpenTask,
+  onDiscuss,
   focusTaskId,
 }: {
   tasks: Task[];
@@ -94,6 +95,9 @@ export function TasksCard({
   onToggleClientVisible?: (taskId: string) => void;
   /** Click the task title to see everything about it (detail drawer). */
   onOpenTask?: (task: Task) => void;
+  /** Start a discussion scoped to a project or task — Kellie's "route the
+   * project-plan line straight to Discussions", context already set. */
+  onDiscuss?: (topic: string) => void;
   /**
    * Deep-link target: scroll to this task and flash it. Hours entry itself
    * lives on the Resourcing tab now; this stays as a plan-side landing fallback.
@@ -362,18 +366,23 @@ export function TasksCard({
               const openCount = g.tasks.filter((t) => t.status !== "done").length;
               return (
                 <div key={g.key}>
-                  <button
-                    type="button"
-                    onClick={() => toggleGroup(g.key)}
-                    title={isCollapsed ? "Expand this project" : "Collapse this project"}
-                    style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", cursor: "pointer", background: "none", border: "none", margin: "12px 0 2px", padding: "0 0 4px", borderBottom: `2px solid ${T.roi.navy}` }}
-                  >
-                    <span aria-hidden style={{ fontSize: 10, color: T.roi.navy, transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 120ms ease", display: "inline-block", width: 10 }}>▼</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{g.label}</span>
-                    <span style={{ fontSize: 10.5, color: T.inkMuted }}>
-                      {openCount} open · {g.tasks.length} total
-                    </span>
-                  </button>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "12px 0 2px", paddingBottom: 4, borderBottom: `2px solid ${T.roi.navy}` }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(g.key)}
+                      title={isCollapsed ? "Expand this project" : "Collapse this project"}
+                      style={{ display: "flex", alignItems: "baseline", gap: 8, flex: 1, minWidth: 0, textAlign: "left", cursor: "pointer", background: "none", border: "none", padding: 0 }}
+                    >
+                      <span aria-hidden style={{ fontSize: 10, color: T.roi.navy, transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 120ms ease", display: "inline-block", width: 10 }}>▼</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{g.label}</span>
+                      <span style={{ fontSize: 10.5, color: T.inkMuted }}>
+                        {openCount} open · {g.tasks.length} total
+                      </span>
+                    </button>
+                    {onDiscuss && g.label !== "No project" && (
+                      <button type="button" className="btn-link" style={{ fontSize: 11, whiteSpace: "nowrap" }} title={`Discuss ${g.label} — opens Discussions scoped to this project`} onClick={() => onDiscuss(g.label)}>💬 Discuss</button>
+                    )}
+                  </div>
                   {!isCollapsed && g.tasks.map((t) => taskLine(t))}
                 </div>
               );

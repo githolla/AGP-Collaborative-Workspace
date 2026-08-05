@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { card, T } from "../theme.js";
 import { SectionTitle } from "./bits.js";
 import { timeAgoLabel } from "../workspace/format.js";
@@ -48,6 +48,7 @@ export function Thread({
   userName,
   onEdit,
   onDelete,
+  initialTopic,
 }: {
   messages: ThreadMessage[];
   onPost: (body: string, topic?: string) => void;
@@ -87,6 +88,13 @@ export function Thread({
   onQuickAdd?: (name: string) => void;
   /** Jump to the source a message is tied to (task / file / project). */
   onOpenTopic?: (topic: string, kind: "project" | "task" | "file" | "general") => void;
+  /**
+   * Context handed in from elsewhere in the app: when someone clicks "Discuss"
+   * on a task, milestone, file, or deliverable, the composer opens already
+   * scoped to that thing and the history filters to it — so the conversation
+   * knows its spot without anyone typing where they are.
+   */
+  initialTopic?: string;
 }) {
   const showAgents = !!roster && roster.length > 0;
   const [draft, setDraft] = useState("");
@@ -98,6 +106,14 @@ export function Thread({
   const [timeFilter, setTimeFilter] = useState<"" | "7" | "30" | "90">("");
   const [search, setSearch] = useState("");
   const [pendingAdd, setPendingAdd] = useState<string | null>(null);
+
+  // Land pre-scoped when a "Discuss" click sends context in: seed the compose
+  // topic AND filter the history to that thing, so it opens as its own thread.
+  useEffect(() => {
+    if (!initialTopic) return;
+    setPostTopic(initialTopic);
+    setFilter(initialTopic);
+  }, [initialTopic]);
 
   // Classify a topic into the kind of collaboration it is, so history can be
   // sliced by project / task / file / general (Kellie: "here's around task

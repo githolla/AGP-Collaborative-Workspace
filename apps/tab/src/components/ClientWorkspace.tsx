@@ -1288,7 +1288,47 @@ function ClientDocuments({ account, onDecision }: { account: ClientAccount; onDe
   );
 }
 
-function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, onClientDecision, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
+/**
+ * The AI weekly update, on the client dashboard — Josh's offer on the call. It
+ * drafts a plain-language "where your project is" note from the CLIENT-VISIBLE
+ * deliverables (never internal tasks or any hours), the PM edits it, and posts
+ * it so it reaches the client in Discussions. Draft-then-approve: the client
+ * only ever sees what the PM sends.
+ */
+function WeeklyClientUpdate({ account, deliverables, onPost }: { account: ClientAccount; deliverables: Task[]; onPost?: (body: string, topic?: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const [sent, setSent] = useState(false);
+  const generate = () => { setDraft(composeClientDigest(account, deliverables, AS_OF_TODAY())); setOpen(true); setSent(false); };
+  return (
+    <div style={{ ...card, borderColor: T.roi.cyan, background: "#f2fbfd" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: "#16708f" }}>📣 Weekly update for the client</span>
+        {!open && (
+          <button type="button" className="btn btn-ai btn-sm" onClick={generate}>Draft this week's update →</button>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 4, lineHeight: 1.5 }}>
+        AI drafts it from the deliverables the client can already see — you edit, then post. Nothing internal, no hours.
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} style={{ width: "100%", fontSize: 12, lineHeight: 1.5, padding: 10, border: `1px solid ${T.grid}`, borderRadius: 8, fontFamily: "inherit", resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={!onPost || !draft.trim() || sent} onClick={() => { onPost?.(draft.trim(), "Weekly update"); setSent(true); setOpen(false); }}>
+              {sent ? "✓ Posted to Discussions" : "Post to the client →"}
+            </button>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={generate}>Regenerate</button>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {sent && <div style={{ fontSize: 11, color: "#116a43", marginTop: 8 }}>Posted — the client sees it in Discussions.</div>}
+    </div>
+  );
+}
+
+function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, onClientDecision, onDiscuss, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void; onDiscuss?: (topic: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const today = AS_OF_TODAY();
@@ -1331,9 +1371,12 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
         </span>
       </div>
 
-      {/* Documents shared with the client — leads the dashboard, because it's
-          the thing a client actually acts on (Cara: files shared with the
-          client, some for approval). Delivery progress sits below it. */}
+      {/* The AI weekly update — drafted from client deliverables, PM posts it. */}
+      <WeeklyClientUpdate account={account} deliverables={deliverables} {...(onPost ? { onPost } : {})} />
+
+      {/* Documents shared with the client — the thing a client actually acts on
+          (Cara: files shared with the client, some for approval). Their files
+          live here; delivery progress sits below. */}
       <ClientDocuments account={account} {...(onClientDecision ? { onDecision: onClientDecision } : {})} />
 
       {/* Status summary — the "job tracker" read the client wanted at a glance. */}
@@ -1386,6 +1429,9 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
                     <span style={{ fontSize: 11, fontWeight: overdue ? 700 : 400, color: overdue ? T.status.critical : T.inkSecondary, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                       {overdue ? "⚠ " : ""}{fmtDay(t.due)}
                     </span>
+                  )}
+                  {onDiscuss && (
+                    <button type="button" className="btn-link" style={{ fontSize: 11, whiteSpace: "nowrap" }} title={`Discuss "${t.title}" — opens Discussions scoped to it`} onClick={() => onDiscuss(t.title)}>💬</button>
                   )}
                   {onRemindDeliverable && t.status !== "done" && t.due && (
                     <button type="button" className="btn btn-secondary btn-sm" title="Send the client a reminder about this deliverable" onClick={() => onRemindDeliverable(t.id)}>⏰ Remind</button>
@@ -2106,6 +2152,7 @@ function TaskDetail({
   onPost,
   goTo,
   onClose,
+  onDiscuss,
   onSetTaskAssignments,
   onSetAssignmentHours,
   onToggleAssignmentDone,
@@ -2122,6 +2169,8 @@ function TaskDetail({
   onPost: (body: string, topic?: string) => void;
   goTo: (t: ClientTab) => void;
   onClose: () => void;
+  /** Open Discussions scoped to this task's conversation. */
+  onDiscuss?: (topic: string) => void;
   onSetTaskAssignments?: (taskId: string, names: string[]) => void;
   onSetAssignmentHours?: (taskId: string, name: string, hours: number | undefined) => void;
   onToggleAssignmentDone?: (taskId: string, name: string, done: boolean) => void;
@@ -2293,7 +2342,7 @@ function TaskDetail({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 6px" }}>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>Discussion for this task</span>
           {history.length > 0 && (
-            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { onClose(); goTo("discussions"); }}>See all {history.length} in Discussions →</button>
+            <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { onClose(); if (onDiscuss) onDiscuss(task.title); else goTo("discussions"); }}>See all {history.length} in Discussions →</button>
           )}
         </div>
 
@@ -3303,6 +3352,11 @@ export function ClientWorkspace({
   const [hubOpen, setHubOpen] = useState(false);
   // Click any task to see everything about it (detail drawer, additive overlay).
   const [openTask, setOpenTask] = useState<Task | null>(null);
+  // Context-aware discussions: a "Discuss" click anywhere sets the topic and
+  // jumps to Discussions, where the composer + history open scoped to it — so
+  // the conversation already knows the spot it's about (Josh's ask).
+  const [discussTopic, setDiscussTopic] = useState<string | null>(null);
+  const startDiscussion = (topic: string) => { setDiscussTopic(topic); setTab("discussions"); };
   // A fresh workspace with matched work opens the review panel by itself —
   // the next action should be on screen, not hidden behind a corner button.
   const [reviewOpen, setReviewOpen] = useState(
@@ -3534,7 +3588,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
           {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
               <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
@@ -3583,7 +3637,7 @@ export function ClientWorkspace({
           {...(focusTaskId ? { focusTaskId } : {})}
         />
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
+      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} onDiscuss={startDiscussion} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3598,6 +3652,7 @@ export function ClientWorkspace({
             topics={projectTopics}
             projectOptions={discussionProjects}
             projectOf={projectOfTopic}
+            {...(discussTopic ? { initialTopic: discussTopic } : {})}
             taskTitles={tasks.map((t) => t.title)}
             fileNames={[...account.files, ...account.docs].map((f) => f.name)}
             mentionRoster={buildMentionRoster(account, people)}
@@ -3645,6 +3700,7 @@ export function ClientWorkspace({
           onPost={onPost}
           goTo={setTab}
           onClose={() => setOpenTask(null)}
+          onDiscuss={startDiscussion}
           {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})}
           {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})}
           {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})}
