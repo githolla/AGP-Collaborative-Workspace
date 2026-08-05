@@ -12,10 +12,11 @@ import { initialism } from "../workspace/campaignImport.js";
  * Internal-only surface: rendered by App (never reachable from the guest
  * component graph).
  */
-export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unlinkedCount?: number }) {
-  // Live data + several unlinked workspaces = the exact moment this panel
-  // matters. Open itself instead of hiding behind a link.
-  const [open, setOpen] = useState(() => live && unlinkedCount >= 3);
+export function DataInspector({ live, enabled = false }: { live: boolean; enabled?: boolean }) {
+  // Front-office rule (Garry: tell time, don't show the watch): this is raw
+  // Kantata plumbing, so it renders ONLY in debug mode and never auto-opens.
+  const [open, setOpen] = useState(false);
+  if (!enabled) return null;
   const [copied, setCopied] = useState(false);
   if (!open) {
     return (

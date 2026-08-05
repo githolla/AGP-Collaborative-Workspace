@@ -21,7 +21,9 @@ export function composeClientDigest(account: ClientAccount, tasks: Task[], today
   const twoWeeksOut = new Date(new Date(`${today}T00:00:00Z`).getTime() + 14 * 86_400_000).toISOString().slice(0, 10);
 
   const active = account.campaigns.filter((c) => c.status === "active");
-  const doneThisWeek = tasks.filter((t) => t.status === "done" && t.createdAt.slice(0, 10) >= weekAgo);
+  // Prefer the real completion date; fall back to createdAt only for legacy
+  // tasks that predate the completedAt stamp.
+  const doneThisWeek = tasks.filter((t) => t.status === "done" && (t.completedAt ?? t.createdAt).slice(0, 10) >= weekAgo);
   const comingUp = tasks
     .filter((t) => t.status !== "done" && t.due && t.due >= today && t.due <= twoWeeksOut)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));

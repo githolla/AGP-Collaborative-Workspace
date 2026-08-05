@@ -249,6 +249,42 @@ async function execute(call: PlannedCall, token: string): Promise<{ ok: true; cr
   return { ok: true, ...(createdId ? { createdId } : {}) };
 }
 
+/**
+ * Allocations are an UPSERT, not a blind create — Kantata has no natural key on
+ * workspace_allocations, so a plain POST of the same person-week each publish
+ * would pile up duplicates that double-count on the next read. So: look up an
+ * existing allocation for this workspace+user+week and PUT it; only POST when
+ * there isn't one. A lookup failure falls back to POST (never worse than the
+ * old behavior).
+ */
+async function executeAllocationUpsert(call: PlannedCall, token: string): Promise<{ ok: true; createdId?: string } | { ok: false; error: string }> {
+  const wa = (call.body as { workspace_allocation?: Record<string, unknown> }).workspace_allocation ?? {};
+  const wsId = String(wa.workspace_id ?? "");
+  const userId = String(wa.user_id ?? "");
+  const start = String(wa.start_date ?? "");
+  const end = String(wa.end_date ?? "");
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  try {
+    const res = await fetch(`${API}/workspace_allocations?workspace_id=${wsId}&per_page=200`, { headers, signal: AbortSignal.timeout(10_000) });
+    if (res.ok) {
+      const json = (await res.json().catch(() => null)) as { workspace_allocations?: Record<string, Record<string, unknown>> } | null;
+      const rows = json?.workspace_allocations ? Object.values(json.workspace_allocations) : [];
+      const match = rows.find((r) =>
+        String(r.user_id ?? r.assignee_id ?? "") === userId &&
+        String(r.start_date ?? "").slice(0, 10) === start &&
+        String(r.end_date ?? "").slice(0, 10) === end,
+      );
+      if (match?.id != null) {
+        // Update the hours on the existing reservation instead of adding one.
+        return execute({ method: "PUT", url: `${API}/workspace_allocations/${String(match.id)}`, body: { workspace_allocation: { allocated_hours: wa.allocated_hours } } }, token);
+      }
+    }
+  } catch {
+    // lookup failed — fall through to POST
+  }
+  return execute(call, token);
+}
+
 /** Path only — the full URL carries no secrets, but the log reads better. */
 const pathOf = (url: string): string => url.slice(API.length);
 
@@ -308,7 +344,9 @@ export default async function handler(
       results.push({ ref, kind, ok: true, planned: true, call });
       continue;
     }
-    const done = await execute(planned.call, token);
+    const done = kind === "allocation.set"
+      ? await executeAllocationUpsert(planned.call, token)
+      : await execute(planned.call, token);
     results.push(
       done.ok
         ? { ref, kind, ok: true, planned: false, call, ...(done.createdId ? { createdId: done.createdId } : {}) }

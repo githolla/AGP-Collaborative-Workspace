@@ -6,6 +6,7 @@ import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
+import { MyTasks, myTaskCount } from "./components/MyTasks.js";
 import { ClientWorkspace, type ClientTab } from "./components/ClientWorkspace.js";
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
@@ -20,7 +21,7 @@ import { clearIdentity, loadIdentity, saveIdentity, type LocalIdentity } from ".
 import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { initTeams } from "./teams/teamsHost.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
-import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
 import { allocationIntent, pendingWrites, pushIntents, resolveStaffId } from "./workspace/kantataWrite.js";
 import { weeklyAllocations } from "./workspace/resourcing.js";
 import { effectiveHours, reconcileAssignments } from "./workspace/taskAssignments.js";
@@ -464,11 +465,14 @@ function Workspace() {
 
   // Workspaces pointing at names that don't exist in the live book (demo
   // leftovers, misspellings) — badged on the Clients list.
-  const unlinkedNames = useMemo(() => {
-    if (!liveStatus.live) return [];
-    const mirror = loadMirror();
-    return ws.accounts.filter((a) => !a.archived && !isInBook(mirror, a.clientName)).map((a) => a.clientName);
-  }, [ws.accounts, liveStatus]);
+  // Debug surfaces (the Kantata Data Inspector) are OFF in the front office —
+  // opt in with ?debug in the URL or localStorage agp-debug=1.
+  const debugMode = typeof window !== "undefined" && (window.localStorage.getItem("agp-debug") === "1" || /[?&#]debug\b/.test(window.location.href));
+
+  // Landing sub-view: the client directory, or the personal cross-client task
+  // list (the spec's "My Tasks" home). Local — not a deep-linked route.
+  const [landingTab, setLandingTab] = useState<"workspaces" | "mytasks">("workspaces");
+  const myTasksTotal = useMemo(() => myTaskCount(ws.accounts, userName), [ws.accounts, userName]);
 
   // Per-workspace live pulse for the Clients page: how many Kantata matches
   // are WAITING for review, and the next real milestone — so the hero grid
@@ -832,11 +836,19 @@ function Workspace() {
           <span data-tour="nav" style={{ display: "inline-flex", gap: 6 }}>
             <button
               type="button"
-              className={`nav-pill${route.view === "clients" || route.view === "account" ? " active" : ""}`}
+              className={`nav-pill${(route.view === "clients" && landingTab === "workspaces") || route.view === "account" ? " active" : ""}`}
               title="Client workspaces you've set up — the full Kantata client roster is under “All clients — list”."
-              onClick={() => setRoute({ view: "clients" })}
+              onClick={() => { setLandingTab("workspaces"); setRoute({ view: "clients" }); }}
             >
               Workspaces ({ws.accounts.filter((a) => !a.archived).length})
+            </button>
+            <button
+              type="button"
+              className={`nav-pill${route.view === "clients" && landingTab === "mytasks" ? " active" : ""}`}
+              title="Your open tasks across every account — the ones you actually carry hours on."
+              onClick={() => { setLandingTab("mytasks"); setRoute({ view: "clients" }); }}
+            >
+              My Tasks{myTasksTotal > 0 ? ` (${myTasksTotal})` : ""}
             </button>
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
@@ -863,7 +875,14 @@ function Workspace() {
       )}
 
       <div className="fade-in" key={hashOf(route)} style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
-        {route.view === "clients" && (
+        {route.view === "clients" && landingTab === "mytasks" && (
+          <MyTasks
+            accounts={ws.accounts}
+            userName={userName}
+            onOpen={(id, taskId) => setRoute({ view: "account", id, tab: "plan", focus: taskId })}
+          />
+        )}
+        {route.view === "clients" && landingTab === "workspaces" && (
           <>
             <PageIntro title="Client workspaces">
               One standardized execution workspace per client account — communication, tasks, files,
@@ -911,7 +930,7 @@ function Workspace() {
                 </div>
               );
             })()}
-            <DataInspector live={liveStatus.live} unlinkedCount={unlinkedNames.length} />
+            <DataInspector live={liveStatus.live} enabled={debugMode} />
           </>
         )}
 

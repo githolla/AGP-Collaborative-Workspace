@@ -1142,25 +1142,27 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
   // Only when there are none do we fall back to the app's derived spread from
   // task hours (the "if it were empty, here's what it'd be" picture).
   const fromKantata = reservations.length > 0;
-  const grid = fromKantata
-    ? gridFrom(weeklyReservations(reservations))
-    : allocationGrid(
-        tasks.map((t) => {
-          // A split task must book PER PERSON on the grid too — otherwise the
-          // whole estimate piles on one owner here while the Kantata write-back
-          // (App) books the split, and the two disagree.
-          const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
-          return {
-            id: t.id,
-            status: t.status,
-            ...(t.ownerName ? { ownerName: t.ownerName } : {}),
-            ...(t.startDate ? { start: t.startDate } : {}),
-            ...(t.due ? { due: t.due } : {}),
-            ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-            ...(eff ? { assignments: [...eff].map(([name, hours]) => ({ name, hours })) } : {}),
-          };
-        }),
-      );
+  // The DERIVED plan from in-app hours (per person, per week) — always computed
+  // so it can be pushed back to Kantata even when the live grid is showing
+  // Kantata's own reservations. This is the "two-way" half.
+  const derivedGrid = allocationGrid(
+    tasks.map((t) => {
+      // A split task must book PER PERSON — otherwise the whole estimate piles
+      // on one owner here while the Kantata write-back books the split.
+      const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
+      return {
+        id: t.id,
+        status: t.status,
+        ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+        ...(t.startDate ? { start: t.startDate } : {}),
+        ...(t.due ? { due: t.due } : {}),
+        ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+        ...(eff ? { assignments: [...eff].map(([name, hours]) => ({ name, hours })) } : {}),
+      };
+    }),
+  );
+  const grid = fromKantata ? gridFrom(weeklyReservations(reservations)) : derivedGrid;
+  const canPush = !!onPublish && derivedGrid.weeks.length > 0;
   const unestimated = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due && t.estimatedHours == null).length;
 
   const run = async () => {
@@ -1241,29 +1243,28 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
         </table>
       </div>
 
-      {fromKantata ? (
+      {fromKantata && (
         <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 12, lineHeight: 1.5 }}>
           Live from Kantata's Resource Center — no double entry. As task timelines shift, this stays the single place
           the weekly picture is kept current.
         </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-            {onPublish && (
-              <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
-                {busy ? "Sending…" : "Send weekly reservations to Kantata →"}
-              </button>
-            )}
-            <span style={{ fontSize: 11, color: T.inkMuted }}>
-              Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task.
-            </span>
-          </div>
-          {unestimated > 0 && (
-            <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
-              {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
-            </div>
-          )}
-        </>
+      )}
+      {canPush && (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
+            {busy ? "Sending…" : fromKantata ? "Update Kantata with this plan →" : "Send weekly reservations to Kantata →"}
+          </button>
+          <span style={{ fontSize: 11, color: T.inkMuted }}>
+            {fromKantata
+              ? "Pushes the plan's per-person hours back to Kantata — updates the existing reservation, doesn't duplicate."
+              : "Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task."}
+          </span>
+        </div>
+      )}
+      {!fromKantata && unestimated > 0 && (
+        <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
+          {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
+        </div>
       )}
       {result && (
         <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>

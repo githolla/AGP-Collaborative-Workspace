@@ -83,6 +83,9 @@ export interface Task {
    */
   clientVisible?: boolean;
   createdAt: string;
+  /** When the task was marked done (ISO) — set on completion, cleared if
+   * reopened. Lets "done this week" be a fact instead of a createdAt proxy. */
+  completedAt?: string;
   /**
    * Kantata story id, present on tasks imported from Kantata. This is the
    * handle the write-back uses: with it an edit here becomes

@@ -1302,16 +1302,19 @@ export function useWorkspace() {
           ...a,
           tasks: a.tasks.map((t) => {
             if (t.id !== taskId) return t;
+            // Stamp/clear the completion time so "done this week" is a fact.
+            const stamped = status === "done"
+              ? { ...t, completedAt: t.completedAt ?? new Date().toISOString() }
+              : (() => { const { completedAt: _c, ...rest } = t; return rest; })();
             // Keep the coarse status and the per-person flags in agreement: a
             // task with a team is done only when everyone is, so marking the
             // whole task Done marks every person's part done (and moving it off
             // Done reopens anyone who was auto-completed). Without this, the
             // status button and the per-person model contradict each other.
-            if (t.assignments && t.assignments.length > 0) {
-              const assignments = t.assignments.map((as) => ({ ...as, done: status === "done" }));
-              return { ...t, status, assignments };
+            if (stamped.assignments && stamped.assignments.length > 0) {
+              return { ...stamped, status, assignments: stamped.assignments.map((as) => ({ ...as, done: status === "done" })) };
             }
-            return { ...t, status };
+            return { ...stamped, status };
           }),
           activity: [...a.activity, activityEvent(`"${task.title}" → ${status === "done" ? "completed" : status === "doing" ? "in progress" : "to do"}`, "task")],
         };
@@ -1381,7 +1384,12 @@ export function useWorkspace() {
         const completed = status === "done" && task.status !== "done";
         return {
           ...a,
-          tasks: a.tasks.map((t) => (t.id === taskId ? { ...t, assignments, status } : t)),
+          tasks: a.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            if (status === "done") return { ...t, assignments, status, completedAt: t.completedAt ?? new Date().toISOString() };
+            const { completedAt: _c, ...rest } = t;
+            return { ...rest, assignments, status };
+          }),
           ...(completed
             ? { activity: [...a.activity, activityEvent(`"${task.title}" → completed (everyone done)`, "task")] }
             : {}),
