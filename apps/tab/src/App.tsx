@@ -613,26 +613,49 @@ function Workspace() {
       )
     : [];
 
-  // Backfill the project (milestone) label onto tasks that were imported
-  // before the label existed. The live context knows each Kantata story's
-  // project; match by story id and fill it in at render, so existing
-  // workspaces group by project without anyone re-importing. Purely additive —
-  // a task that already carries a label, or has no Kantata story, is untouched.
-  const projectLabelByStory = new Map<string, { label: string; milestoneId?: string }>();
+  // Backfill the project (milestone) label onto tasks that were imported before
+  // the label existed, so existing workspaces group by project without anyone
+  // re-importing. Two ways to match a stored task to its live Kantata story:
+  //   1. By story id — for tasks imported since the id link landed.
+  //   2. By title + due date — for OLDER tasks with no stored story id. Due
+  //      date is what disambiguates the repeated phase names ("Copywriting
+  //      (Base)" under every job): Kellie's own point is that the dates are
+  //      staggered per job, so title+date is unique where title alone isn't.
+  //      A title+date that matches more than one live story is left unlabeled
+  //      rather than guessed. When this path hits, we also fill in the missing
+  //      story id, so the write-back can reach the task later too.
+  type LiveRef = { storyId: string; label: string; milestoneId?: string };
+  const byStory = new Map<string, LiveRef>();
+  const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
     for (const p of selectedLiveCtx.projects) {
       for (const t of p.tasks) {
-        if (t.projectLabel) projectLabelByStory.set(t.id, { label: t.projectLabel, ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}) });
+        if (!t.projectLabel) continue;
+        const ref: LiveRef = { storyId: t.id, label: t.projectLabel, ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}) };
+        byStory.set(t.id, ref);
+        const key = `${t.title.toLowerCase()}|${t.dueDate ?? ""}`;
+        byTitleDue.set(key, byTitleDue.has(key) ? null : ref);
       }
     }
   }
   const enrichedSharedTasks = selectedAccount
     ? ws.sharedTasksFor(selectedAccount.id).map((entry) => {
-        if (entry.task.projectLabel || !entry.task.kantataStoryId) return entry;
-        const hit = projectLabelByStory.get(entry.task.kantataStoryId);
-        return hit
-          ? { ...entry, task: { ...entry.task, projectLabel: hit.label, ...(hit.milestoneId ? { kantataMilestoneId: hit.milestoneId } : {}) } }
-          : entry;
+        const task = entry.task;
+        if (task.projectLabel) return entry;
+        const ref =
+          (task.kantataStoryId ? byStory.get(task.kantataStoryId) : undefined) ??
+          byTitleDue.get(`${task.title.toLowerCase()}|${task.due ?? ""}`) ??
+          undefined;
+        if (!ref) return entry;
+        return {
+          ...entry,
+          task: {
+            ...task,
+            projectLabel: ref.label,
+            ...(ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
+            ...(task.kantataStoryId ? {} : { kantataStoryId: ref.storyId }),
+          },
+        };
       })
     : [];
 
