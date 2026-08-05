@@ -544,18 +544,23 @@ async function pullKantata(token: string): Promise<{
   // Fields are read defensively (see KantataAllocation) and NARROWED to
   // hours/dates/ids — never a rate or amount (no-financials wall). A story_id,
   // when present, is carried so the browser can attribute hours to a task.
+  // No-financials wall for raw diagnostic samples — any key that smells like
+  // money is stripped before a sample crosses the wire. Shared by allocations
+  // and templates.
+  const FINANCIAL = /rate|cost|bill|price|amount|charge|revenue|budget|dollar|currency/i;
   let allocations: Record<string, unknown>[] = [];
   let allocationsSample: Record<string, unknown>[] = [];
   if (allocResult.status === "fulfilled") {
     const pick = <T>(...vals: (T | undefined)[]): T | undefined => vals.find((v) => v != null);
-    const FINANCIAL = /rate|cost|bill|price|amount|charge|revenue|budget|dollar|currency/i;
     allocations = allocResult.value
       .map((a) => {
         const userId = String(pick(a.user_id, a.assignee_id, a.resource_user_id) ?? "");
         const hoursVal = Number(pick(a.allocated_hours, a.total_hours, a.hours, a.scheduled_hours) ?? 0);
         const start = String(a.start_date ?? a.date ?? "").slice(0, 10);
         const end = String(a.end_date ?? a.start_date ?? a.date ?? "").slice(0, 10);
-        const storyId = String(pick(a.story_id, a.sub_group_id) ?? "");
+        // ONLY a real story_id — sub_group_id is a scheduling sub-group, not a
+        // story, and conflating it inflated the "task-linked" diagnostic count.
+        const storyId = String(a.story_id ?? "");
         return {
           id: String(a.id),
           workspace_id: String(a.workspace_id ?? ""),
@@ -571,6 +576,12 @@ async function pullKantata(token: string): Promise<{
       // Only rows that actually reserve time — a 0-hour placeholder isn't a
       // scheduled allocation and would just clutter the grid.
       .filter((a) => (a.hours as number) > 0 && a.workspace_id && a.user_id);
+    // De-dup by workspace+user+week: the write-back POSTs a new allocation each
+    // publish, so the same person-week can come back several times; without
+    // this they'd double-count in the grid. Keep the most recent (last) row.
+    const dedup = new Map<string, Record<string, unknown>>();
+    for (const a of allocations) dedup.set(`${a.workspace_id}|${a.user_id}|${a.start_date}|${a.end_date}`, a);
+    allocations = [...dedup.values()];
     // Raw sample (financial keys stripped) — the diagnostic that reveals the
     // real field shape, especially whether an allocation ties to a story/task.
     allocationsSample = allocResult.value.slice(0, 3).map((a) => {
@@ -617,7 +628,15 @@ async function pullKantata(token: string): Promise<{
         ...(tpl.discipline ? { discipline: String(tpl.discipline) } : {}),
         ...(tpl.template_type ? { template_type: String(tpl.template_type) } : {}),
       }));
-    templatesSample = raw.slice(0, 3).map((tpl) => ({ ...(tpl as Record<string, unknown>) }));
+    // Same no-financials strip as allocationsSample — a raw template object
+    // could carry a rate/budget field, and the sample rides to the browser.
+    templatesSample = raw.slice(0, 3).map((tpl) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(tpl as Record<string, unknown>)) {
+        if (!FINANCIAL.test(k)) out[k] = v;
+      }
+      return out;
+    });
     notes.push(`${templates.length} templates (via ${via})`);
   } else {
     notes.push(templatesResult.reason instanceof Error ? templatesResult.reason.message : "templates failed");
@@ -670,6 +689,10 @@ async function pullWorkspaceStories(
           state: s.state ?? "",
           // Parent story — the milestone (real project) a task hangs under.
           ...(s.parent_id != null ? { parent_id: String(s.parent_id) } : {}),
+          // Carry the Kantata type (parent-vs-child signal) — the deepen pull
+          // REPLACES a workspace's tasks on every open, so dropping it here
+          // erased the signal the tenant-wide pull carries.
+          ...(s.story_type ? { story_type: s.story_type } : {}),
           ...(s.start_date ? { start_date: s.start_date } : {}),
           ...(typeof s.estimated_minutes === "number" ? { estimated_minutes: s.estimated_minutes } : {}),
           assignees: (s.assignee_ids ?? []).map((aid) => userNames.get(String(aid))).filter((n): n is string => !!n),

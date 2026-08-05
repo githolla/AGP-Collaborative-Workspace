@@ -90,7 +90,10 @@ export function DiscussLauncher({
     setPosted(account.clientName);
   };
 
-  const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(20,33,58,0.42)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 };
+  // Above the Feedback pill (zIndex 9000) — otherwise it punches through the
+  // open modal in the bottom-right corner (the collision the resting-state fix
+  // only half-solved).
+  const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(20,33,58,0.42)", zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 };
   const sheet: React.CSSProperties = { width: 520, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", background: "#fff", borderRadius: 14, boxShadow: "0 20px 60px rgba(11,33,63,0.34)", padding: 20 };
   const lbl: React.CSSProperties = { fontSize: 10.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted, marginBottom: 5, display: "block" };
 

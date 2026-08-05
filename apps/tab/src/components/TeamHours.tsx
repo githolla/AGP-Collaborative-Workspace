@@ -88,6 +88,9 @@ export function TeamHoursEditor({
                 type="number"
                 min={0}
                 step={0.5}
+                // Key on the stored value so a store round-trip (rounding to
+                // 0.1, or a remote merge) re-seeds the field instead of drifting.
+                key={`${as.name}:${as.hours ?? "auto"}`}
                 defaultValue={as.hours ?? ""}
                 placeholder={String(effH)}
                 disabled={!onSetHours}

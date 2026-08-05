@@ -282,6 +282,15 @@ export function TasksCard({
             const others = t.assignments.length - 1;
             const doneN = t.assignments.filter((x) => x.done).length;
             const isOpen = expandedTeamId === t.id;
+            const summary = (
+              <>
+                <span style={{ fontWeight: 600 }}>{owner.name}{others > 0 ? ` +${others}` : ""}</span>
+                <span style={{ color: doneN === t.assignments.length ? "#116a43" : T.inkMuted }}> · {doneN}/{t.assignments.length} done</span>
+              </>
+            );
+            // Board cards have no room to expand the inline panel — show the
+            // team as static text there; only the list view gets the toggle.
+            if (compact) return <span style={{ fontSize: 11, color: T.inkSecondary }}>{summary}</span>;
             return (
               <button
                 type="button"
@@ -296,8 +305,7 @@ export function TasksCard({
                 style={{ display: "inline-flex", alignItems: "center", gap: 5, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}
               >
                 <span aria-hidden style={{ fontSize: 8.5, color: T.inkMuted, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
-                <span style={{ fontWeight: 600 }}>{owner.name}{others > 0 ? ` +${others}` : ""}</span>
-                <span style={{ color: doneN === t.assignments.length ? "#116a43" : T.inkMuted }}>· {doneN}/{t.assignments.length} done</span>
+                {summary}
               </button>
             );
           })()

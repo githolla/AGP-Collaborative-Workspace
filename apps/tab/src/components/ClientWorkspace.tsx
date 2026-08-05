@@ -15,7 +15,7 @@ import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/hando
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
-import { assignmentProgress, blockingDeps, isOnPersonList } from "../workspace/taskAssignments.js";
+import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
 import { TeamHoursEditor } from "./TeamHours.js";
 import {
   CHASE_AFTER_DAYS,
@@ -1145,14 +1145,21 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
   const grid = fromKantata
     ? gridFrom(weeklyReservations(reservations))
     : allocationGrid(
-        tasks.map((t) => ({
-          id: t.id,
-          status: t.status,
-          ...(t.ownerName ? { ownerName: t.ownerName } : {}),
-          ...(t.startDate ? { start: t.startDate } : {}),
-          ...(t.due ? { due: t.due } : {}),
-          ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-        })),
+        tasks.map((t) => {
+          // A split task must book PER PERSON on the grid too — otherwise the
+          // whole estimate piles on one owner here while the Kantata write-back
+          // (App) books the split, and the two disagree.
+          const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
+          return {
+            id: t.id,
+            status: t.status,
+            ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+            ...(t.startDate ? { start: t.startDate } : {}),
+            ...(t.due ? { due: t.due } : {}),
+            ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+            ...(eff ? { assignments: [...eff].map(([name, hours]) => ({ name, hours })) } : {}),
+          };
+        }),
       );
   const unestimated = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due && t.estimatedHours == null).length;
 

@@ -210,7 +210,25 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
         title: t.title,
         status: taskColumn(t.state),
         ...(t.dueDate ? { due: t.dueDate } : {}),
-        ...(t.assignees && t.assignees.length > 0 ? { ownerName: t.assignees[0] } : {}),
+        // The auto-populate path must seed the SAME first-class fields as the
+        // review-gated import — otherwise multi-person tasks arriving via
+        // create/refresh/link get no team card, no hours, no project nesting,
+        // and can't be written back. (Was only ownerName = assignees[0].)
+        ...(t.id ? { kantataStoryId: t.id, kantataSyncedAt: new Date().toISOString() } : {}),
+        ...(t.projectId ? { kantataProjectId: t.projectId } : {}),
+        ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+        ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
+        ...(t.phaseId ? { phaseId: t.phaseId } : {}),
+        ...(t.milestoneId ? { kantataMilestoneId: t.milestoneId } : {}),
+        ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+        ...(t.startDate ? { startDate: t.startDate } : {}),
+        // The full team, seeded so per-person completion + handoff work at once;
+        // a single assignee stays as ownerName.
+        ...(t.assignees && t.assignees.length > 1
+          ? { assignments: reconcileAssignments([], t.assignees) }
+          : t.assignees && t.assignees.length === 1
+            ? { ownerName: t.assignees[0]! }
+            : {}),
         label: "from Kantata",
         source: "manual" as const,
         createdAt: new Date().toISOString(),
@@ -1282,7 +1300,19 @@ export function useWorkspace() {
         if (!task) return a;
         return {
           ...a,
-          tasks: a.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)),
+          tasks: a.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            // Keep the coarse status and the per-person flags in agreement: a
+            // task with a team is done only when everyone is, so marking the
+            // whole task Done marks every person's part done (and moving it off
+            // Done reopens anyone who was auto-completed). Without this, the
+            // status button and the per-person model contradict each other.
+            if (t.assignments && t.assignments.length > 0) {
+              const assignments = t.assignments.map((as) => ({ ...as, done: status === "done" }));
+              return { ...t, status, assignments };
+            }
+            return { ...t, status };
+          }),
           activity: [...a.activity, activityEvent(`"${task.title}" → ${status === "done" ? "completed" : status === "doing" ? "in progress" : "to do"}`, "task")],
         };
       });
