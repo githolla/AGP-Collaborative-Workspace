@@ -66,7 +66,21 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
     }
   }
 
+  // Task→project nesting diagnostic, folded into the copyable text so it can
+  // be pasted back: the one signal for "why aren't tasks grouped by project".
+  const diagTasks = mirror.tasks ?? [];
+  const diagWithParent = diagTasks.filter((t) => !!t.parentId).length;
+  const diagMilestones = mirror.milestones ?? [];
+
   const asText = [
+    `=== TASK → PROJECT NESTING ===`,
+    `tasks pulled: ${diagTasks.length} · with a parent link: ${diagWithParent} (${diagTasks.length ? Math.round((diagWithParent / diagTasks.length) * 100) : 0}%)`,
+    `milestones (project level): ${diagMilestones.length}`,
+    `sample tasks:`,
+    ...diagTasks.slice(0, 12).map((t) => `  ${t.title.slice(0, 44)}  ·  parent=${t.parentId ?? "—"}  ·  ws=${t.projectId}`),
+    `sample milestones:`,
+    ...diagMilestones.slice(0, 12).map((m) => `  ${m.title.slice(0, 44)}  ·  id=${m.id}  ·  ws=${m.projectId}`),
+    ``,
     `=== WHY ${mirror.clients.length} CLIENTS from ${mirror.projects.length} projects ===`,
     `by convention: colon-prefix ${via.colon} · dash ${via.dash} · verbatim ${via.verbatim} · internal/agency ${via.internal}`,
     `distinct clients: ${clients.length} · verbatim (no "Client:" prefix) ${verbatimClients.length} · single-project ${singletons.length} · likely-duplicate pairs ${dupPairs.length}`,
