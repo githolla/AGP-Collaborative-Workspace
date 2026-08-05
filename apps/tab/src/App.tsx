@@ -298,6 +298,10 @@ function Workspace() {
   const [teamOpen, setTeamOpen] = useState(false);
   const signedIn = ssoConfigured ? ssoSignedIn : ssoSignedIn || localId != null;
   const email = ssoConfigured ? ssoEmail : localId?.email ?? ssoEmail;
+  // Resourcing is AGP-internal. Show it to AGP people only — a client looped
+  // into a workspace shouldn't see it unless AGP decides to. No email yet
+  // (interim local sign-in, pilot is all-AGP) counts as internal.
+  const viewerIsInternal = !email || /@teamallegiance\.com$/i.test(email);
 
   // Once Microsoft SSO is configured, retire any old local identity.
   useEffect(() => {
@@ -647,6 +651,8 @@ function Workspace() {
             kantataProjectId: t.projectId,
             ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
             ...(t.milestoneId ? { kantataMilestoneId: t.milestoneId } : {}),
+            ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+            ...(t.startDate ? { startDate: t.startDate } : {}),
           })),
       )
     : [];
@@ -662,14 +668,23 @@ function Workspace() {
   //      A title+date that matches more than one live story is left unlabeled
   //      rather than guessed. When this path hits, we also fill in the missing
   //      story id, so the write-back can reach the task later too.
-  type LiveRef = { storyId: string; label: string; milestoneId?: string };
+  // Carries the project label AND the Kantata-sourced resourcing fields
+  // (scheduled hours, start date) so both flow onto stored tasks without
+  // re-entry. Indexed on EVERY live task, not just labelled ones, so an
+  // hours-only match still lands.
+  type LiveRef = { storyId: string; label?: string; milestoneId?: string; estimatedHours?: number; startDate?: string };
   const byStory = new Map<string, LiveRef>();
   const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
     for (const p of selectedLiveCtx.projects) {
       for (const t of p.tasks) {
-        if (!t.projectLabel) continue;
-        const ref: LiveRef = { storyId: t.id, label: t.projectLabel, ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}) };
+        const ref: LiveRef = {
+          storyId: t.id,
+          ...(t.projectLabel ? { label: t.projectLabel } : {}),
+          ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
+          ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+          ...(t.startDate ? { startDate: t.startDate } : {}),
+        };
         byStory.set(t.id, ref);
         const key = `${t.title.toLowerCase()}|${t.dueDate ?? ""}`;
         byTitleDue.set(key, byTitleDue.has(key) ? null : ref);
@@ -679,21 +694,22 @@ function Workspace() {
   const enrichedSharedTasks = selectedAccount
     ? ws.sharedTasksFor(selectedAccount.id).map((entry) => {
         const task = entry.task;
-        if (task.projectLabel) return entry;
         const ref =
           (task.kantataStoryId ? byStory.get(task.kantataStoryId) : undefined) ??
           byTitleDue.get(`${task.title.toLowerCase()}|${task.due ?? ""}`) ??
           undefined;
         if (!ref) return entry;
-        return {
-          ...entry,
-          task: {
-            ...task,
-            projectLabel: ref.label,
-            ...(ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
-            ...(task.kantataStoryId ? {} : { kantataStoryId: ref.storyId }),
-          },
+        // Fill only what's MISSING — a PM's own hours edit always wins over the
+        // Kantata pull; the pull just seeds the value so nobody re-types it.
+        const patched = {
+          ...task,
+          ...(!task.projectLabel && ref.label ? { projectLabel: ref.label } : {}),
+          ...(!task.kantataMilestoneId && ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
+          ...(!task.kantataStoryId ? { kantataStoryId: ref.storyId } : {}),
+          ...(task.estimatedHours == null && ref.estimatedHours != null ? { estimatedHours: ref.estimatedHours } : {}),
+          ...(!task.startDate && ref.startDate ? { startDate: ref.startDate } : {}),
         };
+        return { ...entry, task: patched };
       })
     : [];
 
@@ -959,6 +975,7 @@ function Workspace() {
             userName={userName}
             {...(route.view === "account" && route.tab ? { initialTab: route.tab } : {})}
             {...(route.view === "account" && route.focus ? { focusTaskId: route.focus } : {})}
+            showResourcing={viewerIsInternal}
             onBack={() => setRoute({ view: "clients" })}
             onAddTask={(title, ownerName, due, label) => ws.addAccountTask(selectedAccount.id, title, ownerName, due, label)}
             onTaskStatus={(taskId, status) => ws.setSharedTaskStatus(selectedAccount.id, taskId, status)}
@@ -1041,6 +1058,7 @@ function Workspace() {
                   id: t.id,
                   status: t.status,
                   ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+                  ...(t.startDate ? { start: t.startDate } : {}),
                   ...(t.due ? { due: t.due } : {}),
                   ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
                 })),

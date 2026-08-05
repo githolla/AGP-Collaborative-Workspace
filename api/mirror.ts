@@ -126,6 +126,15 @@ async function pullKantata(token: string): Promise<{
     /** WHO owns the work — the missing half of a collaboration board. */
     assignee_ids?: (string | number)[];
     percentage_complete?: number;
+    /** Start of the work window (with due_date, the span hours spread across). */
+    start_date?: string;
+    /**
+     * The PM's scheduled-hours estimate for the task, in MINUTES — the number
+     * they already enter in Kantata. Pulled so resourcing populates from
+     * Kantata instead of being re-typed; the app keeps the weekly allocation
+     * current as the timeline shifts, which is the part Kantata doesn't do.
+     */
+    estimated_minutes?: number;
   };
   type KantataPost = {
     id: string;
@@ -309,6 +318,10 @@ async function pullKantata(token: string): Promise<{
         state: s.state ?? "",
         // The milestone (real project) this task hangs under — see parent_id.
         ...(s.parent_id != null ? { parent_id: String(s.parent_id) } : {}),
+        ...(s.start_date ? { start_date: s.start_date } : {}),
+        // The PM's scheduled hours (minutes) already in Kantata — so resourcing
+        // populates from here rather than being re-entered.
+        ...(typeof s.estimated_minutes === "number" ? { estimated_minutes: s.estimated_minutes } : {}),
         // WHO owns it — resolved from the assignees side-bucket. This is what
         // turns an imported task list into a shared, accountable plan.
         assignees: (s.assignee_ids ?? [])
@@ -426,7 +439,7 @@ async function pullWorkspaceStories(
   workspaceIds: string[],
 ): Promise<{ milestones: Record<string, unknown>[]; tasks: Record<string, unknown>[]; note: string }> {
   const headers = { Authorization: `Bearer ${token}` };
-  type Story = { id: string; title?: string; workspace_id?: string | number; due_date?: string; state?: string; story_type?: string; parent_id?: string | number; assignee_ids?: (string | number)[]; percentage_complete?: number };
+  type Story = { id: string; title?: string; workspace_id?: string | number; due_date?: string; start_date?: string; state?: string; story_type?: string; parent_id?: string | number; assignee_ids?: (string | number)[]; percentage_complete?: number; estimated_minutes?: number };
   const milestones: Record<string, unknown>[] = [];
   const tasks: Record<string, unknown>[] = [];
   // Assignee names harvested from the include=assignees users side-bucket, so
@@ -458,6 +471,8 @@ async function pullWorkspaceStories(
           state: s.state ?? "",
           // Parent story — the milestone (real project) a task hangs under.
           ...(s.parent_id != null ? { parent_id: String(s.parent_id) } : {}),
+          ...(s.start_date ? { start_date: s.start_date } : {}),
+          ...(typeof s.estimated_minutes === "number" ? { estimated_minutes: s.estimated_minutes } : {}),
           assignees: (s.assignee_ids ?? []).map((aid) => userNames.get(String(aid))).filter((n): n is string => !!n),
           ...(typeof s.percentage_complete === "number" ? { percent: s.percentage_complete } : {}),
         };

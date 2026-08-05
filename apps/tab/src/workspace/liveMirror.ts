@@ -308,6 +308,10 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
           state: str(t.state),
           ...(str(t.parent_id) ? { parentId: String(t.parent_id) } : {}),
           ...(str(t.due_date) ? { dueDate: str(t.due_date).slice(0, 10) } : {}),
+          ...(str(t.start_date) ? { startDate: str(t.start_date).slice(0, 10) } : {}),
+          ...(typeof t.estimated_minutes === "number" && t.estimated_minutes > 0
+            ? { estimatedHours: Math.round((num(t.estimated_minutes) / 60) * 10) / 10 }
+            : {}),
           ...(assignees.length > 0 ? { assignees } : {}),
           ...(typeof t.percent === "number" ? { percent: num(t.percent) } : {}),
         };

@@ -250,6 +250,10 @@ export interface MirrorTask {
   assignees?: string[];
   /** 0–100 progress from Kantata. */
   percent?: number;
+  /** The PM's scheduled-hours estimate already in Kantata (converted to hours). */
+  estimatedHours?: number;
+  /** Start of the work window — with dueDate, the span hours spread across. */
+  startDate?: string;
 }
 
 /** Kantata post — a comment on a workspace/story: the project conversation. */

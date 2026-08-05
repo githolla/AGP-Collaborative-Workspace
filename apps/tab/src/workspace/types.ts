@@ -77,6 +77,12 @@ export interface Task {
    * hours, never rates — off client surfaces by the client-safety wall.
    */
   estimatedHours?: number;
+  /**
+   * Start of the work window, from Kantata. With `due`, it's the span the
+   * estimated hours spread across, week by week — matching how Kantata
+   * redistributes scheduled hours. Absent ⇒ the hours land in the due week.
+   */
+  startDate?: string;
 }
 
 /** One line in the workspace "what's new" feed (Collab Hub Must). */

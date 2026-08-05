@@ -30,11 +30,11 @@ describe("isSchedulable", () => {
 });
 
 describe("weeklyAllocations", () => {
-  it("buckets each person's hours into the week their task is due", () => {
+  it("with no start date, lands a task's hours in its due week", () => {
     const out = weeklyAllocations([
-      t({ id: "a", ownerName: "Kara Rachal", due: "2026-08-12", estimatedHours: 8 }),
-      t({ id: "b", ownerName: "Kara Rachal", due: "2026-08-13", estimatedHours: 4 }), // same week
-      t({ id: "c", ownerName: "David Swets", due: "2026-08-12", estimatedHours: 6 }),
+      t({ id: "a", ownerName: "Kara Rachal", start: undefined, due: "2026-08-12", estimatedHours: 8 }),
+      t({ id: "b", ownerName: "Kara Rachal", start: undefined, due: "2026-08-13", estimatedHours: 4 }), // same week
+      t({ id: "c", ownerName: "David Swets", start: undefined, due: "2026-08-12", estimatedHours: 6 }),
     ]);
     expect(out).toEqual([
       { personName: "David Swets", weekStart: "2026-08-10", hours: 6, taskCount: 1 },
@@ -42,12 +42,21 @@ describe("weeklyAllocations", () => {
     ]);
   });
 
-  it("THE POINT: a timeline shift moves the hours to the new week automatically", () => {
-    const before = weeklyAllocations([t({ due: "2026-08-12", estimatedHours: 10 })]);
-    expect(before[0]).toMatchObject({ weekStart: "2026-08-10", hours: 10 });
-    // Same task, date pushed two weeks — no re-entry, the allocation follows.
-    const after = weeklyAllocations([t({ due: "2026-08-26", estimatedHours: 10 })]);
-    expect(after[0]).toMatchObject({ weekStart: "2026-08-24", hours: 10 });
+  it("SPREADS a task's hours across its start→due span, week by week (Kantata's redistribute)", () => {
+    // 14 days, Mon 3 Aug → Sun 16 Aug — two full weeks, 42h → 3h/day → 21h each.
+    const out = weeklyAllocations([t({ ownerName: "Kara Rachal", start: "2026-08-03", due: "2026-08-16", estimatedHours: 42 })]);
+    expect(out).toEqual([
+      { personName: "Kara Rachal", weekStart: "2026-08-03", hours: 21, taskCount: 1 },
+      { personName: "Kara Rachal", weekStart: "2026-08-10", hours: 21, taskCount: 1 },
+    ]);
+  });
+
+  it("THE POINT: a timeline shift redistributes automatically, no manual redo", () => {
+    const before = weeklyAllocations([t({ start: "2026-08-10", due: "2026-08-14", estimatedHours: 10 })]);
+    expect(before).toEqual([{ personName: "Kara Rachal", weekStart: "2026-08-10", hours: 10, taskCount: 1 }]);
+    // Push the whole task two weeks — the hours follow, no re-entry.
+    const after = weeklyAllocations([t({ start: "2026-08-24", due: "2026-08-28", estimatedHours: 10 })]);
+    expect(after).toEqual([{ personName: "Kara Rachal", weekStart: "2026-08-24", hours: 10, taskCount: 1 }]);
   });
 
   it("ignores done, unowned, undated, and zero-hour tasks", () => {

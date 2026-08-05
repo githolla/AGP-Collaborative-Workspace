@@ -998,8 +998,9 @@ function ResourcingView({
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...card, background: "#eef8fc", borderColor: T.roi.cyan }}>
         <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
-          Set the hours each task needs from its owner. The weekly view builds from them and re-figures
-          itself when a due date moves — so you set it once, not every week — then send it to Kantata.
+          Hours come from Kantata — you just validate or fine-tune them here. The weekly view spreads each
+          task's hours across its dates and re-figures on its own when a timeline shifts, so nobody
+          redistributes by hand every week. Send it back to Kantata when it's right.
         </span>
       </div>
 
@@ -1088,6 +1089,7 @@ function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () =
       id: t.id,
       status: t.status,
       ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+      ...(t.startDate ? { start: t.startDate } : {}),
       ...(t.due ? { due: t.due } : {}),
       ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
     })),
@@ -1561,6 +1563,9 @@ export interface TaskCandidate {
   /** The milestone (real project) this task belongs to. */
   projectLabel?: string;
   kantataMilestoneId?: string;
+  /** Scheduled hours + start from Kantata — so resourcing populates on import. */
+  estimatedHours?: number;
+  startDate?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -3026,8 +3031,15 @@ export function ClientWorkspace({
   onPublishResourcing,
   initialTab,
   focusTaskId,
+  showResourcing = true,
 }: {
   account: ClientAccount;
+  /**
+   * Resourcing is AGP-internal (hours). Shown only to AGP people — a client
+   * looped into a workspace shouldn't see the resourcing tab unless AGP decides
+   * to. Gated on the AGP email domain upstream.
+   */
+  showResourcing?: boolean;
   /** Deep-link target: open on this tab (Teams/email drives people here). */
   initialTab?: ClientTab;
   /** Deep-link target: highlight this task and focus its hours field. */
@@ -3210,7 +3222,7 @@ export function ClientWorkspace({
             {account.clientName}
           </h1>
           <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap", alignItems: "stretch" }}>
-            {TABS.filter((t) => t.key !== "sandbox" || sandboxContent).map((t) => {
+            {TABS.filter((t) => (t.key !== "sandbox" || sandboxContent) && (t.key !== "resourcing" || showResourcing)).map((t) => {
               const active = t.key === tab;
               return (
                 <button
@@ -3385,7 +3397,7 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
-          {onSetTaskHours && (
+          {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
               <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
                 Set hours &amp; see weekly resourcing → <strong>Resourcing tab</strong>
@@ -3424,7 +3436,7 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "resourcing" && onSetTaskHours && (
+      {tab === "resourcing" && showResourcing && onSetTaskHours && (
         <ResourcingView
           tasks={tasks}
           onSetHours={onSetTaskHours}

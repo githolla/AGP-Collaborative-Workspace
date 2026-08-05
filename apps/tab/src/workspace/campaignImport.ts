@@ -342,6 +342,10 @@ export interface LiveTask {
   /** Kantata owner(s) — who's accountable for the work. */
   assignees?: string[];
   percent?: number;
+  /** The PM's scheduled hours from Kantata — resourcing populates from this. */
+  estimatedHours?: number;
+  /** Start of the work window — hours spread across start→dueDate by week. */
+  startDate?: string;
 }
 
 /** A Kantata post surfaced in the workspace — the project conversation. */
@@ -475,6 +479,8 @@ export function accountLiveContext(
         ...(t.parentId ? { parentId: t.parentId } : {}),
         ...(ms ? { milestoneId: ms.id, projectLabel: ms.title } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
+        ...(t.startDate ? { startDate: t.startDate } : {}),
+        ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
         ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
         ...(t.percent != null ? { percent: t.percent } : {}),
       };

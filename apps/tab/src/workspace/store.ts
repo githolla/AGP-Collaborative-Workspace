@@ -1097,6 +1097,8 @@ export function useWorkspace() {
         kantataProjectId?: string;
         projectLabel?: string;
         kantataMilestoneId?: string;
+        estimatedHours?: number;
+        startDate?: string;
       }[],
     ) => {
       if (selected.length === 0) return;
@@ -1125,6 +1127,10 @@ export function useWorkspace() {
             ...(t.kantataProjectId ? { kantataProjectId: t.kantataProjectId } : {}),
             ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
             ...(t.kantataMilestoneId ? { kantataMilestoneId: t.kantataMilestoneId } : {}),
+            // Scheduled hours + start pulled from Kantata — resourcing shows
+            // them without re-entry; a PM edit overrides later.
+            ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+            ...(t.startDate ? { startDate: t.startDate } : {}),
           });
           added += 1;
         }

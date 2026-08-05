@@ -26,8 +26,10 @@ export type TaskStatus = "todo" | "doing" | "done";
 export interface ResourceTask {
   id: string;
   ownerName?: string;
+  /** Start of the work window. With `due`, the span hours spread across. */
+  start?: string;
   due?: string;
-  /** The PM's own estimate for this task, in hours. We never derive this. */
+  /** The scheduled hours (from Kantata; the PM validates/adjusts). */
   estimatedHours?: number;
   status: TaskStatus;
   /** The project (Kantata milestone) — for grouping the view by project. */
@@ -47,6 +49,18 @@ export function isSchedulable(t: ResourceTask): boolean {
   return t.status !== "done" && !!t.ownerName && !!t.due && (t.estimatedHours ?? 0) > 0;
 }
 
+/** Inclusive list of ISO dates from start to end (bounded so a bad span can't run away). */
+function daysInclusive(start: string, end: string): string[] {
+  const out: string[] = [];
+  let cur = Date.parse(`${start}T00:00:00Z`);
+  const stop = Date.parse(`${end}T00:00:00Z`);
+  for (let i = 0; cur <= stop && i < 366; i += 1) {
+    out.push(new Date(cur).toISOString().slice(0, 10));
+    cur += 86_400_000;
+  }
+  return out.length > 0 ? out : [end];
+}
+
 export interface WeekAllocation {
   personName: string;
   /** Monday ISO of the reserved week. */
@@ -56,23 +70,36 @@ export interface WeekAllocation {
 }
 
 /**
- * Sum each person's estimated hours into the week each of their tasks is due.
- * Recomputed from CURRENT dates every call — that's what makes a timeline shift
- * flow straight through to the allocations, with no re-entry.
+ * Spread each task's scheduled hours across its start→due span, week by week,
+ * and sum per person per week. This is exactly how Kellie's team runs it in
+ * Kantata — hours tagged at the task level, redistributed across the task's
+ * date bracket — except here it's DERIVED, so a timeline shift redistributes on
+ * its own instead of the weekly manual "expand all, select all, redistribute".
+ *
+ * A task with no start date lands its hours in the due week (a single week).
  */
 export function weeklyAllocations(tasks: readonly ResourceTask[]): WeekAllocation[] {
-  const byKey = new Map<string, WeekAllocation>();
+  const byKey = new Map<string, { personName: string; weekStart: string; hours: number; tasks: Set<string> }>();
   for (const t of tasks) {
     if (!isSchedulable(t)) continue;
     const personName = t.ownerName!;
-    const weekStart = weekStartOf(t.due!);
-    const key = `${personName}|${weekStart}`;
-    const cur = byKey.get(key) ?? { personName, weekStart, hours: 0, taskCount: 0 };
-    cur.hours += t.estimatedHours!;
-    cur.taskCount += 1;
-    byKey.set(key, cur);
+    const end = t.due!;
+    // A start after the due date (or none) collapses to the due day.
+    const start = t.start && t.start <= end ? t.start : end;
+    const days = daysInclusive(start, end);
+    const perDay = t.estimatedHours! / days.length;
+    for (const d of days) {
+      const weekStart = weekStartOf(d);
+      const key = `${personName}|${weekStart}`;
+      const cur = byKey.get(key) ?? { personName, weekStart, hours: 0, tasks: new Set<string>() };
+      cur.hours += perDay;
+      cur.tasks.add(t.id);
+      byKey.set(key, cur);
+    }
   }
-  return [...byKey.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName));
+  return [...byKey.values()]
+    .map((a) => ({ personName: a.personName, weekStart: a.weekStart, hours: Math.round(a.hours * 10) / 10, taskCount: a.tasks.size }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName));
 }
 
 export interface AllocationGrid {
