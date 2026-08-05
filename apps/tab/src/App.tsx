@@ -21,7 +21,8 @@ import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus
 import { initTeams } from "./teams/teamsHost.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
 import { accountLiveContext, campaignsFromMirror, isInBook, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
-import { pendingWrites, pushIntents } from "./workspace/kantataWrite.js";
+import { allocationIntent, pendingWrites, pushIntents, resolveStaffId } from "./workspace/kantataWrite.js";
+import { weeklyAllocations } from "./workspace/resourcing.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
 import type { ClientAccount } from "./workspace/types.js";
 import { T } from "./theme.js";
@@ -997,6 +998,35 @@ function Workspace() {
             onShareToClient={(linkId, purpose) => ws.shareFileWithClient(selectedAccount.id, linkId, purpose, userName)}
             onUnshareFromClient={(linkId) => ws.unshareFileFromClient(selectedAccount.id, linkId)}
             onClientDecision={(linkId, decision, note) => ws.recordClientDecision(selectedAccount.id, linkId, decision, userName, note)}
+            onSetTaskHours={(taskId, hours) => ws.setAccountTaskHours(selectedAccount.id, taskId, hours)}
+            onPublishResourcing={async () => {
+              // Derive weekly reservations from the CURRENT plan (hours + due
+              // dates) and push them per person, per week. Accurate per person —
+              // not Kantata's even split across a task's assignees. A person we
+              // can't resolve to a Kantata user is skipped (can't book them).
+              const staff = loadMirror().staff ?? [];
+              const tasks = enrichedSharedTasks.map((e) => e.task);
+              const projectId =
+                selectedAccount.kantataProjectIds?.[0] ??
+                tasks.find((t) => t.kantataProjectId)?.kantataProjectId ??
+                "";
+              const intents = weeklyAllocations(
+                tasks.map((t) => ({
+                  id: t.id,
+                  status: t.status,
+                  ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+                  ...(t.due ? { due: t.due } : {}),
+                  ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+                })),
+              )
+                .map((a) => {
+                  const userId = resolveStaffId(a.personName, staff);
+                  if (!userId || !projectId) return null;
+                  return allocationIntent({ ref: `${a.personName}|${a.weekStart}`, projectId, userId, date: a.weekStart, hours: a.hours });
+                })
+                .filter((x): x is NonNullable<typeof x> => x !== null);
+              return pushIntents(intents);
+            }}
             sandboxCount={selectedAccountIdeas.length}
             sandboxContent={
               <Sandbox

@@ -14,6 +14,7 @@ import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
+import { allocationGrid, weekLabel } from "../workspace/resourcing.js";
 import {
   CHASE_AFTER_DAYS,
   needsAttention,
@@ -887,6 +888,118 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
 // ---------------------------------------------------------------------------
 // Client dashboard — the client-safe view
 // ---------------------------------------------------------------------------
+
+/**
+ * Weekly resourcing — the answer to Kellie's #1 pain. The PM validates hours on
+ * each task (in the plan above); this view DERIVES the weekly picture from those
+ * hours and each task's current due date. So when a timeline shifts, the weeks
+ * re-fill automatically — no expand-all-and-redistribute every Thursday.
+ *
+ * Deliberately read-only + visibility: it shows the peaks and valleys and pushes
+ * them to Kantata. It is NOT a leveling tool — reconciling over-allocation is a
+ * higher-level job (managers + resource), out of scope by explicit decision.
+ */
+function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () => Promise<WriteResponse> }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<WriteResponse | null>(null);
+  const grid = allocationGrid(
+    tasks.map((t) => ({
+      id: t.id,
+      status: t.status,
+      ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+      ...(t.due ? { due: t.due } : {}),
+      ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+    })),
+  );
+  const unestimated = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due && t.estimatedHours == null).length;
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      setResult(await onPublish());
+    } catch (err) {
+      setResult({ dryRun: true, reason: err instanceof Error ? err.message : "publish failed", applied: 0, failed: 0, results: [] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (grid.weeks.length === 0) {
+    return (
+      <div style={{ ...card, padding: 14 }}>
+        <SectionTitle>Weekly resourcing</SectionTitle>
+        <div style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.5 }}>
+          Add hours to the tasks above and the weekly picture builds itself here — and stays current as
+          due dates move, so you never redistribute by hand. {unestimated > 0 ? `${unestimated} owned, dated task${unestimated === 1 ? "" : "s"} still need hours.` : ""}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...card, padding: 14 }}>
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>hours by person · by week — derived, always current</span>}>
+        Weekly resourcing
+      </SectionTitle>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", padding: "6px 10px 6px 2px", color: T.inkMuted, fontWeight: 700, position: "sticky", left: 0, background: T.surface }}>Person</th>
+              {grid.weeks.map((w) => (
+                <th key={w} style={{ textAlign: "center", padding: "6px 8px", color: T.inkMuted, fontWeight: 700, whiteSpace: "nowrap" }}>{weekLabel(w)}</th>
+              ))}
+              <th style={{ textAlign: "center", padding: "6px 8px", color: T.roi.navy, fontWeight: 800 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {grid.people.map((p) => (
+              <tr key={p} style={{ borderTop: `1px solid ${T.grid}` }}>
+                <td style={{ padding: "6px 10px 6px 2px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap", position: "sticky", left: 0, background: T.surface }}>{p}</td>
+                {grid.weeks.map((w) => {
+                  const h = grid.hoursFor(p, w);
+                  // Shade heavier weeks so the peaks read at a glance — visibility
+                  // only, never a prompt to level anyone down.
+                  const heavy = h >= 40;
+                  const some = h >= 20;
+                  return (
+                    <td key={w} style={{ textAlign: "center", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: h === 0 ? T.grid : T.ink, fontWeight: heavy ? 800 : 400, background: heavy ? "#fdeced" : some ? "#faf3dc" : "transparent" }}>
+                      {h === 0 ? "·" : h}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: "center", padding: "6px 8px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums" }}>{grid.personTotal(p)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
+          {busy ? "Sending…" : "Send weekly reservations to Kantata →"}
+        </button>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>
+          Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task.
+        </span>
+      </div>
+      {unestimated > 0 && (
+        <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
+          {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
+        </div>
+      )}
+      {result && (
+        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>
+          {result.dryRun ? (
+            <><strong>Preview only — nothing was sent.</strong> {result.reason ?? ""} These reservations are valid and will post once writing to Kantata is switched on.</>
+          ) : (
+            <><strong>{result.applied} weekly reservation{result.applied === 1 ? "" : "s"} sent{result.failed > 0 ? `, ${result.failed} failed` : ""}.</strong> {result.failed > 0 ? result.results.filter((r) => !r.ok).map((r) => r.error).join(" · ") : "Kantata now reflects this plan."}</>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The client-facing document surface: what's been shared with the client, and
@@ -2723,6 +2836,8 @@ export function ClientWorkspace({
   onShareToClient,
   onUnshareFromClient,
   onClientDecision,
+  onSetTaskHours,
+  onPublishResourcing,
 }: {
   account: ClientAccount;
   /** AGP roster to add to the account (plain data — guest-safe). */
@@ -2761,6 +2876,10 @@ export function ClientWorkspace({
   onUnshareFromClient?: (linkId: string) => void;
   /** The client's decision on a shared document — approve or request changes. */
   onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void;
+  /** Set the PM's hour estimate on a task — feeds weekly resourcing. */
+  onSetTaskHours?: (taskId: string, hours: number | undefined) => void;
+  /** Publish the derived weekly reservations to Kantata (review-gated). */
+  onPublishResourcing?: () => Promise<WriteResponse>;
   /** One click: EVERYTHING Kantata has for this client (campaigns + tasks). */
   onImportAll?: () => void;
   /** Everything the mirror knows about this client — plain data from App. */
@@ -3068,7 +3187,8 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onSetTaskHours ? { onSetHours: onSetTaskHours } : {})} />
+          {onPublishResourcing && <WeeklyResourcing tasks={tasks} onPublish={onPublishResourcing} />}
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
               type="button"

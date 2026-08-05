@@ -1229,6 +1229,31 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /**
+   * Set the PM's hour estimate on a task — the one number resourcing derives
+   * from. This is a VALIDATION action (the account manager confirms the hours
+   * are right), never a leveling one; over-allocation is reconciled elsewhere,
+   * by design (Cara: PMs put in only the time the work needs). 0/blank clears.
+   */
+  const setAccountTaskHours = useCallback(
+    (id: string, taskId: string, hours: number | undefined) => {
+      mutateAccount(id, (a) => {
+        const task = a.tasks.find((t) => t.id === taskId);
+        if (!task) return a;
+        const clean = hours != null && Number.isFinite(hours) && hours > 0 ? Math.round(hours * 10) / 10 : undefined;
+        return {
+          ...a,
+          tasks: a.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            const { estimatedHours: _drop, ...rest } = t;
+            return clean != null ? { ...rest, estimatedHours: clean } : rest;
+          }),
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   const setAccountTaskStatus = useCallback(
     (id: string, taskId: string, status: TaskStatus) => {
       mutateAccount(id, (a) => {
@@ -1926,6 +1951,7 @@ export function useWorkspace() {
     addAccountMember,
     addAccountMemberNamed,
     setAccountTaskStatus,
+    setAccountTaskHours,
     postAccountMessage,
     setAccountArchived,
     archiveAllAccounts,

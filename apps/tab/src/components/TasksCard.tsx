@@ -77,6 +77,35 @@ function DueBadge({ due, status }: { due?: string; status: TaskStatus }) {
   );
 }
 
+/**
+ * Compact hours field on a task — the PM enters the estimate they're confident
+ * in. Commits on Enter or blur. Empty clears it. This is the ONE input weekly
+ * resourcing derives from; there is deliberately no leveling here.
+ */
+function HoursInput({ hours, onSet }: { hours?: number; onSet: (h: number | undefined) => void }) {
+  const [val, setVal] = useState(hours != null ? String(hours) : "");
+  const commit = () => {
+    const n = Number(val);
+    onSet(val.trim() === "" || !Number.isFinite(n) || n <= 0 ? undefined : n);
+  };
+  return (
+    <input
+      value={val}
+      onChange={(e) => setVal(e.target.value.replace(/[^0-9.]/g, ""))}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { commit(); (e.target as HTMLInputElement).blur(); } }}
+      title="Estimated hours for this task's owner — feeds weekly resourcing"
+      placeholder="—"
+      inputMode="decimal"
+      style={{
+        width: 42, textAlign: "right", fontSize: 11, padding: "2px 5px", borderRadius: 5,
+        border: `1px solid ${hours != null ? T.roi.cyan : T.grid}`, color: hours != null ? T.ink : T.inkMuted,
+        background: hours != null ? "#eef8fc" : "transparent",
+      }}
+    />
+  );
+}
+
 export function TasksCard({
   tasks,
   owners,
@@ -84,6 +113,7 @@ export function TasksCard({
   onStatus,
   onToggleClientVisible,
   onOpenTask,
+  onSetHours,
 }: {
   tasks: Task[];
   owners: string[];
@@ -93,6 +123,11 @@ export function TasksCard({
   onToggleClientVisible?: (taskId: string) => void;
   /** Click the task title to see everything about it (detail drawer). */
   onOpenTask?: (task: Task) => void;
+  /**
+   * Set the PM's hour estimate for a task — the validate step. Present only on
+   * the internal plan; the resourcing view derives weekly allocations from it.
+   */
+  onSetHours?: (taskId: string, hours: number | undefined) => void;
 }) {
   const [view, setView] = useState<"list" | "board">("list");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -217,6 +252,7 @@ export function TasksCard({
             {t.clientVisible ? "client ✓" : "→ client"}
           </button>
         )}
+        {onSetHours && <HoursInput {...(t.estimatedHours != null ? { hours: t.estimatedHours } : {})} onSet={(h) => onSetHours(t.id, h)} />}
         <DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} />
         <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
       </span>

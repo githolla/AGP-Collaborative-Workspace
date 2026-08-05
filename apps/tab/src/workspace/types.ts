@@ -68,6 +68,15 @@ export interface Task {
   kantataMilestoneId?: string;
   /** ISO time of the last successful push of this task to Kantata. */
   kantataSyncedAt?: string;
+  /**
+   * The PM's own hour estimate for this task's owner. NEVER computed by the app
+   * — how AGP estimates effort (templatized vs. custom) is their call, out of
+   * scope by design. It exists so weekly resourcing is DERIVED from it plus the
+   * task's due date, and a timeline shift keeps resourcing current with no
+   * re-entry (the Thursday manual redistribute, automated). Internal only:
+   * hours, never rates — off client surfaces by the client-safety wall.
+   */
+  estimatedHours?: number;
 }
 
 /** One line in the workspace "what's new" feed (Collab Hub Must). */
