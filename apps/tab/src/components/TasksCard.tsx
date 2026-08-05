@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { card, T } from "../theme.js";
-import { KantataChip, SectionTitle, TagChip } from "./bits.js";
+import { SectionTitle, TagChip } from "./bits.js";
 import type { Task, TaskStatus } from "../workspace/types.js";
 import { AS_OF_TODAY } from "../workspace/format.js";
 import { TeamHoursEditor } from "./TeamHours.js";
@@ -231,138 +231,162 @@ export function TasksCard({
 
   const controls: React.CSSProperties = { fontSize: 11.5, padding: "5px 8px" };
 
+  // Shared column template so the header and every row line up vertically —
+  // the difference between a real SaaS table and scattered text. Task flexes;
+  // Team / Due / Status hold fixed widths; Client is an optional trailing icon.
+  const listCols = onToggleClientVisible
+    ? "minmax(0,1fr) 184px 96px 96px 52px"
+    : "minmax(0,1fr) 184px 96px 96px";
+
   const taskById = new Map(tasks.map((t) => [t.id, t]));
-  const taskLine = (t: Task, compact = false, showProject = false) => {
+
+  // The team / owner control — one accountable lead, "+N" for the rest, a
+  // per-person done count. Click expands the hours panel inline. Shared by the
+  // list rows and (static) board cards.
+  const teamControl = (t: Task, interactive: boolean) => {
+    const isOpen = expandedTeamId === t.id;
+    if (t.assignments && t.assignments.length > 0) {
+      const owner = t.assignments.find((x) => x.primary) ?? t.assignments[0]!;
+      const others = t.assignments.length - 1;
+      const doneN = t.assignments.filter((x) => x.done).length;
+      const allDone = doneN === t.assignments.length;
+      const summary = (
+        <>
+          <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{owner.name}{others > 0 ? ` +${others}` : ""}</span>
+          <span style={{ color: allDone ? "#116a43" : T.inkMuted, flexShrink: 0 }}> · {doneN}/{t.assignments.length}</span>
+        </>
+      );
+      if (!interactive) return <span style={{ display: "inline-flex", minWidth: 0, fontSize: 11.5, color: T.inkSecondary }}>{summary}</span>;
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            const next = isOpen ? null : t.id;
+            if (next && t.assignments?.length) onSetTaskAssignments?.(t.id, t.assignments.map((x) => x.name));
+            setExpandedTeamId(next);
+          }}
+          title={isOpen ? "Hide the team" : "Show the team & hours"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", minWidth: 0, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "3px 7px", cursor: "pointer", fontSize: 11.5, color: T.inkSecondary }}
+        >
+          <span aria-hidden style={{ fontSize: 8, color: T.inkMuted, flexShrink: 0, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
+          {summary}
+        </button>
+      );
+    }
+    if (t.ownerName && interactive && onSetTaskAssignments) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            const next = isOpen ? null : t.id;
+            if (next && t.ownerName) onSetTaskAssignments?.(t.id, [t.ownerName]);
+            setExpandedTeamId(next);
+          }}
+          title={isOpen ? "Hide" : "Set hours, mark done, or split across a team"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", minWidth: 0, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "3px 7px", cursor: "pointer", fontSize: 11.5, color: T.inkSecondary }}
+        >
+          <span aria-hidden style={{ fontSize: 8, color: T.inkMuted, flexShrink: 0, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.ownerName}</span>
+        </button>
+      );
+    }
+    if (t.ownerName) return <span style={{ fontSize: 11.5, color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.ownerName}</span>;
+    return <span style={{ fontSize: 11.5, color: T.inkMuted }}>—</span>;
+  };
+
+  const clientToggle = (t: Task) =>
+    onToggleClientVisible ? (
+      <button
+        type="button"
+        onClick={() => onToggleClientVisible(t.id)}
+        title={t.clientVisible ? "On the client-shared plan — click to make internal-only" : "Internal-only — click to share to the client plan"}
+        style={{ width: 26, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, border: `1px solid ${t.clientVisible ? T.roi.confirmed : T.grid}`, background: t.clientVisible ? "#e3f4ec" : "transparent", color: t.clientVisible ? "#116a43" : T.inkMuted }}
+      >
+        {t.clientVisible ? "✓" : "→"}
+      </button>
+    ) : null;
+
+  const taskLine = (t: Task, compact = false, showProject = false, indent = false) => {
     const teamOpen = !compact && expandedTeamId === t.id;
     const blockers = t.status !== "done" ? blockingDeps(t, (id) => taskById.get(id)) : [];
+    const realLabel = t.label && t.label !== "from Kantata" ? t.label : null;
+    const flash = flashId === t.id;
+
+    // ── Board card: a compact stacked tile (no columns to align) ──
+    if (compact) {
+      return (
+        <div
+          key={t.id}
+          id={`taskrow-${t.id}`}
+          style={{ display: "flex", flexDirection: "column", gap: 5, padding: "9px 11px", background: flash ? "#fff7d6" : T.surface, border: `1px solid ${flash ? T.roi.cyan : T.border}`, borderRadius: 8, transition: "background 400ms ease" }}
+        >
+          {onOpenTask ? (
+            <button type="button" onClick={() => onOpenTask(t)} title="See everything about this task" className="table-row-hover" style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}>{t.title}</button>
+          ) : (
+            <span style={{ fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}>{t.title}</span>
+          )}
+          {showProject && t.projectLabel && (
+            <span title={`Project: ${t.projectLabel}`} style={{ fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px", alignSelf: "flex-start", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {teamControl(t, false)}
+            <span style={{ marginLeft: "auto" }}><DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} /></span>
+          </div>
+        </div>
+      );
+    }
+
+    // ── List row: a real table row on the shared column grid ──
     return (
     <Fragment key={t.id}>
     <div
       id={`taskrow-${t.id}`}
+      className="table-row-hover"
       style={{
-        display: "flex",
-        alignItems: compact ? "flex-start" : "center",
-        flexDirection: compact ? "column" : "row",
-        gap: compact ? 4 : 10,
-        padding: compact ? "8px 10px" : "8px 2px",
-        borderTop: compact ? "none" : `1px solid ${T.grid}`,
-        // Deep-link flash: a soft highlight + ring so the person's eye lands on
-        // the exact task the Teams message sent them to.
-        background: flashId === t.id ? "#fff7d6" : compact ? T.surface : "transparent",
-        border: flashId === t.id ? `1px solid ${T.roi.cyan}` : compact ? `1px solid ${T.border}` : undefined,
-        borderRadius: flashId === t.id || compact ? 8 : 0,
+        display: "grid",
+        gridTemplateColumns: listCols,
+        alignItems: "center",
+        columnGap: 12,
+        padding: "9px 8px",
+        borderTop: `1px solid ${T.grid}`,
+        // Deep-link flash: soft highlight + inset ring (no border, so the grid
+        // never shifts) to land the eye on the exact task.
+        background: flash ? "#fff7d6" : "transparent",
+        boxShadow: flash ? `inset 0 0 0 1px ${T.roi.cyan}` : undefined,
+        borderRadius: flash ? 8 : 0,
         transition: "background 400ms ease",
       }}
     >
-      {onOpenTask ? (
-        <button
-          type="button"
-          onClick={() => onOpenTask(t)}
-          title="See everything about this task"
-          className="table-row-hover"
-          style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}
-        >
-          {t.title}
-        </button>
-      ) : (
-        <span style={{ flex: 1, fontSize: 12, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4 }}>
-          {t.title}
-        </span>
-      )}
-      <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        {showProject && t.projectLabel && (
-          <span title={`Project: ${t.projectLabel}`} style={{ fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>
-        )}
-        {t.assignments && t.assignments.length > 0 ? (
-          (() => {
-            // Show the TEAM, not one person (Kellie). The accountable owner
-            // leads; the rest ride in "+N" with a per-person done count. Click
-            // to expand the team + hours INLINE in the row (Josh) — no hover.
-            const owner = t.assignments.find((x) => x.primary) ?? t.assignments[0]!;
-            const others = t.assignments.length - 1;
-            const doneN = t.assignments.filter((x) => x.done).length;
-            const isOpen = expandedTeamId === t.id;
-            const summary = (
-              <>
-                <span style={{ fontWeight: 600 }}>{owner.name}{others > 0 ? ` +${others}` : ""}</span>
-                <span style={{ color: doneN === t.assignments.length ? "#116a43" : T.inkMuted }}> · {doneN}/{t.assignments.length} done</span>
-              </>
-            );
-            // Board cards have no room to expand the inline panel — show the
-            // team as static text there; only the list view gets the toggle.
-            if (compact) return <span style={{ fontSize: 11, color: T.inkSecondary }}>{summary}</span>;
-            return (
-              <button
-                type="button"
-                onClick={() => {
-                  const next = isOpen ? null : t.id;
-                  // Persist the team the first time it's opened, so inline
-                  // hour/done/owner edits have something to write to.
-                  if (next && t.assignments?.length) onSetTaskAssignments?.(t.id, t.assignments.map((x) => x.name));
-                  setExpandedTeamId(next);
-                }}
-                title={isOpen ? "Hide the team" : "Show the team & hours"}
-                style={{ display: "inline-flex", alignItems: "center", gap: 5, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}
-              >
-                <span aria-hidden style={{ fontSize: 8.5, color: T.inkMuted, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
-                {summary}
-              </button>
-            );
-          })()
-        ) : t.ownerName && !compact && onSetTaskAssignments ? (
-          // Single-owner tasks are interactive too: clicking seeds a one-person
-          // team so hours/done/status can be set in the row (add more people in
-          // the full card). No more dead, un-clickable owner names.
-          (() => {
-            const isOpen = expandedTeamId === t.id;
-            return (
-              <button
-                type="button"
-                onClick={() => {
-                  const next = isOpen ? null : t.id;
-                  if (next && t.ownerName) onSetTaskAssignments?.(t.id, [t.ownerName]);
-                  setExpandedTeamId(next);
-                }}
-                title={isOpen ? "Hide" : "Set hours, mark done, or split across a team"}
-                style={{ display: "inline-flex", alignItems: "center", gap: 5, background: isOpen ? "#eef2fb" : "none", border: isOpen ? `1px solid ${T.grid}` : "1px solid transparent", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontSize: 11, color: T.inkSecondary, whiteSpace: "nowrap" }}
-              >
-                <span aria-hidden style={{ fontSize: 8.5, color: T.inkMuted, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform 120ms" }}>▼</span>
-                {t.ownerName}
-              </button>
-            );
-          })()
-        ) : (
-          t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary }}>{t.ownerName}</span>
-        )}
-        {blockers.length > 0 && (
-          <span title={`Waiting on: ${blockers.map((b) => b.title).join(", ")}`} style={{ fontSize: 9.5, fontWeight: 700, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
-            ⛓ waiting on {blockers.length}
-          </span>
-        )}
-        {t.label && (t.label === "from Kantata" ? <KantataChip /> : <TagChip>{t.label}</TagChip>)}
-        {t.phaseKey && <TagChip>{t.phaseKey}</TagChip>}
-        {onToggleClientVisible && (
+      {/* Task */}
+      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8, paddingLeft: indent ? 14 : 0 }}>
+        {onOpenTask ? (
           <button
             type="button"
-            onClick={() => onToggleClientVisible(t.id)}
-            title={t.clientVisible ? "On the client-shared plan — click to make internal-only" : "Internal-only — click to share to the client plan"}
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 8px",
-              borderRadius: 999,
-              cursor: "pointer",
-              border: `1px solid ${t.clientVisible ? T.roi.confirmed : T.grid}`,
-              background: t.clientVisible ? "#e3f4ec" : "transparent",
-              color: t.clientVisible ? "#116a43" : T.inkMuted,
-            }}
+            onClick={() => onOpenTask(t)}
+            title={t.title}
+            style={{ minWidth: 0, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12.5, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
           >
-            {t.clientVisible ? "client ✓" : "→ client"}
+            {t.title}
           </button>
+        ) : (
+          <span style={{ minWidth: 0, fontSize: 12.5, color: t.status === "done" ? T.inkMuted : T.ink, textDecoration: t.status === "done" ? "line-through" : "none", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
         )}
-        <DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} />
-        <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
-      </span>
+        {showProject && t.projectLabel && (
+          <span title={`Project: ${t.projectLabel}`} style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, color: T.roi.navy, background: "#eef2fb", borderRadius: 4, padding: "1px 6px", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</span>
+        )}
+        {realLabel && <span style={{ flexShrink: 0 }}><TagChip>{realLabel}</TagChip></span>}
+        {blockers.length > 0 && (
+          <span title={`Waiting on: ${blockers.map((b) => b.title).join(", ")}`} style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, color: "#8a5a00", background: "#fdf2d8", border: "1px solid #f0d68a", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>⛓ {blockers.length}</span>
+        )}
+      </div>
+      {/* Team */}
+      <div style={{ minWidth: 0, display: "flex", alignItems: "center" }}>{teamControl(t, true)}</div>
+      {/* Due */}
+      <div style={{ textAlign: "right" }}><DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} /></div>
+      {/* Status */}
+      <div style={{ display: "flex", justifyContent: "flex-start" }}><StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} /></div>
+      {/* Client (optional) */}
+      {onToggleClientVisible && <div style={{ display: "flex", justifyContent: "center" }}>{clientToggle(t)}</div>}
     </div>
     {teamOpen && (
       <div style={{ padding: "6px 10px 10px 24px", background: "#f7f9fd", borderBottom: `1px solid ${T.grid}` }}>
@@ -414,15 +438,18 @@ export function TasksCard({
     }
     // No real phases (everything sits straight under the job) → flat list.
     if (phases.length === 1 && phases[0]!.label === null) return groupTasks.map((t) => taskLine(t));
+    // Phase rows stay on the SAME column grid as everything else — the phase
+    // shows as a slim sub-header and its tasks carry a small title indent, so
+    // Team/Due/Status never drift out of alignment.
     return phases.map((ph) => (
-      <div key={ph.label ?? "__none"} style={{ marginLeft: ph.label ? 4 : 0 }}>
+      <div key={ph.label ?? "__none"}>
         {ph.label && (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "6px 0 0", padding: "3px 0 3px 10px", borderLeft: `3px solid ${T.roi.cyan}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.inkSecondary }}>{ph.label}</span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "8px 0 0", padding: "4px 0 4px 8px", borderLeft: `3px solid ${T.roi.cyan}` }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkSecondary, textTransform: "uppercase", letterSpacing: 0.3 }}>{ph.label}</span>
             <span style={{ fontSize: 10, color: T.inkMuted }}>{ph.tasks.filter((t) => t.status !== "done").length} open</span>
           </div>
         )}
-        <div style={ph.label ? { paddingLeft: 10 } : undefined}>{ph.tasks.map((t) => taskLine(t))}</div>
+        {ph.tasks.map((t) => taskLine(t, false, false, !!ph.label))}
       </div>
     ));
   };
@@ -499,12 +526,30 @@ export function TasksCard({
       </div>
       )}
 
+      {/* Column header — anchors the shared grid so every row reads as a table. */}
+      {view === "list" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: listCols, columnGap: 12, alignItems: "center", padding: "0 8px 6px", borderBottom: `1px solid ${T.grid}` }}>
+          {(() => {
+            const h: React.CSSProperties = { fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.inkMuted };
+            return (
+              <>
+                <span style={h}>Task</span>
+                <span style={h}>Team</span>
+                <span style={{ ...h, textAlign: "right" }}>Due</span>
+                <span style={h}>Status</span>
+                {onToggleClientVisible && <span style={{ ...h, textAlign: "center" }}>Client</span>}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {view === "list" ? (
         groupByProject ? (
           // Grouped by project (Kantata milestone): a fiscal-year contract runs
           // many projects at once, so a flat list is unreadable. Each project
           // is a headed section; tasks keep their within-section date order.
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {projectGroups.map((g) => {
               const isCollapsed = collapsedGroups.has(g.key);
               const openCount = g.tasks.filter((t) => t.status !== "done").length;
