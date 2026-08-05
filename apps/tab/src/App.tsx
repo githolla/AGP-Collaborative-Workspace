@@ -358,16 +358,29 @@ function Workspace() {
   // flight. This is what makes EVERY client populate, not just the ones the
   // user happens to click through.
   const autoTriedRef = useRef<Set<string>>(new Set());
+  // Bumped when a deepen finishes, to recompute the live context (which reads
+  // the module-level mirror the deepen just enriched) — a plain re-render.
+  const [, setDeepTick] = useState(0);
+  const deepenedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!liveStatus.live || route.view !== "account") return;
     const acct = ws.accounts.find((a) => a.id === route.id);
-    if (!acct || acct.archived || acct.autoPopulated) return;
-    if (autoTriedRef.current.has(acct.id)) return;
+    if (!acct || acct.archived) return;
+    // ALWAYS load the workspace's full Kantata tree on open — this is what
+    // gives task→project resolution the milestones it needs, and a tenant-wide
+    // refresh drops them, so an already-populated workspace still needs it.
+    // Guarded once per session per account; a manual refresh clears the guard.
+    if (!deepenedRef.current.has(acct.id)) {
+      deepenedRef.current.add(acct.id);
+      void ws.ensureDeepened(acct.id).then((n) => { if (n > 0) setDeepTick((t) => t + 1); });
+    }
+    // Import from Kantata only ONCE (never re-adds work the user removed).
+    if (acct.autoPopulated || autoTriedRef.current.has(acct.id)) return;
     autoTriedRef.current.add(acct.id);
     void ws.ensureAutoPopulated(acct.id);
     // Keyed on the open account and the live flag — reopening after the live
     // mirror arrives retries a workspace that had nothing to match before.
-  }, [route, liveStatus.live, ws.accounts, ws.ensureAutoPopulated]);
+  }, [route, liveStatus.live, ws.accounts, ws.ensureAutoPopulated, ws.ensureDeepened]);
 
   // The book-of-business candidates: every mirror client without a workspace,
   // scored by what a one-click create would import. Memoized — at a full
@@ -702,7 +715,12 @@ function Workspace() {
         live={liveStatus.live}
         liveLabel={liveStatus.label}
         liveDetail={liveStatus.detail}
-        onRefreshData={() => void refreshLiveMirror(setLiveStatus)}
+        onRefreshData={() => {
+          // A fresh tenant pull drops per-workspace deep data, so let the open
+          // workspace re-deepen after it: clear the guard.
+          deepenedRef.current = new Set();
+          void refreshLiveMirror(setLiveStatus);
+        }}
         onHome={() => setRoute({ view: "clients" })}
         {...(!ssoConfigured ? { onSettings: () => setTeamOpen(true) } : {})}
         signedIn={signedIn}

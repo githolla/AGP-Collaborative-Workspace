@@ -917,6 +917,22 @@ export function useWorkspace() {
    * A workspace that matched nothing stays unmarked and retries on a future
    * open (after a redeploy or a hand-link improves the match).
    */
+  /**
+   * Load the open workspace's COMPLETE Kantata story tree into the mirror —
+   * every time it opens, not just on first populate. This is what task→project
+   * resolution needs: the milestones (the real projects) and the tasks' parent
+   * links. A tenant-wide refresh (the ↻ button) replaces the mirror with a
+   * recency-sliced view that drops most milestones, so without re-deepening on
+   * open, an already-populated workspace loses its project grouping. Idempotent
+   * and import-free — it only enriches the mirror, never adds tasks. Returns the
+   * number of stories fetched so the caller can trigger a re-render.
+   */
+  const ensureDeepened = useCallback(async (id: string): Promise<number> => {
+    const target = stateRef.current.accounts.find((x) => x.id === id);
+    if (!target || target.archived) return 0;
+    return deepenWorkspaces(kantataWorkspaceIdsFor(target.clientName, target.kantataProjectIds));
+  }, []);
+
   const ensureAutoPopulated = useCallback(
     async (id: string) => {
       const target = stateRef.current.accounts.find((x) => x.id === id);
@@ -1898,6 +1914,7 @@ export function useWorkspace() {
     markTasksSynced,
     importAllFromKantata,
     ensureAutoPopulated,
+    ensureDeepened,
     renameAccount,
     linkProjects,
     setProjectScope,
