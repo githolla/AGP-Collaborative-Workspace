@@ -49,11 +49,15 @@ const titlePrefix = (title: string): string => {
 };
 const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-export type ClientTab = "home" | "plan" | "dashboard" | "files" | "discussions" | "sandbox" | "access";
+export type ClientTab = "home" | "plan" | "resourcing" | "dashboard" | "files" | "discussions" | "sandbox" | "access";
 
 const TABS: { key: ClientTab; label: string }[] = [
   { key: "home", label: "Home" },
   { key: "plan", label: "Project Plan" },
+  // Resourcing: hours by person by week, derived from the plan and kept current
+  // as timelines shift. Internal (hours, never rates). Its own tab so it's a
+  // place you can go — and where the Teams "adjust these" links land.
+  { key: "resourcing", label: "Resourcing" },
   { key: "dashboard", label: "Client Dashboard" },
   { key: "files", label: "Files" },
   { key: "discussions", label: "Discussions" },
@@ -899,6 +903,183 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
  * them to Kantata. It is NOT a leveling tool — reconciling over-allocation is a
  * higher-level job (managers + resource), out of scope by explicit decision.
  */
+/**
+ * A roomy hours field for the resourcing list — the PM's estimate for a task's
+ * owner. Commits on Enter/blur; empty clears. `autoFocusMe` lets a deep link
+ * put the cursor straight here on arrival.
+ */
+function BigHoursInput({ hours, onSet, autoFocusMe }: { hours?: number; onSet: (h: number | undefined) => void; autoFocusMe?: boolean }) {
+  const [val, setVal] = useState(hours != null ? String(hours) : "");
+  const commit = () => {
+    const n = Number(val);
+    onSet(val.trim() === "" || !Number.isFinite(n) || n <= 0 ? undefined : n);
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <input
+        data-hours="1"
+        autoFocus={autoFocusMe}
+        value={val}
+        onChange={(e) => setVal(e.target.value.replace(/[^0-9.]/g, ""))}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") { commit(); (e.target as HTMLInputElement).blur(); } }}
+        placeholder="—"
+        inputMode="decimal"
+        title="Estimated hours for this task's owner"
+        style={{
+          width: 54, textAlign: "right", fontSize: 13, fontWeight: 700, padding: "5px 7px", borderRadius: 6,
+          border: `1px solid ${hours != null ? T.roi.cyan : T.grid}`, color: hours != null ? T.ink : T.inkMuted,
+          background: hours != null ? "#eef8fc" : T.surface,
+        }}
+      />
+      <span style={{ fontSize: 11, color: T.inkMuted }}>h</span>
+    </span>
+  );
+}
+
+/**
+ * The Resourcing tab — a place PMs can GO (nav or deep link), purpose-built for
+ * the two things Cara and Kellie asked for and nothing else:
+ *   1. Validate the hours on each task (grouped by project, roomy, uncluttered).
+ *   2. See the weekly picture that DERIVES from those hours + current due dates,
+ *      and push it to Kantata.
+ * Timeline shifts flow through on their own. No leveling here — by decision.
+ */
+function ResourcingView({
+  tasks,
+  onSetHours,
+  onPublish,
+  focusTaskId,
+}: {
+  tasks: Task[];
+  onSetHours: (taskId: string, hours: number | undefined) => void;
+  onPublish?: (() => Promise<WriteResponse>) | undefined;
+  focusTaskId?: string;
+}) {
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const [personFilter, setPersonFilter] = useState("");
+  const [needsHoursOnly, setNeedsHoursOnly] = useState(false);
+
+  // Land a deep link exactly on the task to adjust: scroll, flash, focus hours.
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const el = document.getElementById(`res-${focusTaskId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashId(focusTaskId);
+    const input = el.querySelector<HTMLInputElement>('input[data-hours="1"]');
+    if (input) { input.focus(); input.select(); }
+    const timer = setTimeout(() => setFlashId(null), 2800);
+    return () => clearTimeout(timer);
+  }, [focusTaskId, tasks.length]);
+
+  // Only open, OWNED, DATED tasks can sit on a week — those are the resourcing
+  // candidates. Tasks missing an owner or a date are surfaced as a count so the
+  // gap is visible, not silently dropped.
+  const candidates = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due);
+  const people = [...new Set(candidates.map((t) => t.ownerName).filter((o): o is string => !!o))].sort();
+  const shown = candidates
+    .filter((t) => (!personFilter || t.ownerName === personFilter) && (!needsHoursOnly || t.estimatedHours == null))
+    .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+  const missingHours = candidates.filter((t) => t.estimatedHours == null).length;
+  const blocked = tasks.filter((t) => t.status !== "done" && (!t.ownerName || !t.due)).length;
+
+  // Group the hours list by project (milestone) — the same grouping as the plan.
+  const groups = new Map<string, Task[]>();
+  for (const t of shown) {
+    const key = t.projectLabel ?? "\u{10FFFF}";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
+  }
+  const orderedGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const labelOf = (t: Task) => t.projectLabel ?? "No project";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ ...card, background: "#eef8fc", borderColor: T.roi.cyan }}>
+        <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
+          Set the hours each task needs from its owner. The weekly view builds from them and re-figures
+          itself when a due date moves — so you set it once, not every week — then send it to Kantata.
+        </span>
+      </div>
+
+      {/* The payoff first: the weekly picture + push. */}
+      {onPublish ? <WeeklyResourcing tasks={tasks} onPublish={onPublish} /> : null}
+
+      {/* Validate hours — clean, grouped by project, roomy input. */}
+      <div style={card}>
+        <SectionTitle
+          right={
+            <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {people.length > 1 && (
+                <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} className="select" style={{ fontSize: 11, padding: "4px 7px" }} title="Focus one person">
+                  <option value="">Everyone</option>
+                  {people.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => setNeedsHoursOnly((v) => !v)}
+                className={`nav-pill${needsHoursOnly ? " active" : ""}`}
+                style={{ fontSize: 10.5, padding: "4px 10px" }}
+                title="Show only tasks that still need hours"
+              >
+                Needs hours{missingHours > 0 ? ` (${missingHours})` : ""}
+              </button>
+            </span>
+          }
+        >
+          Hours by task
+        </SectionTitle>
+
+        {shown.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.inkMuted, padding: "8px 0" }}>
+            {candidates.length === 0
+              ? "No open, owned, dated tasks to resource yet."
+              : "Nothing matches — clear the filters above."}
+          </div>
+        ) : (
+          orderedGroups.map(([key, groupTasks]) => (
+            <div key={key} style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "12px 0 2px", paddingBottom: 4, borderBottom: `2px solid ${T.roi.navy}` }}>
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{labelOf(groupTasks[0]!)}</span>
+                <span style={{ fontSize: 10.5, color: T.inkMuted }}>
+                  {groupTasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0)}h across {groupTasks.length}
+                </span>
+              </div>
+              {groupTasks.map((t) => (
+                <div
+                  key={t.id}
+                  id={`res-${t.id}`}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "8px 6px",
+                    borderBottom: `1px solid ${T.grid}`, borderRadius: flashId === t.id ? 8 : 0,
+                    background: flashId === t.id ? "#fff7d6" : "transparent", transition: "background 400ms ease",
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink }}>{t.title}</span>
+                    <span style={{ fontSize: 11, color: T.inkSecondary }}>
+                      {t.ownerName}{t.due ? ` · due ${fmtDay(t.due)}` : ""}
+                    </span>
+                  </span>
+                  <BigHoursInput {...(t.estimatedHours != null ? { hours: t.estimatedHours } : {})} onSet={(h) => onSetHours(t.id, h)} autoFocusMe={false} />
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+
+        {blocked > 0 && (
+          <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 10, lineHeight: 1.5 }}>
+            {blocked} open task{blocked === 1 ? "" : "s"} can't be resourced yet — {blocked === 1 ? "it needs" : "they need"} an owner and a due date in Kantata first.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () => Promise<WriteResponse> }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteResponse | null>(null);
@@ -3203,8 +3384,14 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onSetTaskHours ? { onSetHours: onSetTaskHours } : {})} {...(focusTaskId ? { focusTaskId } : {})} />
-          {onPublishResourcing && <WeeklyResourcing tasks={tasks} onPublish={onPublishResourcing} />}
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
+          {onSetTaskHours && (
+            <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
+              <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
+                Set hours &amp; see weekly resourcing → <strong>Resourcing tab</strong>
+              </span>
+            </RowButton>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button
               type="button"
@@ -3236,6 +3423,14 @@ export function ClientWorkspace({
             </span>
           </div>
         </div>
+      )}
+      {tab === "resourcing" && onSetTaskHours && (
+        <ResourcingView
+          tasks={tasks}
+          onSetHours={onSetTaskHours}
+          onPublish={onPublishResourcing}
+          {...(focusTaskId ? { focusTaskId } : {})}
+        />
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
       {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}

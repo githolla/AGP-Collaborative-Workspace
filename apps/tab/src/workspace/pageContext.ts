@@ -50,6 +50,12 @@ const ACCOUNT: Record<ClientTab, Omit<PageQuestion, "key" | "prompt"> & { prompt
     options: YES_NO("Yes — that's the work", "Roughly, with gaps", "No — this isn't the real plan"),
     placeholder: "What's missing, wrong, or in the wrong order?",
   },
+  resourcing: {
+    label: "Client workspace · Resourcing",
+    prompt: () => "Would this keep your weekly resourcing current as timelines shift?",
+    options: YES_NO("Yes — this saves the weekly redo", "Partly — I'd still tweak a lot", "No — this doesn't fit how we resource"),
+    placeholder: "What would have to be true to trust these numbers into Kantata?",
+  },
   dashboard: {
     label: "Client workspace · Client dashboard",
     prompt: (who) => `Would you be comfortable showing this view to ${who}?`,

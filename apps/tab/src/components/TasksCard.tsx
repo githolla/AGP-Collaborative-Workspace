@@ -77,36 +77,6 @@ function DueBadge({ due, status }: { due?: string; status: TaskStatus }) {
   );
 }
 
-/**
- * Compact hours field on a task — the PM enters the estimate they're confident
- * in. Commits on Enter or blur. Empty clears it. This is the ONE input weekly
- * resourcing derives from; there is deliberately no leveling here.
- */
-function HoursInput({ hours, onSet }: { hours?: number; onSet: (h: number | undefined) => void }) {
-  const [val, setVal] = useState(hours != null ? String(hours) : "");
-  const commit = () => {
-    const n = Number(val);
-    onSet(val.trim() === "" || !Number.isFinite(n) || n <= 0 ? undefined : n);
-  };
-  return (
-    <input
-      data-hours="1"
-      value={val}
-      onChange={(e) => setVal(e.target.value.replace(/[^0-9.]/g, ""))}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") { commit(); (e.target as HTMLInputElement).blur(); } }}
-      title="Estimated hours for this task's owner — feeds weekly resourcing"
-      placeholder="hrs"
-      inputMode="decimal"
-      style={{
-        width: 42, textAlign: "right", fontSize: 11, padding: "2px 5px", borderRadius: 5,
-        border: `1px solid ${hours != null ? T.roi.cyan : T.grid}`, color: hours != null ? T.ink : T.inkMuted,
-        background: hours != null ? "#eef8fc" : "transparent",
-      }}
-    />
-  );
-}
-
 export function TasksCard({
   tasks,
   owners,
@@ -114,7 +84,6 @@ export function TasksCard({
   onStatus,
   onToggleClientVisible,
   onOpenTask,
-  onSetHours,
   focusTaskId,
 }: {
   tasks: Task[];
@@ -126,13 +95,8 @@ export function TasksCard({
   /** Click the task title to see everything about it (detail drawer). */
   onOpenTask?: (task: Task) => void;
   /**
-   * Set the PM's hour estimate for a task — the validate step. Present only on
-   * the internal plan; the resourcing view derives weekly allocations from it.
-   */
-  onSetHours?: (taskId: string, hours: number | undefined) => void;
-  /**
-   * Deep-link target: scroll to this task, flash it, and focus its hours field.
-   * This is what a Teams/email "adjust these tasks" message lands on.
+   * Deep-link target: scroll to this task and flash it. Hours entry itself
+   * lives on the Resourcing tab now; this stays as a plan-side landing fallback.
    */
   focusTaskId?: string;
 }) {
@@ -281,7 +245,6 @@ export function TasksCard({
             {t.clientVisible ? "client ✓" : "→ client"}
           </button>
         )}
-        {onSetHours && <HoursInput {...(t.estimatedHours != null ? { hours: t.estimatedHours } : {})} onSet={(h) => onSetHours(t.id, h)} />}
         <DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} />
         <StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} />
       </span>
@@ -312,15 +275,6 @@ export function TasksCard({
       >
         Tasks
       </SectionTitle>
-
-      {/* Tell the PM what the hours box is for — otherwise it reads as a stray
-          input. One line, only when hours are in play. */}
-      {onSetHours && tasks.length > 0 && (
-        <div style={{ fontSize: 11, color: T.inkSecondary, background: "#eef8fc", border: `1px solid ${T.roi.cyan}`, borderRadius: 6, padding: "6px 10px", marginBottom: 8, lineHeight: 1.5 }}>
-          <strong style={{ color: "#16708f" }}>Hours (the “hrs” box on each task):</strong> enter the time you expect the owner to need. The
-          Weekly Resourcing view below builds from these and re-figures itself when a due date moves — so you set it once, not every week.
-        </div>
-      )}
 
       {/* Filters only make sense once there are tasks to filter. */}
       {tasks.length > 0 && (

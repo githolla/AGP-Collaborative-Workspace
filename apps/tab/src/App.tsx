@@ -96,7 +96,7 @@ function hashOf(route: Route): string {
  * they need to adjust. Absolute so it works from outside the app.
  */
 export function taskDeepLink(origin: string, accountId: string, taskId: string): string {
-  return `${origin.replace(/\/+$/, "")}/#c/${accountId}/plan/${taskId}`;
+  return `${origin.replace(/\/+$/, "")}/#c/${accountId}/resourcing/${taskId}`;
 }
 
 const TOUR_KEY = "agp-collab-tour-v1";
