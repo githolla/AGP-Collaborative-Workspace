@@ -128,6 +128,16 @@ export function TasksCard({
   const [newOwner, setNewOwner] = useState("");
   const [newDue, setNewDue] = useState("");
   const [newLabel, setNewLabel] = useState("");
+  // Collapsed project sections — Kellie asked to fold away the phases/time-
+  // tracking tasks nobody converses at, so the eye lands on what matters.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const labels = [...new Set(tasks.map((t) => t.label).filter((l): l is string => !!l))];
   // The real projects (Kantata milestones) present in this list. At AGP one
@@ -329,17 +339,27 @@ export function TasksCard({
           // many projects at once, so a flat list is unreadable. Each project
           // is a headed section; tasks keep their within-section date order.
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {projectGroups.map((g) => (
-              <div key={g.key}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "12px 0 2px", paddingBottom: 4, borderBottom: `2px solid ${T.roi.navy}` }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{g.label}</span>
-                  <span style={{ fontSize: 10.5, color: T.inkMuted }}>
-                    {g.tasks.filter((t) => t.status !== "done").length} open · {g.tasks.length} total
-                  </span>
+            {projectGroups.map((g) => {
+              const isCollapsed = collapsedGroups.has(g.key);
+              const openCount = g.tasks.filter((t) => t.status !== "done").length;
+              return (
+                <div key={g.key}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(g.key)}
+                    title={isCollapsed ? "Expand this project" : "Collapse this project"}
+                    style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", cursor: "pointer", background: "none", border: "none", margin: "12px 0 2px", padding: "0 0 4px", borderBottom: `2px solid ${T.roi.navy}` }}
+                  >
+                    <span aria-hidden style={{ fontSize: 10, color: T.roi.navy, transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 120ms ease", display: "inline-block", width: 10 }}>▼</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: T.roi.navy }}>{g.label}</span>
+                    <span style={{ fontSize: 10.5, color: T.inkMuted }}>
+                      {openCount} open · {g.tasks.length} total
+                    </span>
+                  </button>
+                  {!isCollapsed && g.tasks.map((t) => taskLine(t))}
                 </div>
-                {g.tasks.map((t) => taskLine(t))}
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div>{ordered.map((t) => taskLine(t, false, projects.length > 0))}</div>
