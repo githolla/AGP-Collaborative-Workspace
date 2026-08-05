@@ -75,6 +75,22 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
   const diagMilestones = mirror.milestones ?? [];
   const pct = (n: number) => (diagTasks.length ? Math.round((n / diagTasks.length) * 100) : 0);
 
+  // Resource Center allocations — the reserved-hours grid. This is where
+  // scheduled hours actually live, so its shape (and whether a reservation
+  // ties to a specific task) is the pivotal diagnostic for resourcing.
+  const diagAllocs = mirror.allocations ?? [];
+  const diagAllocStory = diagAllocs.filter((a) => !!a.storyId).length;
+  // Raw sample rides in the cached live payload (financial keys already
+  // stripped server-side) — the only place the untouched field names show.
+  let rawAllocSample: Record<string, unknown>[] = [];
+  try {
+    const wrapped = JSON.parse(window.localStorage.getItem("agp-live-mirror-v1") ?? "{}") as { payload?: { kantataAllocationsSample?: Record<string, unknown>[] } };
+    rawAllocSample = wrapped.payload?.kantataAllocationsSample ?? [];
+  } catch {
+    // no cache / parse error — the derived rows below still tell the story
+  }
+  const allocFieldNames = rawAllocSample.length ? [...new Set(rawAllocSample.flatMap((r) => Object.keys(r)))] : [];
+
   const asText = [
     `=== TASK RESOURCING FIELDS (from Kantata) ===`,
     `tasks pulled: ${diagTasks.length}`,
@@ -83,6 +99,14 @@ export function DataInspector({ live, unlinkedCount = 0 }: { live: boolean; unli
     `  with a START date:       ${diagWithStart} (${pct(diagWithStart)}%)   <- needed to spread hours across the span`,
     `sample tasks (title · hours · start → due · ws):`,
     ...diagTasks.slice(0, 14).map((t) => `  ${t.title.slice(0, 38).padEnd(38)}  ·  ${t.estimatedHours ?? "—"}h  ·  ${t.startDate ?? "—"} → ${t.dueDate ?? "—"}  ·  ws=${t.projectId}`),
+    ``,
+    `=== RESOURCE CENTER ALLOCATIONS (reserved-hours grid — where hours actually live) ===`,
+    `allocations pulled: ${diagAllocs.length}`,
+    `  linked to a task (story_id):  ${diagAllocStory} (${diagAllocs.length ? Math.round((diagAllocStory / diagAllocs.length) * 100) : 0}%)   <- if ~0, hours are per person+week only, not per task`,
+    `raw allocation field names Kantata sent: ${allocFieldNames.length ? allocFieldNames.join(", ") : "— (no live sample cached)"}`,
+    `sample allocations (person · hours · start → end · ws · story):`,
+    ...diagAllocs.slice(0, 14).map((a) => `  ${(a.userName || a.userId).slice(0, 24).padEnd(24)}  ·  ${a.hours}h  ·  ${a.startDate || "—"} → ${a.endDate || "—"}  ·  ws=${a.projectId}  ·  story=${a.storyId ?? "—"}`),
+    ...(rawAllocSample.length ? [``, `raw sample rows (financial keys stripped):`, ...rawAllocSample.map((r) => `  ${JSON.stringify(r)}`)] : []),
     ``,
     `=== TASK → PROJECT NESTING ===`,
     `milestones (project level): ${diagMilestones.length}`,

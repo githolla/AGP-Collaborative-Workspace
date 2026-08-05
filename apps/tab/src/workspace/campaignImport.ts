@@ -417,11 +417,28 @@ export interface AccountCrmRecord {
   targetAccount?: boolean;
 }
 
+/**
+ * A reserved-hours row from Kantata's Resource Center for this account — a
+ * person booked for some hours over a window, optionally against a task. This
+ * is the real scheduled time (not the app's derived spread), so the resourcing
+ * view can mirror what the PM already maintains in Kantata.
+ */
+export interface LiveReservation {
+  id: string;
+  personName: string;
+  start?: string;
+  end: string;
+  hours: number;
+  storyId?: string;
+}
+
 export interface AccountLiveContext {
   /** Missing = no directory client matched the workspace name. */
   crm?: AccountCrmRecord;
   projects: LiveProject[];
   deals: LiveDeal[];
+  /** Real Kantata Resource Center reservations for this account's workspaces. */
+  reservations: LiveReservation[];
   /** The project conversation — recent Kantata posts for this client's work. */
   posts: LivePost[];
   /** What the whole mirror holds — so a zero-match workspace can show the
@@ -530,10 +547,25 @@ export function accountLiveContext(
     .slice(0, 50)
     .map((post) => ({ message: post.message, author: post.author, createdAt: post.createdAt }));
 
+  // Real Resource Center reservations for this account's matched workspaces —
+  // a person + window + hours, resolved to a name. Rows with no window can't
+  // sit on a week, so they're dropped (the count still shows in diagnostics).
+  const reservations: LiveReservation[] = (mirror.allocations ?? [])
+    .filter((a) => projectIds.has(a.projectId) && a.hours > 0 && (a.endDate || a.startDate))
+    .map((a) => ({
+      id: a.id,
+      personName: a.userName || a.userId,
+      ...(a.startDate ? { start: a.startDate } : {}),
+      end: a.endDate || a.startDate,
+      hours: a.hours,
+      ...(a.storyId ? { storyId: a.storyId } : {}),
+    }));
+
   return {
     ...(crm ? { crm } : {}),
     projects,
     deals,
+    reservations,
     posts,
     book: {
       clients: mirror.clients.length,

@@ -41,6 +41,22 @@ interface MirrorPayload {
   /** The AGP team — every member of the AGP Kantata account (id, name, title,
    * email). This is the live roster the collaboration UI adds teammates from. */
   kantataStaff: Record<string, unknown>[];
+  /**
+   * Resource allocations — Kantata's Resource Center grid: reserved hours per
+   * person, per week (the numbers Kellie's team maintains by hand every
+   * Thursday). This is where scheduled hours actually live (NOT the story's
+   * estimated_minutes, which the tenant leaves empty). Read-only mirror of the
+   * same `workspace_allocations` object the write-back pushes to.
+   */
+  kantataAllocations: Record<string, unknown>[];
+  /**
+   * A tiny raw sample of allocation rows (financial keys stripped) — the
+   * diagnostic that answers the one open question: does an allocation link to
+   * a specific task (story_id) or only to the workspace+person? That decides
+   * whether hours can be re-spread per task on a timeline shift, or only
+   * mirrored as the weekly grid.
+   */
+  kantataAllocationsSample: Record<string, unknown>[];
 }
 
 // Per-instance cache: previews are demo traffic; 5 minutes keeps upstream
@@ -68,6 +84,8 @@ async function pullKantata(token: string): Promise<{
   hours: Record<string, unknown>[];
   posts: Record<string, unknown>[];
   staff: Record<string, unknown>[];
+  allocations: Record<string, unknown>[];
+  allocationsSample: Record<string, unknown>[];
   note: string;
 }> {
   const headers = { Authorization: `Bearer ${token}` };
@@ -158,6 +176,31 @@ async function pullKantata(token: string): Promise<{
 
   type KantataMembership = { id: string; user_id?: string | number; role?: string };
 
+  // Resource Center allocation — reserved hours for one person over a date
+  // window. Field names read defensively: the tenant/API version may name the
+  // person `user_id` or `assignee_id`, and the hours `allocated_hours`,
+  // `total_hours`, `hours`, or `scheduled_hours`. A `story_id` (if present) is
+  // the task the reservation is against — the link that lets hours re-spread
+  // per task when a timeline shifts.
+  type KantataAllocation = {
+    id: string;
+    workspace_id?: string | number;
+    user_id?: string | number;
+    assignee_id?: string | number;
+    resource_user_id?: string | number;
+    story_id?: string | number;
+    sub_group_id?: string | number;
+    start_date?: string;
+    end_date?: string;
+    date?: string;
+    allocated_hours?: number;
+    total_hours?: number;
+    hours?: number;
+    scheduled_hours?: number;
+    percentage?: number;
+    percent_of_capacity?: number;
+  };
+
   // Users side-bucket harvested from `include=participants` — id → full name.
   const userNames = new Map<string, string>();
   const harvestUsers = (json: Record<string, unknown>): void => {
@@ -196,7 +239,7 @@ async function pullKantata(token: string): Promise<{
   // groups (the client↔project join, SPEC §7), custom-field taxonomy, recent
   // time entries, and recent posts (the project conversation). Each degrades
   // independently; only a workspaces failure is fatal.
-  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult, membersResult] = await Promise.allSettled([
+  const [wsResult, storiesResult, tasksResult, groupsResult, cfvResult, hoursResult, postsResult, membersResult, allocResult] = await Promise.allSettled([
     pullKantataPaged<KantataWorkspace>(
       "https://api.mavenlink.com/api/v1/workspaces?per_page=200&order=updated_at:desc&include=participants",
       "workspaces",
@@ -265,6 +308,23 @@ async function pullKantata(token: string): Promise<{
       "account_memberships",
       1000,
       harvestStaff,
+    ),
+    // Resource Center allocations — the reserved-hours grid. Recency-ordered
+    // (recently-touched first = the live slice Kellie is actually maintaining);
+    // include=user resolves the person's name. If the tenant rejects the order
+    // param, fall back to an unordered walk rather than losing allocations.
+    pullKantataPaged<KantataAllocation>(
+      "https://api.mavenlink.com/api/v1/workspace_allocations?per_page=200&order=updated_at:desc&include=user",
+      "workspace_allocations",
+      4000,
+      harvestUsers,
+    ).catch(() =>
+      pullKantataPaged<KantataAllocation>(
+        "https://api.mavenlink.com/api/v1/workspace_allocations?per_page=200&include=user",
+        "workspace_allocations",
+        4000,
+        harvestUsers,
+      ),
     ),
   ]);
 
@@ -424,7 +484,53 @@ async function pullKantata(token: string): Promise<{
     notes.push(membersResult.reason instanceof Error ? membersResult.reason.message : "team roster failed");
   }
 
-  return { projects, milestones, tasks, groups, customFields, hours, posts, staff, note: notes.join(" · ") };
+  // Resource Center allocations → reserved hours per person over a window.
+  // Fields are read defensively (see KantataAllocation) and NARROWED to
+  // hours/dates/ids — never a rate or amount (no-financials wall). A story_id,
+  // when present, is carried so the browser can attribute hours to a task.
+  let allocations: Record<string, unknown>[] = [];
+  let allocationsSample: Record<string, unknown>[] = [];
+  if (allocResult.status === "fulfilled") {
+    const pick = <T>(...vals: (T | undefined)[]): T | undefined => vals.find((v) => v != null);
+    const FINANCIAL = /rate|cost|bill|price|amount|charge|revenue|budget|dollar|currency/i;
+    allocations = allocResult.value
+      .map((a) => {
+        const userId = String(pick(a.user_id, a.assignee_id, a.resource_user_id) ?? "");
+        const hoursVal = Number(pick(a.allocated_hours, a.total_hours, a.hours, a.scheduled_hours) ?? 0);
+        const start = String(a.start_date ?? a.date ?? "").slice(0, 10);
+        const end = String(a.end_date ?? a.start_date ?? a.date ?? "").slice(0, 10);
+        const storyId = String(pick(a.story_id, a.sub_group_id) ?? "");
+        return {
+          id: String(a.id),
+          workspace_id: String(a.workspace_id ?? ""),
+          user_id: userId,
+          user_name: userNames.get(userId) ?? "",
+          start_date: start,
+          end_date: end,
+          hours: Number.isFinite(hoursVal) ? hoursVal : 0,
+          ...(storyId ? { story_id: storyId } : {}),
+          ...(typeof a.percentage === "number" ? { percentage: a.percentage } : {}),
+        };
+      })
+      // Only rows that actually reserve time — a 0-hour placeholder isn't a
+      // scheduled allocation and would just clutter the grid.
+      .filter((a) => (a.hours as number) > 0 && a.workspace_id && a.user_id);
+    // Raw sample (financial keys stripped) — the diagnostic that reveals the
+    // real field shape, especially whether an allocation ties to a story/task.
+    allocationsSample = allocResult.value.slice(0, 3).map((a) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(a as Record<string, unknown>)) {
+        if (!FINANCIAL.test(k)) out[k] = v;
+      }
+      return out;
+    });
+    const withStory = allocations.filter((a) => a.story_id).length;
+    notes.push(`${allocations.length} allocations (${withStory} task-linked)`);
+  } else {
+    notes.push(allocResult.reason instanceof Error ? allocResult.reason.message : "allocations failed");
+  }
+
+  return { projects, milestones, tasks, groups, customFields, hours, posts, staff, allocations, allocationsSample, note: notes.join(" · ") };
 }
 
 /**
@@ -556,6 +662,8 @@ export default async function handler(
     kantataHours: [],
     kantataPosts: [],
     kantataStaff: [],
+    kantataAllocations: [],
+    kantataAllocationsSample: [],
   };
 
   const [kantataResult] = await Promise.allSettled([
@@ -573,6 +681,8 @@ export default async function handler(
       payload.kantataHours = k.hours;
       payload.kantataPosts = k.posts;
       payload.kantataStaff = k.staff;
+      payload.kantataAllocations = k.allocations;
+      payload.kantataAllocationsSample = k.allocationsSample;
       payload.sources.kantata = { ok: true, note: k.note, projects: k.projects.length };
     } else {
       payload.sources.kantata.note = `pull failed: ${kantataResult.reason instanceof Error ? kantataResult.reason.message : "unknown"}`;

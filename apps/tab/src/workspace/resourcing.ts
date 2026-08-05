@@ -102,6 +102,48 @@ export function weeklyAllocations(tasks: readonly ResourceTask[]): WeekAllocatio
     .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName));
 }
 
+/**
+ * A reservation already made in Kantata (the Resource Center grid): a person
+ * reserved for some hours over a window. Unlike a ResourceTask — which the app
+ * SPREADS into weeks — this is Kellie's actual scheduled time, read back so the
+ * view mirrors what she already maintains instead of re-deriving it.
+ */
+export interface ResourceReservation {
+  id: string;
+  personName: string;
+  /** Start of the reserved window; collapses to `end` when absent/after. */
+  start?: string;
+  end: string;
+  hours: number;
+}
+
+/**
+ * Bucket real Kantata reservations into the same person × week shape the
+ * derived view uses. A reservation that spans several weeks spreads evenly by
+ * day across them (matching how Kantata's own grid reads per week); a
+ * single-week reservation lands whole in that week.
+ */
+export function weeklyReservations(reservations: readonly ResourceReservation[]): WeekAllocation[] {
+  const byKey = new Map<string, { personName: string; weekStart: string; hours: number; items: Set<string> }>();
+  for (const r of reservations) {
+    if (!r.personName || !r.end || !(r.hours > 0)) continue;
+    const start = r.start && r.start <= r.end ? r.start : r.end;
+    const days = daysInclusive(start, r.end);
+    const perDay = r.hours / days.length;
+    for (const d of days) {
+      const weekStart = weekStartOf(d);
+      const key = `${r.personName}|${weekStart}`;
+      const cur = byKey.get(key) ?? { personName: r.personName, weekStart, hours: 0, items: new Set<string>() };
+      cur.hours += perDay;
+      cur.items.add(r.id);
+      byKey.set(key, cur);
+    }
+  }
+  return [...byKey.values()]
+    .map((a) => ({ personName: a.personName, weekStart: a.weekStart, hours: Math.round(a.hours * 10) / 10, taskCount: a.items.size }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName));
+}
+
 export interface AllocationGrid {
   /** Monday ISO for every week that has any allocation, ascending. */
   weeks: string[];
@@ -115,9 +157,8 @@ export interface AllocationGrid {
   weekTotal: (week: string) => number;
 }
 
-/** Shape the allocations into a person × week grid for the resourcing view. */
-export function allocationGrid(tasks: readonly ResourceTask[]): AllocationGrid {
-  const allocations = weeklyAllocations(tasks);
+/** Shape any set of weekly allocations into a person × week grid. */
+export function gridFrom(allocations: readonly WeekAllocation[]): AllocationGrid {
   const cell = new Map<string, number>();
   const weeks = new Set<string>();
   const people = new Set<string>();
@@ -133,6 +174,11 @@ export function allocationGrid(tasks: readonly ResourceTask[]): AllocationGrid {
     personTotal: (person) => allocations.filter((a) => a.personName === person).reduce((s, a) => s + a.hours, 0),
     weekTotal: (week) => allocations.filter((a) => a.weekStart === week).reduce((s, a) => s + a.hours, 0),
   };
+}
+
+/** Shape task-derived allocations into a person × week grid for the view. */
+export function allocationGrid(tasks: readonly ResourceTask[]): AllocationGrid {
+  return gridFrom(weeklyAllocations(tasks));
 }
 
 /** Sum of all estimated hours currently placed on a week — a quick total. */

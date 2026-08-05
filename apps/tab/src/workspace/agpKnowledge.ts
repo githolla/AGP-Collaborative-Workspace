@@ -256,6 +256,32 @@ export interface MirrorTask {
   startDate?: string;
 }
 
+/**
+ * A Kantata Resource Center allocation — reserved hours for one person over a
+ * date window, optionally against a specific task (storyId). This is where the
+ * PM team's scheduled hours actually live (the weekly grid they maintain by
+ * hand), so it's the source the resourcing view mirrors and keeps current.
+ */
+export interface MirrorAllocation {
+  id: string;
+  /** Kantata workspace (the fiscal-year contract) this reservation sits in. */
+  projectId: string;
+  /** Kantata user id of the reserved person. */
+  userId: string;
+  /** Resolved name of the reserved person (blank if the roster didn't have it). */
+  userName: string;
+  /** Start of the reserved window (ISO date). */
+  startDate: string;
+  /** End of the reserved window (ISO date). */
+  endDate: string;
+  /** Reserved hours across the window. */
+  hours: number;
+  /** The task (story) the reservation is against, when Kantata ties it to one. */
+  storyId?: string;
+  /** Percent-of-capacity, when Kantata expresses the reservation that way. */
+  percentage?: number;
+}
+
 /** Kantata post — a comment on a workspace/story: the project conversation. */
 export interface MirrorPost {
   id: string;
@@ -330,6 +356,9 @@ export interface AgpMirror {
   posts?: MirrorPost[];
   /** The AGP team from Kantata (account members). Optional for the same reason. */
   staff?: MirrorStaff[];
+  /** Resource Center allocations — the reserved-hours grid. Optional so older
+   * cached mirrors and minimal test fixtures stay valid. */
+  allocations?: MirrorAllocation[];
 }
 
 /**
@@ -429,6 +458,21 @@ export function loadMirror(): AgpMirror {
         state: String(s.state ?? ""),
         ...(s.hard_date ? { hard: true } : {}),
       })),
+    allocations: (k.allocation ?? [])
+      .map((a) => {
+        const hours = Number((a as Record<string, unknown>).allocated_hours ?? (a as Record<string, unknown>).total_hours ?? (a as Record<string, unknown>).hours ?? 0);
+        return {
+          id: String(a.id),
+          projectId: String(a.workspace_id),
+          userId: String(a.user_id),
+          userName: userName(a.user_id),
+          startDate: String((a as Record<string, unknown>).start_date ?? ""),
+          endDate: String((a as Record<string, unknown>).end_date ?? (a as Record<string, unknown>).start_date ?? ""),
+          hours: Number.isFinite(hours) ? hours : 0,
+          ...((a as Record<string, unknown>).story_id ? { storyId: String((a as Record<string, unknown>).story_id) } : {}),
+        };
+      })
+      .filter((a) => a.hours > 0 && a.projectId && a.userId),
     campaigns: [
       ...(h.deal ?? []).map((d) => ({
         id: String(d.id),

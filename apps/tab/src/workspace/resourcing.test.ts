@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ResourceTask } from "./resourcing.js";
-import { allocationGrid, isSchedulable, totalScheduledHours, weekStartOf, weeklyAllocations } from "./resourcing.js";
+import type { ResourceReservation, ResourceTask } from "./resourcing.js";
+import { allocationGrid, gridFrom, isSchedulable, totalScheduledHours, weekStartOf, weeklyAllocations, weeklyReservations } from "./resourcing.js";
 
 function t(over: Partial<Record<keyof ResourceTask, unknown>> = {}): ResourceTask {
   const base: ResourceTask = { id: "t", ownerName: "Kara Rachal", due: "2026-08-12", estimatedHours: 8, status: "todo" };
@@ -91,6 +91,66 @@ describe("allocationGrid", () => {
     const g = allocationGrid(tasks);
     expect(g.personTotal("Kara Rachal")).toBe(13);
     expect(g.weekTotal("2026-08-10")).toBe(14);
+  });
+});
+
+describe("weeklyReservations (real Kantata Resource Center rows)", () => {
+  const r = (over: Partial<ResourceReservation> = {}): ResourceReservation => ({
+    id: "r", personName: "Amy Warren", end: "2026-08-14", hours: 40, ...over,
+  });
+
+  it("lands a single-week reservation whole in that week", () => {
+    const out = weeklyReservations([r({ start: "2026-08-10", end: "2026-08-16", hours: 40 })]);
+    expect(out).toEqual([{ personName: "Amy Warren", weekStart: "2026-08-10", hours: 40, taskCount: 1 }]);
+  });
+
+  it("spreads a multi-week reservation evenly by day across the weeks it covers", () => {
+    // Mon 3 Aug → Sun 16 Aug = 14 days, 42h → 3h/day → 21h per week.
+    const out = weeklyReservations([r({ start: "2026-08-03", end: "2026-08-16", hours: 42 })]);
+    expect(out).toEqual([
+      { personName: "Amy Warren", weekStart: "2026-08-03", hours: 21, taskCount: 1 },
+      { personName: "Amy Warren", weekStart: "2026-08-10", hours: 21, taskCount: 1 },
+    ]);
+  });
+
+  it("with no start, collapses hours into the end week", () => {
+    const out = weeklyReservations([r({ end: "2026-08-12", hours: 8 })]);
+    expect(out).toEqual([{ personName: "Amy Warren", weekStart: "2026-08-10", hours: 8, taskCount: 1 }]);
+  });
+
+  it("sums two people's overlapping reservations per week and counts rows", () => {
+    const out = weeklyReservations([
+      r({ id: "a", personName: "Amy Warren", start: "2026-08-10", end: "2026-08-16", hours: 40 }),
+      r({ id: "b", personName: "Amy Warren", start: "2026-08-10", end: "2026-08-16", hours: 3 }),
+      r({ id: "c", personName: "Asha Warren", start: "2026-08-10", end: "2026-08-16", hours: 10 }),
+    ]);
+    expect(out).toEqual([
+      { personName: "Amy Warren", weekStart: "2026-08-10", hours: 43, taskCount: 2 },
+      { personName: "Asha Warren", weekStart: "2026-08-10", hours: 10, taskCount: 1 },
+    ]);
+  });
+
+  it("drops rows with no person, no end, or no hours", () => {
+    expect(
+      weeklyReservations([
+        r({ personName: "" }),
+        r({ end: "" }),
+        r({ hours: 0 }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("gridFrom shapes reservations into a person × week grid the view renders", () => {
+    const g = gridFrom(
+      weeklyReservations([
+        r({ id: "a", personName: "Amy Warren", start: "2026-08-10", end: "2026-08-16", hours: 40 }),
+        r({ id: "c", personName: "Asha Warren", start: "2026-08-10", end: "2026-08-16", hours: 10 }),
+      ]),
+    );
+    expect(g.weeks).toEqual(["2026-08-10"]);
+    expect(g.people).toEqual(["Amy Warren", "Asha Warren"]);
+    expect(g.hoursFor("Amy Warren", "2026-08-10")).toBe(40);
+    expect(g.weekTotal("2026-08-10")).toBe(50);
   });
 });
 

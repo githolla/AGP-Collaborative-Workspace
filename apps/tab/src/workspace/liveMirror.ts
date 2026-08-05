@@ -38,6 +38,9 @@ export interface RawMirrorPayload {
   kantataHours?: Record<string, unknown>[];
   kantataPosts?: Record<string, unknown>[];
   kantataStaff?: Record<string, unknown>[];
+  kantataAllocations?: Record<string, unknown>[];
+  /** Raw allocation sample (financial keys stripped) — diagnostics only. */
+  kantataAllocationsSample?: Record<string, unknown>[];
 }
 
 const CACHE_KEY = "agp-live-mirror-v1";
@@ -46,7 +49,7 @@ const CACHE_KEY = "agp-live-mirror-v1";
  * pre-upgrade payload (no groups, one 100-row page) must be discarded, not
  * trusted. This is exactly what bit the first live deploys.
  */
-const CACHE_SCHEMA = 11; // 11: 2-char dash prefixes, AGP/Test internal, space-insensitive keys
+const CACHE_SCHEMA = 12; // 12: + Resource Center allocations (reserved-hours grid)
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => {
@@ -357,6 +360,19 @@ export function mapLivePayload(p: RawMirrorPayload): AgpMirror {
         title: str(u.title),
         email: str(u.email),
       })),
+    allocations: (p.kantataAllocations ?? [])
+      .map((a) => ({
+        id: String(a.id),
+        projectId: String(a.workspace_id),
+        userId: String(a.user_id),
+        userName: str(a.user_name),
+        startDate: str(a.start_date).slice(0, 10),
+        endDate: str(a.end_date).slice(0, 10),
+        hours: num(a.hours),
+        ...(str(a.story_id) ? { storyId: String(a.story_id) } : {}),
+        ...(typeof a.percentage === "number" ? { percentage: num(a.percentage) } : {}),
+      }))
+      .filter((a) => a.hours > 0 && a.projectId && a.userId),
   };
 }
 

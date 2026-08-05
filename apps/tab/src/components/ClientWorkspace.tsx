@@ -14,7 +14,7 @@ import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
-import { allocationGrid, weekLabel } from "../workspace/resourcing.js";
+import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
 import {
   CHASE_AFTER_DAYS,
   needsAttention,
@@ -947,11 +947,14 @@ function BigHoursInput({ hours, onSet, autoFocusMe }: { hours?: number; onSet: (
  */
 function ResourcingView({
   tasks,
+  reservations = [],
   onSetHours,
   onPublish,
   focusTaskId,
 }: {
   tasks: Task[];
+  /** Real Kantata Resource Center reservations — the hours the PM already keeps. */
+  reservations?: readonly ResourceReservation[];
   onSetHours: (taskId: string, hours: number | undefined) => void;
   onPublish?: (() => Promise<WriteResponse>) | undefined;
   focusTaskId?: string;
@@ -1005,7 +1008,7 @@ function ResourcingView({
       </div>
 
       {/* The payoff first: the weekly picture + push. */}
-      {onPublish ? <WeeklyResourcing tasks={tasks} onPublish={onPublish} /> : null}
+      <WeeklyResourcing tasks={tasks} reservations={reservations} {...(onPublish ? { onPublish } : {})} />
 
       {/* Validate hours — clean, grouped by project, roomy input. */}
       <div style={card}>
@@ -1088,22 +1091,30 @@ function ResourcingView({
   );
 }
 
-function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () => Promise<WriteResponse> }) {
+function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task[]; reservations?: readonly ResourceReservation[]; onPublish?: () => Promise<WriteResponse> }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteResponse | null>(null);
-  const grid = allocationGrid(
-    tasks.map((t) => ({
-      id: t.id,
-      status: t.status,
-      ...(t.ownerName ? { ownerName: t.ownerName } : {}),
-      ...(t.startDate ? { start: t.startDate } : {}),
-      ...(t.due ? { due: t.due } : {}),
-      ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-    })),
-  );
+  // Prefer the REAL Resource Center grid when Kantata has reservations for this
+  // account — that's the hours Kellie's team already maintains, shown live.
+  // Only when there are none do we fall back to the app's derived spread from
+  // task hours (the "if it were empty, here's what it'd be" picture).
+  const fromKantata = reservations.length > 0;
+  const grid = fromKantata
+    ? gridFrom(weeklyReservations(reservations))
+    : allocationGrid(
+        tasks.map((t) => ({
+          id: t.id,
+          status: t.status,
+          ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+          ...(t.startDate ? { start: t.startDate } : {}),
+          ...(t.due ? { due: t.due } : {}),
+          ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+        })),
+      );
   const unestimated = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due && t.estimatedHours == null).length;
 
   const run = async () => {
+    if (!onPublish) return;
     setBusy(true);
     try {
       setResult(await onPublish());
@@ -1128,13 +1139,23 @@ function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () =
 
   return (
     <div style={{ ...card, padding: 14 }}>
-      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>hours by person · by week — derived, always current</span>}>
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{fromKantata ? "live from Kantata · Resource Center" : "hours by person · by week — derived, always current"}</span>}>
         Weekly resourcing
       </SectionTitle>
       <div style={{ fontSize: 11.5, color: T.inkSecondary, marginBottom: 10, lineHeight: 1.5 }}>
-        Built from the hours you set on tasks above, placed in the week each task is due. Move a timeline and this
-        re-figures on its own — no weekly redistribute. Heavier weeks are shaded so peaks stand out; leveling anyone
-        who’s overloaded is handled separately, not here.
+        {fromKantata ? (
+          <>
+            These are your Kantata Resource Center reservations — the hours your team already schedules — pulled in
+            live, not re-entered. Heavier weeks are shaded so peaks stand out; leveling anyone who’s overloaded is
+            handled separately, not here.
+          </>
+        ) : (
+          <>
+            Built from the hours you set on tasks above, placed in the week each task is due. Move a timeline and this
+            re-figures on its own — no weekly redistribute. Heavier weeks are shaded so peaks stand out; leveling anyone
+            who’s overloaded is handled separately, not here.
+          </>
+        )}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480 }}>
@@ -1170,18 +1191,29 @@ function WeeklyResourcing({ tasks, onPublish }: { tasks: Task[]; onPublish: () =
         </table>
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
-          {busy ? "Sending…" : "Send weekly reservations to Kantata →"}
-        </button>
-        <span style={{ fontSize: 11, color: T.inkMuted }}>
-          Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task.
-        </span>
-      </div>
-      {unestimated > 0 && (
-        <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
-          {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
+      {fromKantata ? (
+        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 12, lineHeight: 1.5 }}>
+          Live from Kantata's Resource Center — no double entry. As task timelines shift, this stays the single place
+          the weekly picture is kept current.
         </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+            {onPublish && (
+              <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
+                {busy ? "Sending…" : "Send weekly reservations to Kantata →"}
+              </button>
+            )}
+            <span style={{ fontSize: 11, color: T.inkMuted }}>
+              Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task.
+            </span>
+          </div>
+          {unestimated > 0 && (
+            <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
+              {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
+            </div>
+          )}
+        </>
       )}
       {result && (
         <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>
@@ -3446,6 +3478,7 @@ export function ClientWorkspace({
       {tab === "resourcing" && showResourcing && onSetTaskHours && (
         <ResourcingView
           tasks={tasks}
+          reservations={liveContext?.reservations ?? []}
           onSetHours={onSetTaskHours}
           onPublish={onPublishResourcing}
           {...(focusTaskId ? { focusTaskId } : {})}
