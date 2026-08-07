@@ -1687,6 +1687,63 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Flag a task onto / off the CONTRACTOR-shared plan (spec 5.3/5.5). Mirrors
+   * the client toggle but a wholly separate axis — the contractor's scoped view
+   * shows only these, so they get "here are your due dates" without the full
+   * internal plan. */
+  const toggleAccountTaskContractorVisible = useCallback(
+    (id: string, taskId: string) => {
+      mutateAccount(id, (a) => {
+        let note = "";
+        const tasks = a.tasks.map((t) => {
+          if (t.id !== taskId) return t;
+          const next = !t.contractorVisible;
+          note = `“${t.title}” ${next ? "shared to the contractor plan" : "removed from the contractor plan"}`;
+          return { ...t, contractorVisible: next };
+        });
+        return { ...a, tasks, activity: note ? [...a.activity, activityEvent(`Contractor view — ${note}`, "task")] : a.activity };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Grant / revoke contractor access to a file or doc (spec 5.5 "My files").
+   * On/off read access here; upload-folder WRITE rights land with the Graph
+   * layer in Part B (the `contractorWritable` field is reserved for it). */
+  const toggleAccountFileContractorAccessible = useCallback(
+    (id: string, linkId: string) => {
+      mutateAccount(id, (a) => {
+        let note = "";
+        const flip = (l: ClientFileLink): ClientFileLink => {
+          if (l.id !== linkId) return l;
+          const next = !l.contractorAccessible;
+          note = `“${l.name}” ${next ? "shared to contractors" : "hidden from contractors"}`;
+          return { ...l, contractorAccessible: next, ...(next ? {} : { contractorWritable: false }) };
+        };
+        return {
+          ...a,
+          files: a.files.map(flip),
+          docs: a.docs.map(flip),
+          activity: note ? [...a.activity, activityEvent(`Contractor files — ${note}`, "workspace")] : a.activity,
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Flip a discussion message into / out of the contractor-visible slice
+   * (spec 5.4). The message never leaves the single internal thread — this is a
+   * projection, so history is preserved while contractors see only their part. */
+  const toggleAccountMessageContractorVisible = useCallback(
+    (id: string, messageId: string) => {
+      mutateAccount(id, (a) => ({
+        ...a,
+        thread: a.thread.map((m) => (m.id === messageId ? { ...m, contractorVisible: !m.contractorVisible } : m)),
+      }));
+    },
+    [mutateAccount],
+  );
+
   /** Nudge the client about a deliverable — queues a reminder now. Auto-nudge
    * on "not opened yet" arrives with the M365 read-receipt layer; the manual
    * reminder works today (in-app; Teams/email once connected). */
@@ -2144,6 +2201,9 @@ export function useWorkspace() {
     setAccountLinkUrl,
     removeAccountLink,
     toggleAccountTaskClientVisible,
+    toggleAccountTaskContractorVisible,
+    toggleAccountFileContractorAccessible,
+    toggleAccountMessageContractorVisible,
     remindClientDeliverable,
     setNotifyPref,
     addExternal,

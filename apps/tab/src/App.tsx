@@ -1028,6 +1028,9 @@ function Workspace() {
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
             onToggleClientVisible={(taskId) => ws.toggleAccountTaskClientVisible(selectedAccount.id, taskId)}
+            onToggleContractorVisible={(taskId) => ws.toggleAccountTaskContractorVisible(selectedAccount.id, taskId)}
+            onToggleFileContractorAccessible={(linkId) => ws.toggleAccountFileContractorAccessible(selectedAccount.id, linkId)}
+            onToggleMessageContractorVisible={(messageId) => ws.toggleAccountMessageContractorVisible(selectedAccount.id, messageId)}
             onRemindDeliverable={(taskId) => ws.remindClientDeliverable(selectedAccount.id, taskId, userName)}
             onTabChange={setClientTab}
             onSetProjectScope={(ids, scoped) => ws.setProjectScope(selectedAccount.id, ids, scoped)}

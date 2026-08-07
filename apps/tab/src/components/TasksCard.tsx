@@ -85,6 +85,7 @@ export function TasksCard({
   onAdd,
   onStatus,
   onToggleClientVisible,
+  onToggleContractorVisible,
   onOpenTask,
   onDiscuss,
   onSetTaskAssignments,
@@ -100,6 +101,8 @@ export function TasksCard({
   onStatus: (taskId: string, status: TaskStatus) => void;
   /** Layer 0.3: present only on builds linked to a client account. */
   onToggleClientVisible?: (taskId: string) => void;
+  /** Share a task onto the contractor's scoped plan (spec 5.3/5.5). */
+  onToggleContractorVisible?: (taskId: string) => void;
   /** Click the task title to see everything about it (detail drawer). */
   onOpenTask?: (task: Task) => void;
   /** Start a discussion scoped to a project or task — Kellie's "route the
@@ -233,10 +236,13 @@ export function TasksCard({
 
   // Shared column template so the header and every row line up vertically —
   // the difference between a real SaaS table and scattered text. Task flexes;
-  // Team / Due / Status hold fixed widths; Client is an optional trailing icon.
-  const listCols = onToggleClientVisible
-    ? "minmax(0,1fr) 184px 96px 96px 52px"
-    : "minmax(0,1fr) 184px 96px 96px";
+  // Team / Due / Status hold fixed widths; Contractor / Client are optional
+  // trailing share-toggle icons.
+  const showContractorCol = !!onToggleContractorVisible;
+  const showClientCol = !!onToggleClientVisible;
+  const listCols = ["minmax(0,1fr)", "184px", "96px", "96px", showContractorCol ? "64px" : null, showClientCol ? "52px" : null]
+    .filter(Boolean)
+    .join(" ");
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
@@ -303,6 +309,20 @@ export function TasksCard({
         style={{ width: 26, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, border: `1px solid ${t.clientVisible ? T.roi.confirmed : T.grid}`, background: t.clientVisible ? "#e3f4ec" : "transparent", color: t.clientVisible ? "#116a43" : T.inkMuted }}
       >
         {t.clientVisible ? "✓" : "→"}
+      </button>
+    ) : null;
+
+  // Contractor share — a separate axis from client (spec 5.3/5.5). Distinct
+  // cyan accent so the two toggles never read as the same thing.
+  const contractorToggle = (t: Task) =>
+    onToggleContractorVisible ? (
+      <button
+        type="button"
+        onClick={() => onToggleContractorVisible(t.id)}
+        title={t.contractorVisible ? "On the contractor plan — click to make internal-only" : "Internal-only — click to share to the contractor plan"}
+        style={{ width: 26, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, border: `1px solid ${t.contractorVisible ? "#16708f" : T.grid}`, background: t.contractorVisible ? "#e6f3f8" : "transparent", color: t.contractorVisible ? "#0f5a74" : T.inkMuted }}
+      >
+        {t.contractorVisible ? "✓" : "→"}
       </button>
     ) : null;
 
@@ -385,8 +405,10 @@ export function TasksCard({
       <div style={{ textAlign: "right" }}><DueBadge {...(t.due ? { due: t.due } : {})} status={t.status} /></div>
       {/* Status */}
       <div style={{ display: "flex", justifyContent: "flex-start" }}><StatusChip task={t} onAdvance={() => onStatus(t.id, NEXT_STATUS[t.status])} /></div>
+      {/* Contractor (optional) */}
+      {showContractorCol && <div style={{ display: "flex", justifyContent: "center" }}>{contractorToggle(t)}</div>}
       {/* Client (optional) */}
-      {onToggleClientVisible && <div style={{ display: "flex", justifyContent: "center" }}>{clientToggle(t)}</div>}
+      {showClientCol && <div style={{ display: "flex", justifyContent: "center" }}>{clientToggle(t)}</div>}
     </div>
     {teamOpen && (
       <div style={{ padding: "6px 10px 10px 24px", background: "#f7f9fd", borderBottom: `1px solid ${T.grid}` }}>
@@ -537,7 +559,8 @@ export function TasksCard({
                 <span style={h}>Team</span>
                 <span style={{ ...h, textAlign: "right" }}>Due</span>
                 <span style={h}>Status</span>
-                {onToggleClientVisible && <span style={{ ...h, textAlign: "center" }}>Client</span>}
+                {showContractorCol && <span style={{ ...h, textAlign: "center" }}>Contractor</span>}
+                {showClientCol && <span style={{ ...h, textAlign: "center" }}>Client</span>}
               </>
             );
           })()}

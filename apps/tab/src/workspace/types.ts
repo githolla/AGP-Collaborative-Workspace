@@ -18,6 +18,14 @@ export interface ThreadMessage {
   /** Set when the author edited the post — shown so a changed message is
    * never passed off as the original. */
   editedAt?: string;
+  /**
+   * Contractor-visible slice (spec 5.4). A message flagged contractorVisible
+   * is shown to contractors in their scoped view; everything else stays
+   * internal-only. Flow-back: contractor-visible messages STILL live in the
+   * single internal thread — this flag is a projection, not a separate store —
+   * so the full history is preserved while contractors see only their slice.
+   */
+  contractorVisible?: boolean;
 }
 
 /** Audit-trail snapshot (roi-calculator-spec §10) written on every factor change. */
@@ -82,6 +90,14 @@ export interface Task {
    * tasks never reach it.
    */
   clientVisible?: boolean;
+  /**
+   * Contractor-facing tasks are a separate filtered subset (spec 5.3/5.5).
+   * Only tasks flagged contractorVisible appear on the contractor's scoped
+   * plan — "here are your due dates" — without exposing the full internal
+   * project plan. Independent of clientVisible: a task can be shared to the
+   * contractor, the client, both, or neither.
+   */
+  contractorVisible?: boolean;
   createdAt: string;
   /** When the task was marked done (ISO) — set on completion, cleared if
    * reopened. Lets "done this week" be a fact instead of a createdAt proxy. */
@@ -191,6 +207,17 @@ export interface ClientFileLink {
    * See workspace/clientApproval.ts.
    */
   clientShare?: ClientShare;
+  /**
+   * Contractor access (spec 5.5). When true, this file/folder appears in the
+   * contractor's scoped "My files" view. Contractors get read on most granted
+   * files and write on specific upload folders (see `contractorWritable`) so
+   * they can drop finished copy/design back in. Absent = internal only.
+   */
+  contractorAccessible?: boolean;
+  /** Grants the contractor WRITE (upload) on this folder/file, not just read —
+   * the "drop finished work here" folders. Only meaningful with
+   * contractorAccessible. */
+  contractorWritable?: boolean;
 }
 
 /** A document shared with the client, and where its approval stands. */
@@ -240,6 +267,15 @@ export interface ExternalMember {
   invitedBy?: string;
   lastActive?: string;
   addedAt: string;
+  /** Contractor email — the identity the Entra guest invite is keyed to (D5). */
+  email?: string;
+  /**
+   * Microsoft Entra guest-provisioning state (spec D5). A contractor must be an
+   * Entra guest to reach Team/SharePoint files. The app tracks the state; the
+   * actual invite is Part B automation (manual for the first pilots):
+   * none = not yet provisioned, invited = guest invite sent, active = signed in.
+   */
+  entraStatus?: "none" | "invited" | "active";
 }
 
 /**

@@ -48,6 +48,7 @@ export function Thread({
   userName,
   onEdit,
   onDelete,
+  onToggleContractor,
   initialTopic,
 }: {
   messages: ThreadMessage[];
@@ -56,6 +57,9 @@ export function Thread({
   userName?: string;
   onEdit?: (messageId: string, body: string) => void;
   onDelete?: (messageId: string) => void;
+  /** Share a single message into the contractor-visible slice (spec 5.4).
+   * Internal-only control; contractors never see it. */
+  onToggleContractor?: (messageId: string) => void;
   onAskAnalyst?: () => void;
   /**
    * The AI roster is injected by internal workspaces only. Client workspaces
@@ -338,6 +342,16 @@ export function Thread({
                 })()}
                 <span style={{ fontSize: 10, color: T.inkMuted }}>{timeAgoLabel(m.at)}</span>
                 {m.editedAt && <span style={{ fontSize: 10, color: T.inkMuted }}>· edited</span>}
+                {onToggleContractor && m.kind !== "agent" && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleContractor(m.id)}
+                    title={m.contractorVisible ? "Shared with contractors — click to make internal-only" : "Internal-only — click to share this message with contractors"}
+                    style={{ fontSize: 9, fontWeight: 800, cursor: "pointer", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap", border: `1px solid ${m.contractorVisible ? "#16708f" : T.grid}`, background: m.contractorVisible ? "#e6f3f8" : "transparent", color: m.contractorVisible ? "#0f5a74" : T.inkMuted }}
+                  >
+                    {m.contractorVisible ? "✓ contractor" : "→ contractor"}
+                  </button>
+                )}
                 {/* Your own posts only. Someone mis-posting into a discussion
                     had no way back — Cara hit exactly that on the pilot. */}
                 {userName && m.author === userName && m.kind !== "agent" && (onEdit || onDelete) && editingId !== m.id && (

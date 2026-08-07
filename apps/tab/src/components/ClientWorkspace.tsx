@@ -16,6 +16,7 @@ import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskSt
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
 import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
+import { contractorFiles, contractorMessages, contractorTasks } from "../workspace/contractorScope.js";
 import { TeamHoursEditor } from "./TeamHours.js";
 import {
   CHASE_AFTER_DAYS,
@@ -2754,7 +2755,7 @@ function ClientShareControl({ f, onShareToClient, onUnshare }: { f: ClientFileLi
   );
 }
 
-function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUnshare, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
+function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUnshare, onToggleContractor, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onToggleContractor?: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
   const [linking, setLinking] = useState(false);
   const [draft, setDraft] = useState("");
   const [discussing, setDiscussing] = useState(false);
@@ -2790,6 +2791,16 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUns
       {!linking && (
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
+          {onToggleContractor && (
+            <button
+              type="button"
+              onClick={() => onToggleContractor(f.id)}
+              title={f.contractorAccessible ? "Shared with contractors — click to make internal-only" : "Internal-only — click to give contractors access"}
+              style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", cursor: "pointer", border: `1px solid ${f.contractorAccessible ? "#16708f" : T.grid}`, background: f.contractorAccessible ? "#e6f3f8" : "transparent", color: f.contractorAccessible ? "#0f5a74" : T.inkMuted }}
+            >
+              {f.contractorAccessible ? "✓ contractor" : "→ contractor"}
+            </button>
+          )}
           {onShareToClient && onUnshare && <ClientShareControl f={f} onShareToClient={onShareToClient} onUnshare={onUnshare} />}
           {onDiscuss && (
             <button type="button" onClick={() => { setDiscussing((d) => !d); setPosted(false); }} title={`Discuss “${f.name}” — files it under this document in Discussions`} className="btn-link" style={{ fontSize: 11, fontWeight: 700 }}>💬 Discuss</button>
@@ -2818,7 +2829,7 @@ function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUns
   );
 }
 
-function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onShareToClient, onUnshare, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
+function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onShareToClient, onUnshare, onToggleContractor, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onToggleContractor?: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"file" | "doc">("file");
   const [url, setUrl] = useState("");
@@ -2836,6 +2847,7 @@ function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, 
           {...(onOpenItem ? { onOpen: () => onOpenItem(f.kind, f.id) } : {})}
           {...(onShareToClient ? { onShareToClient } : {})}
           {...(onUnshare ? { onUnshare } : {})}
+          {...(onToggleContractor ? { onToggleContractor } : {})}
           onDiscuss={onDiscussFile}
         />
       ))}
@@ -3161,6 +3173,122 @@ function PersonHandoverCard({
   );
 }
 
+/**
+ * Contractor View (spec 5.5) — the extranet replacement. The scoped surface a
+ * contractor sees when granted access: only their tasks, only their files, only
+ * the discussion threads shared with them. Rendered here as a preview for the
+ * PM ("this is what your contractor sees") with inline controls to add/remove
+ * what's shared. The real per-contractor scoping (OPEN-1) is enforced by Team/
+ * channel permissions in Part B; this view defines WHAT is shareable.
+ */
+function ContractorView({
+  account,
+  tasks,
+  onToggleTask,
+  onToggleFile,
+  onToggleMessage,
+  goTo,
+}: {
+  account: ClientAccount;
+  tasks: Task[];
+  onToggleTask?: (taskId: string) => void;
+  onToggleFile?: (linkId: string) => void;
+  onToggleMessage?: (messageId: string) => void;
+  goTo: (t: ClientTab) => void;
+}) {
+  const sharedTasks = contractorTasks(tasks);
+  const sharedFiles = contractorFiles(account);
+  const sharedMsgs = contractorMessages(account.thread);
+  const contractors = account.externals.filter((e) => e.role === "contractor");
+
+  const sectionHead = (label: string, count: number, hint: string, onAdd?: () => void) => (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>
+        {label} <span style={{ color: T.inkMuted, fontWeight: 400 }}>· {count}</span>
+      </span>
+      {onAdd && <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={onAdd}>{hint} →</button>}
+    </div>
+  );
+  const empty = (text: string) => <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "8px 0", lineHeight: 1.5 }}>{text}</div>;
+
+  return (
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+      <div>
+        <SectionTitle right={<span style={{ fontSize: 11, color: T.inkMuted }}>{contractors.length} contractor{contractors.length === 1 ? "" : "s"}</span>}>Contractor View</SectionTitle>
+        <div style={{ fontSize: 11.5, color: T.inkSecondary, lineHeight: 1.55, marginTop: 2 }}>
+          Exactly what a contractor sees when granted access — their tasks, their files, their threads. Nothing else from the
+          workspace (never budgets, costs, or the internal back-and-forth). Share things in from the Project Plan, Files, and
+          Discussions; per-contractor folder scoping is handled by Team permissions.
+        </div>
+      </div>
+
+      {/* My tasks & due dates */}
+      <div>
+        {sectionHead("My tasks & due dates", sharedTasks.length, "Share tasks on the plan", () => goTo("plan"))}
+        {sharedTasks.length === 0
+          ? empty("No tasks shared yet. On the Project Plan, use the → Contractor toggle to share a task's due date without exposing the full plan.")
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {sharedTasks.map((t) => (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                  <input type="checkbox" checked readOnly={!onToggleTask} onChange={() => onToggleTask?.(t.id)} title="Remove from the contractor plan" style={{ width: 14, height: 14, flexShrink: 0, cursor: onToggleTask ? "pointer" : "default" }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary, flexShrink: 0 }}>{t.ownerName}</span>}
+                  <span style={{ fontSize: 11, color: t.due && t.status !== "done" && t.due < AS_OF_TODAY() ? T.status.critical : T.inkMuted, fontWeight: 600, flexShrink: 0, minWidth: 66, textAlign: "right" }}>
+                    {t.due ? fmtDay(t.due) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* My files */}
+      <div>
+        {sectionHead("My files", sharedFiles.length, "Share files", () => goTo("files"))}
+        {sharedFiles.length === 0
+          ? empty("No files shared yet. In Files, grant a contractor access to a file or an upload folder so they can pull the strategy doc or drop finished copy/design back in.")
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {sharedFiles.map((f) => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                  <span aria-hidden style={{ fontSize: 13, flexShrink: 0 }}>{f.kind === "doc" ? "📄" : "📎"}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                  <span title={f.contractorWritable ? "Contractor can upload here" : "Read-only for the contractor"} style={{ fontSize: 9.5, fontWeight: 700, flexShrink: 0, padding: "1px 7px", borderRadius: 999, background: f.contractorWritable ? "#e6f3f8" : "#f0efec", color: f.contractorWritable ? "#0f5a74" : T.inkSecondary }}>
+                    {f.contractorWritable ? "↑ upload" : "read"}
+                  </span>
+                  {onToggleFile && <button type="button" className="btn-link" style={{ fontSize: 11, flexShrink: 0 }} onClick={() => onToggleFile(f.id)}>remove</button>}
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Relevant discussions */}
+      <div>
+        {sectionHead("Relevant discussions", sharedMsgs.length, "Share a thread", () => goTo("discussions"))}
+        {sharedMsgs.length === 0
+          ? empty("No discussion shared yet. In Discussions, share a specific message to the contractor. They see only that slice — everything still stays in the full internal thread for history.")
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {sharedMsgs.map((m) => (
+                <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid #16708f`, borderRadius: 6, padding: "8px 10px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
+                    {m.topic && <span style={{ fontSize: 10, color: T.inkMuted }}>· {m.topic}</span>}
+                    <span style={{ fontSize: 10, color: T.inkMuted, marginLeft: "auto" }}>{m.at.slice(0, 10)}</span>
+                    {onToggleMessage && <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => onToggleMessage(m.id)}>unshare</button>}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
 function AccessTab({
   account,
   today,
@@ -3305,6 +3433,9 @@ export function ClientWorkspace({
   onRemoveExternal,
   onOffboardEverywhere,
   onToggleClientVisible,
+  onToggleContractorVisible,
+  onToggleFileContractorAccessible,
+  onToggleMessageContractorVisible,
   onRemindDeliverable,
   onSetNotifyPref,
   onTabChange,
@@ -3450,6 +3581,12 @@ export function ClientWorkspace({
   onOffboardEverywhere: (personName: string) => void;
   /** Flag a task as a client-facing deliverable (curated client view). */
   onToggleClientVisible: (taskId: string) => void;
+  /** Flag a task onto the contractor's scoped plan (spec 5.3/5.5). */
+  onToggleContractorVisible?: (taskId: string) => void;
+  /** Grant / revoke contractor access to a file or doc (spec 5.5 "My files"). */
+  onToggleFileContractorAccessible?: (linkId: string) => void;
+  /** Flip a discussion message into the contractor-visible slice (spec 5.4). */
+  onToggleMessageContractorVisible?: (messageId: string) => void;
   /** Nudge the client about a deliverable that's due. */
   onRemindDeliverable: (taskId: string) => void;
   /** Set a person's notification channel (Teams/email/both). */
@@ -3731,7 +3868,7 @@ export function ClientWorkspace({
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
-          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(onSetAssignmentOrder ? { onSetAssignmentOrder } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
+          <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onToggleContractorVisible ? { onToggleContractorVisible } : {})} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(onSetAssignmentOrder ? { onSetAssignmentOrder } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
           {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>
               <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
@@ -3781,7 +3918,7 @@ export function ClientWorkspace({
         />
       )}
       {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} onDiscuss={startDiscussion} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
+      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} {...(onToggleFileContractorAccessible ? { onToggleContractor: onToggleFileContractorAccessible } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <DigestComposer account={account} tasks={tasks} onPost={onPost} />
@@ -3792,6 +3929,7 @@ export function ClientWorkspace({
             userName={userName}
             {...(onEditPost ? { onEdit: onEditPost } : {})}
             {...(onDeletePost ? { onDelete: onDeletePost } : {})}
+            {...(onToggleMessageContractorVisible ? { onToggleContractor: onToggleMessageContractorVisible } : {})}
             topics={projectTopics}
             projectOptions={discussionProjects}
             projectOf={projectOfTopic}
@@ -3819,17 +3957,27 @@ export function ClientWorkspace({
       )}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
-        <AccessTab
-          account={account}
-          today={AS_OF_TODAY()}
-          onAdd={onAddExternal}
-          onRemove={onRemoveExternal}
-          onOffboardEverywhere={onOffboardEverywhere}
-          onSetNotifyPref={onSetNotifyPref}
-          {...(onShare ? { onShare } : {})}
-          {...(onRevokeShare ? { onRevokeShare } : {})}
-          {...(onRevokeAllForPerson ? { onRevokeAllForPerson } : {})}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <ContractorView
+            account={account}
+            tasks={tasks}
+            {...(onToggleContractorVisible ? { onToggleTask: onToggleContractorVisible } : {})}
+            {...(onToggleFileContractorAccessible ? { onToggleFile: onToggleFileContractorAccessible } : {})}
+            {...(onToggleMessageContractorVisible ? { onToggleMessage: onToggleMessageContractorVisible } : {})}
+            goTo={setTab}
+          />
+          <AccessTab
+            account={account}
+            today={AS_OF_TODAY()}
+            onAdd={onAddExternal}
+            onRemove={onRemoveExternal}
+            onOffboardEverywhere={onOffboardEverywhere}
+            onSetNotifyPref={onSetNotifyPref}
+            {...(onShare ? { onShare } : {})}
+            {...(onRevokeShare ? { onRevokeShare } : {})}
+            {...(onRevokeAllForPerson ? { onRevokeAllForPerson } : {})}
+          />
+        </div>
       )}
       {openTask && (
         <TaskDetail
