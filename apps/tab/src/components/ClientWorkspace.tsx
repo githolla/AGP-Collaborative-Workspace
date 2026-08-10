@@ -3255,6 +3255,7 @@ function ContractorView({
   onToggleTask,
   onToggleFile,
   onToggleMessage,
+  onContractorReply,
   goTo,
 }: {
   account: ClientAccount;
@@ -3262,12 +3263,16 @@ function ContractorView({
   onToggleTask?: (taskId: string) => void;
   onToggleFile?: (linkId: string) => void;
   onToggleMessage?: (messageId: string) => void;
+  onContractorReply?: (body: string, author: string) => void;
   goTo: (t: ClientTab) => void;
 }) {
   const sharedTasks = contractorTasks(tasks);
   const sharedFiles = contractorFiles(account);
   const sharedMsgs = contractorMessages(account.thread);
   const contractors = account.externals.filter((e) => e.role === "contractor");
+  const [reply, setReply] = useState("");
+  const [replyAs, setReplyAs] = useState("");
+  const replyAuthor = replyAs || contractors[0]?.name || "";
 
   const sectionHead = (label: string, count: number, hint: string, onAdd?: () => void) => (
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
@@ -3352,6 +3357,40 @@ function ContractorView({
               ))}
             </div>
           )}
+        {/* Contractor participates (spec 5.4 / Cara pilot): the contractor
+            replies here. Their post is contractor-visible and joins the single
+            internal thread — the round-trip AGP wanted, without a separate store. */}
+        {onContractorReply && contractors.length > 0 && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10.5, color: T.inkMuted }}>Reply as</span>
+              {contractors.length === 1 ? (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{contractors[0]!.name}</span>
+              ) : (
+                <select className="select" style={{ fontSize: 11.5, padding: "2px 6px" }} value={replyAuthor} onChange={(e) => setReplyAs(e.target.value)}>
+                  {contractors.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              )}
+            </div>
+            <textarea
+              className="textarea"
+              rows={2}
+              style={{ width: "100%", fontSize: 12.5 }}
+              placeholder="Reply to the team — visible to AGP and shared back into the thread…"
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ alignSelf: "flex-start" }}
+              disabled={!reply.trim() || !replyAuthor}
+              onClick={() => { onContractorReply(reply.trim(), replyAuthor); setReply(""); }}
+            >
+              Post reply
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3531,6 +3570,7 @@ export function ClientWorkspace({
   onAddNewMember,
   onSetOwner,
   onSetMemberMuted,
+  onContractorReply,
   pendingKantataWrites = [],
   onPushToKantata,
   onShare,
@@ -3573,6 +3613,10 @@ export function ClientWorkspace({
   onSetOwner?: (name: string) => void;
   /** Hide (muted=true) or restore a member in the working picture. */
   onSetMemberMuted?: (name: string, muted: boolean) => void;
+  /** A contractor posts a reply into the shared discussion (spec 5.4). The
+   * message is contractor-visible and authored by the contractor, so it joins
+   * their slice while staying in the single internal thread. */
+  onContractorReply?: (body: string, author: string) => void;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
@@ -4040,6 +4084,7 @@ export function ClientWorkspace({
             {...(onToggleContractorVisible ? { onToggleTask: onToggleContractorVisible } : {})}
             {...(onToggleFileContractorAccessible ? { onToggleFile: onToggleFileContractorAccessible } : {})}
             {...(onToggleMessageContractorVisible ? { onToggleMessage: onToggleMessageContractorVisible } : {})}
+            {...(onContractorReply ? { onContractorReply } : {})}
             goTo={setTab}
           />
           <AccessTab
