@@ -312,6 +312,21 @@ export interface ClientAccount {
   clientName: string;
   /** Internal AGP members on the account. */
   members: { personId: string; name: string; title: string }[];
+  /**
+   * The person who runs this workspace — the PM/owner. Defaults to whoever
+   * created it. Kellie/Cara pilot feedback (2026-08): a Kantata FY contract
+   * lists ~45 people, so "who's collaborating" was noise; a named owner plus
+   * the working-picture split (see workspace/collaborators.ts) restores a view
+   * that "means something to the team members working on it".
+   */
+  ownerName?: string;
+  /**
+   * Names the owner has hidden from the working picture — invoicing, admin,
+   * leadership who dropped in for support. A PROJECTION, not a deletion: the
+   * person stays a real Kantata record on the account, just off the day-to-day
+   * people view. Absent = nobody hidden.
+   */
+  mutedMembers?: string[];
   /** Clients + contractors (Contractor Access tab). Removal revokes instantly. */
   externals: ExternalMember[];
   /**

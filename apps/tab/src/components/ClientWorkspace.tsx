@@ -16,6 +16,7 @@ import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskSt
 import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
 import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
+import { resolveOwner, workingPicture } from "../workspace/collaborators.js";
 import { contractorFiles, contractorMessages, contractorTasks } from "../workspace/contractorScope.js";
 import { TeamHoursEditor } from "./TeamHours.js";
 import {
@@ -743,6 +744,19 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
         {/* Account overview */}
         <div style={card}>
           <SectionTitle>Account Overview</SectionTitle>
+          {(() => {
+            const owner = resolveOwner(account);
+            const activeCount = workingPicture(account.members, account.tasks, owner, account.mutedMembers).active.length;
+            const scope = account.scopedToProjects && (account.kantataProjectIds?.length ?? 0) > 0
+              ? `${account.kantataProjectIds!.length} project${account.kantataProjectIds!.length === 1 ? "" : "s"}`
+              : "whole client";
+            return (
+              <div style={{ fontSize: 11.5, color: T.inkMuted, margin: "-2px 0 8px", lineHeight: 1.6 }}>
+                {owner ? <>Owner <b style={{ color: navy }}>{owner}</b> · </> : null}
+                <b style={{ color: T.ink }}>{activeCount}</b> on this work · scope: <b style={{ color: T.ink }}>{scope}</b>
+              </div>
+            );
+          })()}
           {(
             [
               { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length, tab: "dashboard" as ClientTab, hint: "Open Client Dashboard" },
@@ -2024,6 +2038,8 @@ function CollaborateHub({
   people,
   onAddMember,
   onAddNewMember,
+  onSetOwner,
+  onSetMemberMuted,
   onAddExternal,
   onPost,
   onOpenAccess,
@@ -2033,6 +2049,8 @@ function CollaborateHub({
   people: { id: string; name: string; title: string }[];
   onAddMember?: (personId: string) => void;
   onAddNewMember?: (name: string, title: string) => void;
+  onSetOwner?: (name: string) => void;
+  onSetMemberMuted?: (name: string, muted: boolean) => void;
   onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
   onPost: (body: string, topic?: string) => void;
   onOpenAccess: () => void;
@@ -2047,8 +2065,43 @@ function CollaborateHub({
   const [addingNew, setAddingNew] = useState(false);
   const onAccount = new Set(account.members.map((m) => m.personId));
   const addable = people.filter((p) => !onAccount.has(p.id));
+  const [showContract, setShowContract] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+
+  // The working picture (Cara/Kellie pilot): who's delivering the work now, not
+  // the whole ~45-person FY roster. Owner + open-task people surface first;
+  // everyone else on the contract collapses; muted names sit under "hidden".
+  const owner = resolveOwner(account);
+  const { active, contract, hidden } = workingPicture(account.members, account.tasks, owner, account.mutedMembers);
 
   const label = { fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" as const, color: T.inkMuted, margin: "12px 0 5px" };
+  const memberRow = (m: { personId: string; name: string; title: string }, opts: { muted?: boolean } = {}) => {
+    const isOwner = m.name === owner;
+    return (
+      <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", opacity: opts.muted ? 0.6 : 1 }}>
+        <Avatar name={m.name} size={24} />
+        <span style={{ fontSize: 12.5, color: T.ink, flex: 1, minWidth: 0 }}>
+          {m.name}
+          {isOwner && <span style={{ fontSize: 9, fontWeight: 800, color: navy, background: "#eef2fb", borderRadius: 4, padding: "1px 5px", marginLeft: 5 }}>OWNER</span>}
+          <span style={{ color: T.inkMuted }}> · {m.title}</span>
+        </span>
+        {!isOwner && onSetOwner && (
+          <button type="button" className="btn-link" style={{ fontSize: 9.5 }} title="Make this person the workspace owner" onClick={() => onSetOwner(m.name)}>Make owner</button>
+        )}
+        {!isOwner && onSetMemberMuted && (
+          <button
+            type="button"
+            className="btn-link"
+            style={{ fontSize: 12, color: T.inkMuted, lineHeight: 1 }}
+            title={opts.muted ? "Restore to the working picture" : "Hide from the working picture"}
+            onClick={() => onSetMemberMuted(m.name, !opts.muted)}
+          >
+            {opts.muted ? "↩" : "×"}
+          </button>
+        )}
+      </div>
+    );
+  };
   return (
     <>
       {/* click-away backdrop */}
@@ -2063,14 +2116,11 @@ function CollaborateHub({
           <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={onClose}>Close</button>
         </div>
 
-        <div style={label}>On this account ({account.members.length + account.externals.length})</div>
+        <div style={label}>Working on this now ({active.length})</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {account.members.map((m) => (
-            <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-              <Avatar name={m.name} size={24} />
-              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{m.name}<span style={{ color: T.inkMuted }}> · {m.title}</span></span>
-            </div>
-          ))}
+          {active.length > 0 ? active.map((m) => memberRow(m)) : (
+            <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "2px 0" }}>No one is on open work yet — assign a task, or name an owner below.</div>
+          )}
           {account.externals.map((e) => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <Avatar name={e.name} size={24} />
@@ -2078,6 +2128,24 @@ function CollaborateHub({
             </div>
           ))}
         </div>
+
+        {contract.length > 0 && (
+          <>
+            <button type="button" className="btn-link" style={{ fontSize: 10.5, marginTop: 8 }} onClick={() => setShowContract((v) => !v)}>
+              {showContract ? "▾" : "▸"} Also on the contract ({contract.length}) — not on current work
+            </button>
+            {showContract && <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>{contract.map((m) => memberRow(m))}</div>}
+          </>
+        )}
+
+        {hidden.length > 0 && (
+          <>
+            <button type="button" className="btn-link" style={{ fontSize: 10.5, marginTop: 6, color: T.inkMuted }} onClick={() => setShowHidden((v) => !v)}>
+              {showHidden ? "▾" : "▸"} Hidden ({hidden.length})
+            </button>
+            {showHidden && <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>{hidden.map((m) => memberRow(m, { muted: true }))}</div>}
+          </>
+        )}
 
         {(onAddMember || onAddNewMember) && (
           <>
@@ -3461,6 +3529,8 @@ export function ClientWorkspace({
   people = [],
   onAddMember,
   onAddNewMember,
+  onSetOwner,
+  onSetMemberMuted,
   pendingKantataWrites = [],
   onPushToKantata,
   onShare,
@@ -3499,6 +3569,10 @@ export function ClientWorkspace({
   onAddMember?: (personId: string) => void;
   /** Add a teammate who isn't in the Kantata roster (name + role). */
   onAddNewMember?: (name: string, title: string) => void;
+  /** Name the workspace owner (the PM who runs it). */
+  onSetOwner?: (name: string) => void;
+  /** Hide (muted=true) or restore a member in the working picture. */
+  onSetMemberMuted?: (name: string, muted: boolean) => void;
   /** The shared plan: account tasks + client-visible tasks from linked builds. */
   sharedTasks: { task: Task; fromInternal: boolean }[];
   userName: string;
@@ -3743,6 +3817,8 @@ export function ClientWorkspace({
                 people={people}
                 {...(onAddMember ? { onAddMember } : {})}
                 {...(onAddNewMember ? { onAddNewMember } : {})}
+                {...(onSetOwner ? { onSetOwner } : {})}
+                {...(onSetMemberMuted ? { onSetMemberMuted } : {})}
                 onAddExternal={onAddExternal}
                 onPost={onPost}
                 onOpenAccess={() => { setHubOpen(false); setTab("access"); }}

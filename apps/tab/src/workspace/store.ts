@@ -832,16 +832,20 @@ export function useWorkspace() {
    * same consistent setup — the four core documents, a delivery-lead member,
    * and a welcome notification. Rows, not choices.
    */
-  const createAccount = useCallback((clientName: string): string => {
+  const createAccount = useCallback((clientName: string, owner?: string): string => {
     const id = newId("acct");
     const now = new Date().toISOString();
     const coreDoc = (name: string): ClientFileLink => ({ id: newId("doc"), name, kind: "doc", addedAt: now });
     const account: ClientAccount = {
       id,
       clientName,
+      // The creator owns the workspace by default (Kellie/Cara pilot: every
+      // workspace needs one named owner, not a 45-person FY roster).
+      ...(owner ? { ownerName: owner } : {}),
       // No default teammate — the account team comes from Kantata (the real
       // delivery participants), added when the workspace populates. Live only.
-      members: [],
+      // The owner is seeded as a member so they hold the owner badge from birth.
+      members: owner ? [{ personId: `owner-${owner.replace(/\s+/g, "-").toLowerCase()}`, name: owner, title: "Workspace owner" }] : [],
       externals: [],
       clientContacts: 0,
       campaigns: [],
@@ -863,8 +867,8 @@ export function useWorkspace() {
    * workspace when THEY choose, through the Review-import panel.
    */
   const createAccountFromMirror = useCallback(
-    (clientName: string): string => {
-      const id = createAccount(clientName);
+    (clientName: string, owner?: string): string => {
+      const id = createAccount(clientName, owner);
       // Populate EVERYTHING at birth — the workspace opens full, not empty.
       // Review import remains the undo (remove anything, or Remove all).
       mutateAccount(id, (a) => {
@@ -1810,6 +1814,50 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
+  /** Name the workspace owner (the PM who runs it). The owner is always kept
+   * in the working picture even between tasks — see workspace/collaborators.ts. */
+  const setAccountOwner = useCallback(
+    (id: string, name: string) => {
+      const clean = name.trim();
+      if (!clean) return;
+      mutateAccount(id, (a) => {
+        if (a.ownerName === clean) return a;
+        // A muted person being made owner un-mutes them — they now run the place.
+        const muted = (a.mutedMembers ?? []).filter((n) => n !== clean);
+        return {
+          ...a,
+          ownerName: clean,
+          ...(muted.length !== (a.mutedMembers?.length ?? 0) ? { mutedMembers: muted } : {}),
+          activity: [...a.activity, activityEvent(`${clean} is now the workspace owner`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
+  /** Hide (or restore) a member from the working picture — the owner's call on
+   * who actually belongs. A projection over the real roster, never a deletion. */
+  const setMemberMuted = useCallback(
+    (id: string, name: string, muted: boolean) => {
+      const clean = name.trim();
+      if (!clean) return;
+      mutateAccount(id, (a) => {
+        // Never hide the owner — they run the workspace.
+        if (muted && a.ownerName === clean) return a;
+        const cur = a.mutedMembers ?? [];
+        const has = cur.includes(clean);
+        if (muted === has) return a;
+        const next = muted ? [...cur, clean] : cur.filter((n) => n !== clean);
+        return {
+          ...a,
+          mutedMembers: next,
+          activity: [...a.activity, activityEvent(muted ? `${clean} hidden from the working picture` : `${clean} restored to the working picture`, "team")],
+        };
+      });
+    },
+    [mutateAccount],
+  );
+
   const addExternal = useCallback(
     (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
       mutateAccount(id, (a) => ({
@@ -2182,6 +2230,8 @@ export function useWorkspace() {
     addAccountTask,
     addAccountMember,
     addAccountMemberNamed,
+    setAccountOwner,
+    setMemberMuted,
     setAccountTaskStatus,
     setAccountTaskHours,
     setAccountTaskAssignments,

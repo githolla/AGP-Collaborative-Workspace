@@ -899,8 +899,8 @@ function Workspace() {
               directoryStats={directoryStats}
               pulse={accountPulse}
               onOpen={(id) => setRoute({ view: "account", id })}
-              onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name) })}
-              onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name) })}
+              onCreate={(name) => setRoute({ view: "account", id: ws.createAccount(name, userName) })}
+              onCreateFromClient={(name) => setRoute({ view: "account", id: ws.createAccountFromMirror(name, userName) })}
               onClearAll={() => ws.archiveAllAccounts()}
             />
             {(() => {
@@ -1078,6 +1078,8 @@ function Workspace() {
             people={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
             onAddMember={(personId) => ws.addAccountMember(selectedAccount.id, personId)}
             onAddNewMember={(name, title) => ws.addAccountMemberNamed(selectedAccount.id, name, title)}
+            onSetOwner={(name) => ws.setAccountOwner(selectedAccount.id, name)}
+            onSetMemberMuted={(name, muted) => ws.setMemberMuted(selectedAccount.id, name, muted)}
             onShare={(personName, items) => ws.shareWithPerson(selectedAccount.id, personName, items, userName)}
             onRevokeShare={(shareId) => ws.revokeShare(selectedAccount.id, shareId, userName)}
             onRevokeAllForPerson={(personName) => ws.revokeAllForPerson(selectedAccount.id, personName, userName)}
