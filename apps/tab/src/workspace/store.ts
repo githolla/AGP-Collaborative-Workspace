@@ -1859,12 +1859,48 @@ export function useWorkspace() {
   );
 
   const addExternal = useCallback(
-    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
+    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], email?: string, invitedBy = "You") => {
+      const cleanEmail = email?.trim().toLowerCase();
       mutateAccount(id, (a) => ({
         ...a,
-        externals: [...a.externals, { id: newId("ext"), name, org, role, access, invitedBy, addedAt: new Date().toISOString() }],
+        externals: [
+          ...a.externals,
+          {
+            id: newId("ext"),
+            name,
+            org,
+            role,
+            access,
+            invitedBy,
+            addedAt: new Date().toISOString(),
+            ...(cleanEmail ? { email: cleanEmail } : {}),
+            // A contractor needs an Entra guest account to reach Team/SharePoint
+            // files (spec D5). Start the lifecycle at "none" so the grant screen
+            // shows the real provisioning state instead of implying instant access.
+            ...(role === "contractor" ? { entraStatus: "none" as const } : {}),
+          },
+        ],
         activity: [...a.activity, activityEvent(`${role === "client" ? "Client" : "Contractor"} access granted — ${name} (${org}, ${access}) by ${invitedBy}`, "team")],
       }));
+    },
+    [mutateAccount],
+  );
+
+  /** Advance a contractor's Entra guest state (spec D5): none → invited → active.
+   * The invite itself is Part B automation; today the PM moves it as they send
+   * and confirm the guest account, so the access screen tells the truth. */
+  const setExternalEntraStatus = useCallback(
+    (id: string, externalId: string, status: NonNullable<ExternalMember["entraStatus"]>) => {
+      mutateAccount(id, (a) => {
+        const ext = a.externals.find((e) => e.id === externalId);
+        if (!ext || ext.entraStatus === status) return a;
+        const verb = status === "invited" ? "Entra guest invite sent" : status === "active" ? "Entra guest active — signed in" : "Entra guest reset";
+        return {
+          ...a,
+          externals: a.externals.map((e) => (e.id === externalId ? { ...e, entraStatus: status } : e)),
+          activity: [...a.activity, activityEvent(`${verb} — ${ext.name}`, "team")],
+        };
+      });
     },
     [mutateAccount],
   );
@@ -2257,6 +2293,7 @@ export function useWorkspace() {
     remindClientDeliverable,
     setNotifyPref,
     addExternal,
+    setExternalEntraStatus,
     shareWithPerson,
     recordShareOpened,
     recordItemOpened,

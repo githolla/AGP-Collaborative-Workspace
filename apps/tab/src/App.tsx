@@ -1024,7 +1024,8 @@ function Workspace() {
             onAddLink={(name, kind, url) => ws.addAccountLink(selectedAccount.id, name, kind, url)}
             onSetLinkUrl={(linkId, url) => ws.setAccountLinkUrl(selectedAccount.id, linkId, url)}
             onRemoveLink={(linkId) => ws.removeAccountLink(selectedAccount.id, linkId)}
-            onAddExternal={(name, org, role, access) => ws.addExternal(selectedAccount.id, name, org, role, access, userName)}
+            onAddExternal={(name, org, role, access, email) => ws.addExternal(selectedAccount.id, name, org, role, access, email, userName)}
+            onSetEntraStatus={(externalId, status) => ws.setExternalEntraStatus(selectedAccount.id, externalId, status)}
             onRemoveExternal={(externalId) => ws.removeExternal(selectedAccount.id, externalId)}
             onOffboardEverywhere={(personName) => ws.offboardEverywhere(personName)}
             onToggleClientVisible={(taskId) => ws.toggleAccountTaskClientVisible(selectedAccount.id, taskId)}

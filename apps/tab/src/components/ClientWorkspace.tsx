@@ -3121,6 +3121,7 @@ function PersonHandoverCard({
   onRemove,
   onOffboardEverywhere,
   onSetNotifyPref,
+  onSetEntraStatus,
 }: {
   person: ExternalMember;
   account: ClientAccount;
@@ -3131,6 +3132,7 @@ function PersonHandoverCard({
   onRemove: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
   onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+  onSetEntraStatus?: (externalId: string, status: NonNullable<ExternalMember["entraStatus"]>) => void;
 }) {
   const [showHistory, setShowHistory] = useState(false);
   const handover = personHandover(account, person.name, today);
@@ -3161,6 +3163,41 @@ function PersonHandoverCard({
         {person.invitedBy ? ` by ${person.invitedBy}` : ""} · {handover.sent} sent · {handover.opened} opened
         {handover.openTasks.length > 0 ? ` · ${handover.openTasks.length} open task${handover.openTasks.length === 1 ? "" : "s"}` : ""}
       </div>
+
+      {/* Entra guest lifecycle (spec D5): a contractor must be a Microsoft Entra
+          guest to reach Team/SharePoint files. The PM tracks it here so the
+          access screen tells the truth about whether they can actually get in —
+          Cara's "add the contractor to the Teams chat", made real and honest. */}
+      {person.role === "contractor" && (() => {
+        const status = person.entraStatus ?? "none";
+        const steps: { key: NonNullable<ExternalMember["entraStatus"]>; label: string }[] = [
+          { key: "none", label: "Not invited" },
+          { key: "invited", label: "Guest invite sent" },
+          { key: "active", label: "Guest active — in Teams" },
+        ];
+        const rank = { none: 0, invited: 1, active: 2 } as const;
+        const dotColor = status === "active" ? "#116a43" : status === "invited" ? "#b07d16" : T.inkMuted;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 10px", margin: "0 0 10px" }}>
+            <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>Teams / SharePoint access</span>
+            <span style={{ fontSize: 11.5, color: dotColor, fontWeight: 600 }}>{steps.find((s) => s.key === status)!.label}</span>
+            {person.email && <span style={{ fontSize: 10.5, color: T.inkMuted }}>· {person.email}</span>}
+            {onSetEntraStatus && (
+              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                {status !== "active" && (
+                  <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: 10.5, padding: "2px 9px" }} onClick={() => onSetEntraStatus(person.id, rank[status] === 0 ? "invited" : "active")}>
+                    {rank[status] === 0 ? "Mark invite sent →" : "Mark active →"}
+                  </button>
+                )}
+                {status !== "none" && (
+                  <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => onSetEntraStatus(person.id, "none")}>reset</button>
+                )}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
         {showHistory ? "Everything ever sent" : "What they have"}
@@ -3403,22 +3440,25 @@ function AccessTab({
   onRemove,
   onOffboardEverywhere,
   onSetNotifyPref,
+  onSetEntraStatus,
   onShare,
   onRevokeShare,
   onRevokeAllForPerson,
 }: {
   account: ClientAccount;
   today: string;
-  onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], email?: string) => void;
   onRemove: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
   onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
+  onSetEntraStatus?: (externalId: string, status: NonNullable<ExternalMember["entraStatus"]>) => void;
   onShare?: (personName: string, items: ShareableItem[]) => void;
   onRevokeShare?: (shareId: string) => void;
   onRevokeAllForPerson?: (personName: string) => void;
 }) {
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<ExternalMember["role"]>("contractor");
   const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
   const attention = needsAttention(account, today);
@@ -3460,6 +3500,7 @@ function AccessTab({
           onRemove={onRemove}
           onOffboardEverywhere={onOffboardEverywhere}
           onSetNotifyPref={onSetNotifyPref}
+          {...(onSetEntraStatus ? { onSetEntraStatus } : {})}
         />
       ))}
 
@@ -3471,8 +3512,9 @@ function AccessTab({
           </div>
         )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" style={{flex: 1, minWidth: 130 }} />
-          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" className="input" style={{flex: 1, minWidth: 130 }} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" style={{flex: 1, minWidth: 120 }} />
+          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" className="input" style={{flex: 1, minWidth: 120 }} />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={role === "contractor" ? "Email (for the guest invite)" : "Email (optional)"} className="input" type="email" style={{flex: 1, minWidth: 150 }} />
           <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} className="select">
             <option value="client">Client</option>
             <option value="contractor">Contractor</option>
@@ -3484,20 +3526,22 @@ function AccessTab({
           </select>
           <button
             type="button"
-            disabled={!name.trim() || !org.trim()}
+            disabled={!name.trim() || !org.trim() || (role === "contractor" && !email.trim())}
             onClick={() => {
-              onAdd(name.trim(), org.trim(), role, access);
+              onAdd(name.trim(), org.trim(), role, access, email.trim() || undefined);
               setName("");
               setOrg("");
+              setEmail("");
             }}
             className="btn btn-primary btn-sm"
           >
             Grant access
           </button>
         </div>
-        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>
-          Guests see only what their level allows; internal financials are never visible to
-          external roles. Real identity enforcement lands with Entra guest accounts / Supabase RLS.
+        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8, lineHeight: 1.5 }}>
+          Guests see only what their level allows; internal financials are never visible to external
+          roles. A contractor is provisioned as a Microsoft Entra guest — enter their email and track
+          the invite on their card below. Real identity enforcement lands with Entra / Supabase RLS.
         </div>
       </div>
 
@@ -3537,6 +3581,7 @@ export function ClientWorkspace({
   onSetLinkUrl,
   onRemoveLink,
   onAddExternal,
+  onSetEntraStatus,
   onRemoveExternal,
   onOffboardEverywhere,
   onToggleClientVisible,
@@ -3694,7 +3739,9 @@ export function ClientWorkspace({
   onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
   onSetLinkUrl: (linkId: string, url: string) => void;
   onRemoveLink: (linkId: string) => void;
-  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], email?: string) => void;
+  /** Advance a contractor's Entra guest state (none → invited → active). */
+  onSetEntraStatus?: (externalId: string, status: NonNullable<ExternalMember["entraStatus"]>) => void;
   onRemoveExternal: (externalId: string) => void;
   onOffboardEverywhere: (personName: string) => void;
   /** Flag a task as a client-facing deliverable (curated client view). */
@@ -4094,6 +4141,7 @@ export function ClientWorkspace({
             onRemove={onRemoveExternal}
             onOffboardEverywhere={onOffboardEverywhere}
             onSetNotifyPref={onSetNotifyPref}
+            {...(onSetEntraStatus ? { onSetEntraStatus } : {})}
             {...(onShare ? { onShare } : {})}
             {...(onRevokeShare ? { onRevokeShare } : {})}
             {...(onRevokeAllForPerson ? { onRevokeAllForPerson } : {})}
