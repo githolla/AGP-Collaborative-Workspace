@@ -20,7 +20,8 @@ visibility across internal teams, clients, and contractors,"* with a focus on
 
 | Requirement | Priority | Status | Where it lives |
 | --- | --- | --- | --- |
-| Workspace per client/project | Must | ✅ | `ClientWorkspace` — one per client account; guest-safety keeps zero cross-visibility by default. |
+| Workspace per client/project | Must | ✅ | `ClientWorkspace` — one per client account; guest-safety keeps zero cross-visibility by default. Scope to selected Kantata projects (`ProjectScope`) so different project teams under one client aren't comingled (Cara pilot). |
+| Named owner + working picture | Should | ✅ | Each workspace has an `ownerName` (defaults to its creator). The People hub and Home split the ~45-person Kantata FY roster into who's delivering the work now vs. everyone else on the contract vs. hidden (`collaborators.ts`) — fixing "who's collaborating isn't the working picture" (Kellie/Cara pilot). |
 | Workspace templates | Must | ✅ | `TemplatePicker` + `templates.ts` — apply a service-line template (dated task set) on the plan. |
 | Home / landing view | Must | ✅ | Home tab — greeting, notifications, overview, your tasks, due-this-week, files, discussions; everything clickable. |
 
@@ -28,7 +29,8 @@ visibility across internal teams, clients, and contractors,"* with a focus on
 
 | Requirement | Priority | Status | Where it lives |
 | --- | --- | --- | --- |
-| External guest access | Must | ✅ | `addExternal` + Contractor Access tab + the People hub's "Invite client/contractor". |
+| External guest access | Must | ✅ | `addExternal` + Contractor Access tab + the People hub's "Invite client/contractor". Contractor grants capture an email and track the **Entra guest lifecycle** (none → invited → active) on each person's card, so the screen reflects real Teams/SharePoint access (spec D5). |
+| Contractor participation | Should | ✅ | Contractors post replies into the shared discussion from the Contractor View (`onContractorReply`); the reply is contractor-visible and stays in the single internal thread. |
 | Granular permissions | Must | ◑ | Enforced **per workspace** (a guest sees only the client surface; financials never render). Folder/page/task-list-level control → ▷ SharePoint. |
 | Auditability | Should | ◑ | Access tab lists who has access and at what level; the account activity log records team/access changes. A formal access-log export → ▷ M365. |
 | Offboarding | Must | ✅ | `offboardEverywhere` — removing a person revokes access across every workspace at once. |
