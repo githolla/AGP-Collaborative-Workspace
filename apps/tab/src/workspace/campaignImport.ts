@@ -20,6 +20,12 @@ export interface ImportedCampaign {
   status: "active" | "planned" | "complete";
   nextMilestone?: string;
   nextMilestoneDate?: string;
+  /** Kantata workspace id — set only for a project-matched campaign (never
+   * a HubSpot deal, which has no Kantata id at all). Carried through so a
+   * confirmed import can also link the account's collab-schema
+   * kantata_project_ids (store.ts's bridgeKantataProjectIds) — the same
+   * pattern TaskCandidate.kantataProjectId already uses. */
+  kantataProjectId?: string;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -227,6 +233,7 @@ export function campaignsFromMirror(
         // Kantata titles often lead with the client name — trim it.
         name: p.title.replace(new RegExp(`^${escapeRe(canonical)}\\s*[—-]\\s*`, "i"), ""),
         status: "active" as const,
+        kantataProjectId: p.id,
         ...milestone,
       };
     });
@@ -253,10 +260,17 @@ export function campaignsFromMirror(
 // ---------------------------------------------------------------------------
 
 export interface LiveMilestone {
+  /** Kantata story id — folder identity keys on this, never the title
+   * (Teams provisioning plan B2/B4): a rename must PATCH the existing
+   * folder, not create a second one. */
+  id: string;
   title: string;
   dueDate: string;
   state: string;
   hard?: boolean;
+  /** Parent story id, present on a nested milestone (a phase). Absent =
+   * top-level milestone. */
+  parentId?: string;
 }
 
 /**
@@ -538,7 +552,7 @@ export function accountLiveContext(
     milestones: projMilestones
       .slice()
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-      .map((m) => ({ title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}) })),
+      .map((m) => ({ id: m.id, title: m.title, dueDate: m.dueDate, state: m.state, ...(m.hard ? { hard: true } : {}), ...(m.parentId ? { parentId: m.parentId } : {}) })),
     tasks: projTasks.map((t) => {
       const h = resolveHierarchy(t.id);
       return {

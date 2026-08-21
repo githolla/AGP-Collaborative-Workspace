@@ -81,10 +81,10 @@ const ACCOUNT: Record<ClientTab, Omit<PageQuestion, "key" | "prompt"> & { prompt
     placeholder: "What would make this worth opening?",
   },
   access: {
-    label: "Client workspace · Access",
-    prompt: (who) => `Is there enough control here to let someone outside AGP into ${who}?`,
-    options: YES_NO("Yes — I'd invite someone today", "Nearly — one more safeguard", "No — I wouldn't risk it"),
-    placeholder: "What would you need to see before inviting a client or contractor?",
+    label: "Client workspace · Admin",
+    prompt: (who) => `Is this enough control to provision the Team, folders, and grants for ${who}?`,
+    options: YES_NO("Yes — I'd provision this today", "Nearly — one more safeguard", "No — I wouldn't risk it"),
+    placeholder: "What would you need to see before connecting a Team or granting a folder?",
   },
 };
 

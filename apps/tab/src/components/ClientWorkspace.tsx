@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { card, T } from "../theme.js";
 import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { ProjectScope } from "./ProjectScope.js";
@@ -12,28 +12,26 @@ import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImp
 import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
 import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
-import type { ClientAccount, ClientFileLink, ExternalMember, Share, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
-import { approvalLabel, approvalState, partitionForClient, type ApprovalState } from "../workspace/clientApproval.js";
+import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
+/** Where a shared file stands, in one word — the client-facing states this
+ * app has ever needed. Was `clientApproval.ts`'s own `ApprovalState`; that
+ * file's concrete functions were all built for the retired
+ * `ClientFileLink.clientShare` model and are gone with it (Phase 7 cutover),
+ * but the type itself is still load-bearing here. */
+type ApprovalState = "fyi" | "pending" | "approved" | "changes";
 import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
 import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
-import { contractorFiles, contractorMessages, contractorTasks } from "../workspace/contractorScope.js";
 import { TeamHoursEditor } from "./TeamHours.js";
-import {
-  CHASE_AFTER_DAYS,
-  needsAttention,
-  offboardChecklist,
-  personHandover,
-  shareState,
-  shareableItems,
-  stateLabel,
-  unsharedWith,
-  type ShareState,
-  type ShareableItem,
-} from "../workspace/handover.js";
+import { fetchAllAccounts, fetchAccountCollabData, toOldTask, toOldCampaign, type MsAccountData, type MsAccountFileApproval, type MsAccountActivity, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
+import { createAccount } from "../workspace/msPeople.js";
+import { postMessage, editMessage, deleteMessage, setMessageVisibility } from "../workspace/msMessages.js";
+import { listFolder, uploadFile, type FileListing, type FileListItem } from "../workspace/msFiles.js";
+import { type FolderTreeNode } from "../workspace/msFolderTree.js";
+import { ClientAdminPanel, FolderTreePicker } from "./ClientAdminPanel.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
- * Project Plan / Client Dashboard / Files / Discussions / Contractor Access,
+ * Project Plan / Client Dashboard / Files / Discussions / Admin,
  * with a personal Home (greeting + notifications, account overview, your
  * tasks, due this week, recent files, core documentation, latest discussions).
  *
@@ -68,7 +66,11 @@ const TABS: { key: ClientTab; label: string }[] = [
   // they're for. Content is composed by App (internal-only modules never
   // enter this file's import graph — clientSafety.test.ts).
   { key: "sandbox", label: "Sandbox" },
-  { key: "access", label: "Contractor Access" },
+  // Key stays "access" — deep links (#c/<id>/access), pageContext.ts's
+  // ACCOUNT record, and SetupChecklist/CollaborateHub's goTo("access")
+  // calls all already target this key. Only the label and rendered
+  // content changed when this became the Client Admin tab.
+  { key: "access", label: "Admin" },
 ];
 
 const navy = T.roi.navy;
@@ -90,14 +92,18 @@ function fmtDay(iso: string): string {
 }
 
 /** The @mention roster: people already on the account first (onAccount), then
- * the rest of the live AGP roster (off-account — quick-addable on mention). */
+ * the rest of the live AGP roster (off-account — quick-addable on mention).
+ * Reads `collabData.members`/`.externals` (Postgres) — the OLD
+ * `account.members`/`.externals` are a separate, now-stale roster that only
+ * CollaborateHub's un-migrated quick-add ever wrote to. */
 function buildMentionRoster(
-  account: ClientAccount,
+  members: WorkspaceAccountPayload["members"],
+  externals: WorkspaceAccountPayload["externals"],
   roster: { id: string; name: string; title: string }[],
 ): MentionPerson[] {
   const onAccount = new Map<string, string>();
-  for (const m of account.members) onAccount.set(m.name, m.title);
-  for (const e of account.externals) onAccount.set(e.name, `${e.role} · ${e.org}`);
+  for (const m of members) onAccount.set(m.name, m.title ?? "");
+  for (const e of externals) onAccount.set(e.name, `${e.role} · ${e.org}`);
   const list: MentionPerson[] = [...onAccount].map(([name, sub]) => ({ name, onAccount: true, ...(sub ? { sub } : {}) }));
   for (const p of roster) {
     if (onAccount.has(p.name)) continue;
@@ -190,6 +196,8 @@ function glyphFor(name: string): string {
 function SetupChecklist({
   account,
   tasks,
+  fileApprovals,
+  externals,
   candidatesCount,
   taskCandidatesCount = 0,
   goTo,
@@ -197,6 +205,8 @@ function SetupChecklist({
 }: {
   account: ClientAccount;
   tasks: Task[];
+  fileApprovals: MsAccountFileApproval[];
+  externals: WorkspaceAccountPayload["externals"];
   candidatesCount: number;
   taskCandidatesCount?: number;
   goTo: (t: ClientTab) => void;
@@ -216,10 +226,10 @@ function SetupChecklist({
     },
     {
       key: "access",
-      done: account.externals.length > 0,
+      done: externals.length > 0,
       label:
-        account.externals.length > 0
-          ? `Client & contractor access set (${account.externals.length})`
+        externals.length > 0
+          ? `Client & contractor access set (${externals.length})`
           : "Give the client (and any contractors) access",
       action: { label: "Open access", onClick: () => goTo("access") },
     },
@@ -239,8 +249,8 @@ function SetupChecklist({
     },
     {
       key: "files",
-      done: account.files.length > 0,
-      label: account.files.length > 0 ? `Files linked (${account.files.length})` : "Link the real files (SharePoint) behind the core docs",
+      done: fileApprovals.length > 0,
+      label: fileApprovals.length > 0 ? `Files shared with the client (${fileApprovals.length})` : "Share a file from the account's folder with the client",
       action: { label: "Open files", onClick: () => goTo("files") },
     },
   ];
@@ -671,9 +681,11 @@ function TemplatePicker({ onApply, startCollapsed = false }: { onApply: (templat
 }
 
 /** Activity feed (Collab Hub Must): the workspace's "what's new" — imports,
- * tasks, access changes, files — newest first. */
-function WhatsNew({ account }: { account: ClientAccount }) {
-  const recent = [...account.activity].reverse().slice(0, 6);
+ * tasks, access changes, files — newest first. Reads `collab.activity`
+ * (already fetched newest-first by GET /api/workspace), migrated off the
+ * old model's `account.activity`. */
+function WhatsNew({ activity }: { activity: MsAccountActivity[] }) {
+  const recent = activity.slice(0, 6);
   if (recent.length === 0) return null;
   return (
     <div style={card}>
@@ -692,7 +704,7 @@ function WhatsNew({ account }: { account: ClientAccount }) {
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
 
-function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
+function Home({ account, tasks, fileApprovals, externals, activity, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; fileApprovals: MsAccountFileApproval[]; externals: WorkspaceAccountPayload["externals"]; activity: MsAccountActivity[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   // MY tasks: the ones I actually carry hours on (or own) — the mechanism that
@@ -729,8 +741,8 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
           <div style={{ fontSize: 20, fontWeight: 800, color: navy }}>Hi {userName.split(" ")[0]}!</div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: navy, margin: "8px 0 4px" }}>Team Notifications</div>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {account.notifications.map((n) => (
-              <RowButton key={n.id} onClick={() => goTo("discussions")} title="Open Discussions" style={{ padding: "5px 4px" }}>
+            {activity.filter((a) => a.kind === "team").slice(0, 5).map((n) => (
+              <RowButton key={n.id} onClick={() => goTo("access")} title="Open Admin" style={{ padding: "5px 4px" }}>
                 <span aria-hidden style={{ width: 5, height: 5, borderRadius: "50%", background: navy, flexShrink: 0 }} />
                 <span style={{ fontSize: 12.5, color: T.inkSecondary, lineHeight: 1.5 }}>{n.text}</span>
               </RowButton>
@@ -747,7 +759,7 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
             [
               { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length, tab: "dashboard" as ClientTab, hint: "Open Client Dashboard" },
               { label: "Upcoming Tasks", value: open.length, tab: "plan" as ClientTab, hint: "Open Project Plan" },
-              { label: "Client Contacts", value: account.clientContacts, tab: "access" as ClientTab, hint: "Open Contractor Access" },
+              { label: "Client Contacts", value: externals.filter((e) => e.role === "client").length, tab: "access" as ClientTab, hint: "Open Admin" },
             ]
           ).map((row) => (
             <RowButton key={row.label} onClick={() => goTo(row.tab)} title={row.hint} style={{ padding: "8px 4px" }}>
@@ -847,40 +859,35 @@ function Home({ account, tasks, userName, goTo, onOpenTask }: { account: ClientA
       </div>
 
       <div className="home-row-2">
-        {/* Recent files */}
+        {/* Recently shared files */}
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
-          <SectionTitle>Recent Files</SectionTitle>
-          {account.files.slice(0, 4).map((f) => (
-            <RowButton
-              key={f.id}
-              onClick={() => (f.url ? window.open(f.url, "_blank", "noreferrer") : goTo("files"))}
-              title={f.url ? "Open the file" : "Open Files"}
-            >
+          <SectionTitle>Recently Shared Files</SectionTitle>
+          {[...fileApprovals].reverse().slice(0, 4).map((f) => (
+            <RowButton key={f.id} onClick={() => goTo("files")} title="Open Files">
               <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <span style={clientShareChip(fileApprovalState(f))}>{fileApprovalLabel(f)}</span>
             </RowButton>
           ))}
-          {account.files.length === 0 && (
-            <EmptyZone label="No files yet — link the SharePoint files this account lives in" onClick={() => goTo("files")} />
+          {fileApprovals.length === 0 && (
+            <EmptyZone label="Nothing shared with the client yet — browse the account's files" onClick={() => goTo("files")} />
           )}
           <ViewAll label="View All Files" onClick={() => goTo("files")} />
         </div>
 
-        {/* Core documentation */}
+        {/* Awaiting the client's decision */}
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
-          <SectionTitle>Core Documentation</SectionTitle>
-          {account.docs.map((d) => (
-            <RowButton
-              key={d.id}
-              onClick={() => (d.url ? window.open(d.url, "_blank", "noreferrer") : goTo("files"))}
-              title={d.url ? "Open the document" : "Open Files"}
-              style={{ padding: "9px 4px" }}
-            >
+          <SectionTitle>Awaiting Client Decision</SectionTitle>
+          {fileApprovals.filter((f) => fileApprovalState(f) === "pending").map((f) => (
+            <RowButton key={f.id} onClick={() => goTo("files")} title="Open Files" style={{ padding: "9px 4px" }}>
               <span aria-hidden style={{ width: 14, height: 14, background: navy, borderRadius: 3, opacity: 0.75, flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12.5, color: T.ink }}>{d.name}</span>
+              <span style={{ flex: 1, fontSize: 12.5, color: T.ink }}>{f.name}</span>
             </RowButton>
           ))}
-          <ViewAll label="View All Docs" onClick={() => goTo("files")} />
+          {fileApprovals.filter((f) => fileApprovalState(f) === "pending").length === 0 && (
+            <EmptyZone label="Nothing awaiting the client's decision" onClick={() => goTo("files")} />
+          )}
+          <ViewAll label="View All Files" onClick={() => goTo("files")} />
         </div>
 
         {/* Latest discussions */}
@@ -1286,27 +1293,46 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
  * approve or ask for changes with a note. Opens light up only once SharePoint
  * is connected — until then the card says so rather than implying silence.
  */
-function ClientDocuments({ account, onDecision }: { account: ClientAccount; onDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void }) {
+/** Same idea as clientApproval.ts's `approvalState`/`approvalLabel`, over
+ * `collab.file_approval`'s own flat shape (`MsAccountFileApproval`) instead
+ * of the retired `ClientShare` — kept separate rather than reshaping one
+ * into the other, since clientApproval.ts still serves the OLD model until
+ * Phase 7's final cutover. */
+function fileApprovalState(a: MsAccountFileApproval): ApprovalState {
+  if (a.purpose === "fyi") return "fyi";
+  if (a.decision === "approved") return "approved";
+  if (a.decision === "changes") return "changes";
+  return "pending";
+}
+function fileApprovalLabel(a: MsAccountFileApproval): string {
+  switch (fileApprovalState(a)) {
+    case "fyi":
+      return "Shared to review";
+    case "approved":
+      return `Approved ${(a.decidedAt ?? "").slice(0, 10)}`.trim();
+    case "changes":
+      return "Changes requested";
+    default:
+      return "Awaiting your approval";
+  }
+}
+
+function ClientDocuments({ approvals, onDecision }: { approvals: MsAccountFileApproval[]; onDecision?: (approvalId: string, decision: "approved" | "changes", note?: string) => void }) {
   const [changingId, setChangingId] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const { awaiting, shared } = partitionForClient([...account.files, ...account.docs]);
-  if (shared.length === 0) return null;
+  const awaiting = approvals.filter((a) => fileApprovalState(a) === "pending");
+  if (approvals.length === 0) return null;
 
-  const row = (f: ClientFileLink) => {
-    const share = f.clientShare!;
-    const st = approvalState(share);
+  const row = (f: MsAccountFileApproval) => {
+    const st = fileApprovalState(f);
     const canDecide = onDecision && st === "pending";
     return (
       <div key={f.id} style={{ padding: "9px 0", borderBottom: `1px solid ${T.grid}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
-          {f.url ? (
-            <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
-          ) : (
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
-          )}
-          <span style={clientShareChip(st)}>{approvalLabel(share)}</span>
-          {share.note && st === "changes" && <span style={{ fontSize: 11, color: "#9b2c2c" }}>“{share.note}”</span>}
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
+          <span style={clientShareChip(st)}>{fileApprovalLabel(f)}</span>
+          {f.note && st === "changes" && <span style={{ fontSize: 11, color: "#9b2c2c" }}>“{f.note}”</span>}
           {canDecide && (
             <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button type="button" className="btn btn-primary btn-sm" style={{ fontSize: 10.5 }} onClick={() => onDecision(f.id, "approved")}>Approve</button>
@@ -1330,7 +1356,7 @@ function ClientDocuments({ account, onDecision }: { account: ClientAccount; onDe
       <SectionTitle right={awaiting.length > 0 ? <span style={clientShareChip("pending")}>{awaiting.length} awaiting you</span> : undefined}>
         Documents shared with you
       </SectionTitle>
-      {shared.map(row)}
+      {approvals.map(row)}
       <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8, lineHeight: 1.5 }}>
         Approvals and change requests are recorded with who and when. Whether a document has been
         opened will show here once the SharePoint connection is switched on.
@@ -1379,7 +1405,7 @@ function WeeklyClientUpdate({ account, deliverables, onPost }: { account: Client
   );
 }
 
-function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, onClientDecision, onDiscuss, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void; onDiscuss?: (topic: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
+function ClientDashboard({ account, tasks, fileApprovals, liveContext, onRemindDeliverable, onToggleClientVisible, onPost, onClientDecision, onDiscuss, mentionRoster = [], goTo }: { account: ClientAccount; tasks: Task[]; fileApprovals: MsAccountFileApproval[]; liveContext?: AccountLiveContext; onRemindDeliverable?: (taskId: string) => void; onToggleClientVisible?: (taskId: string) => void; onPost?: (body: string, topic?: string) => void; onClientDecision?: (approvalId: string, decision: "approved" | "changes", note?: string) => void; onDiscuss?: (topic: string) => void; mentionRoster?: readonly MentionPerson[]; goTo?: (tab: ClientTab) => void }) {
   const done = tasks.filter((t) => t.status === "done").length;
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const today = AS_OF_TODAY();
@@ -1428,7 +1454,7 @@ function ClientDashboard({ account, tasks, liveContext, onRemindDeliverable, onT
       {/* Documents shared with the client — the thing a client actually acts on
           (Cara: files shared with the client, some for approval). Their files
           live here; delivery progress sits below. */}
-      <ClientDocuments account={account} {...(onClientDecision ? { onDecision: onClientDecision } : {})} />
+      <ClientDocuments approvals={fileApprovals} {...(onClientDecision ? { onDecision: onClientDecision } : {})} />
 
       {/* Status summary — the "job tracker" read the client wanted at a glance. */}
       {deliverables.length > 0 && (
@@ -1686,6 +1712,10 @@ export interface ImportCandidate {
   status: "active" | "planned" | "complete";
   nextMilestone?: string;
   nextMilestoneDate?: string;
+  /** Kantata workspace id, when this candidate came from a matched project
+   * (never set for a HubSpot deal) — mirrors campaignImport.ts's
+   * ImportedCampaign, which this type is structurally kept in sync with. */
+  kantataProjectId?: string;
 }
 
 /** An open Kantata task not yet in this workspace's plan — user-gated. */
@@ -2020,7 +2050,8 @@ function ImportReview({
  * in the client, I can collaborate" true.
  */
 function CollaborateHub({
-  account,
+  members,
+  externals,
   people,
   onAddMember,
   onAddNewMember,
@@ -2029,11 +2060,12 @@ function CollaborateHub({
   onOpenAccess,
   onClose,
 }: {
-  account: ClientAccount;
+  members: WorkspaceAccountPayload["members"];
+  externals: WorkspaceAccountPayload["externals"];
   people: { id: string; name: string; title: string }[];
   onAddMember?: (personId: string) => void;
   onAddNewMember?: (name: string, title: string) => void;
-  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
+  onAddExternal: (name: string, org: string, role: ExternalMember["role"]) => void;
   onPost: (body: string, topic?: string) => void;
   onOpenAccess: () => void;
   onClose: () => void;
@@ -2045,7 +2077,7 @@ function CollaborateHub({
   const [newName, setNewName] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [addingNew, setAddingNew] = useState(false);
-  const onAccount = new Set(account.members.map((m) => m.personId));
+  const onAccount = new Set(members.map((m) => m.personId));
   const addable = people.filter((p) => !onAccount.has(p.id));
 
   const label = { fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" as const, color: T.inkMuted, margin: "12px 0 5px" };
@@ -2063,15 +2095,15 @@ function CollaborateHub({
           <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={onClose}>Close</button>
         </div>
 
-        <div style={label}>On this account ({account.members.length + account.externals.length})</div>
+        <div style={label}>On this account ({members.length + externals.length})</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {account.members.map((m) => (
+          {members.map((m) => (
             <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <Avatar name={m.name} size={24} />
-              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{m.name}<span style={{ color: T.inkMuted }}> · {m.title}</span></span>
+              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{m.name}{m.title ? <span style={{ color: T.inkMuted }}> · {m.title}</span> : null}</span>
             </div>
           ))}
-          {account.externals.map((e) => (
+          {externals.map((e) => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <Avatar name={e.name} size={24} />
               <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{e.name}<span style={{ color: T.inkMuted }}> · {e.org} ({e.role})</span></span>
@@ -2145,7 +2177,7 @@ function CollaborateHub({
             className="btn btn-secondary btn-sm"
             disabled={!invName.trim() || !invOrg.trim()}
             onClick={() => {
-              onAddExternal(invName.trim(), invOrg.trim(), invRole, "workspace");
+              onAddExternal(invName.trim(), invOrg.trim(), invRole);
               setInvName("");
               setInvOrg("");
             }}
@@ -2718,18 +2750,16 @@ function DigestComposer({ account, tasks, onPost }: { account: ClientAccount; ta
 // Files / Access tabs
 // ---------------------------------------------------------------------------
 
-function ClientShareControl({ f, onShareToClient, onUnshare }: { f: ClientFileLink; onShareToClient: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare: (linkId: string) => void }) {
+function FileShareControl({ approval, onShare, onUnshare }: { approval?: MsAccountFileApproval | undefined; onShare: (purpose: "fyi" | "approval") => void; onUnshare: (approvalId: string) => void }) {
   const [open, setOpen] = useState(false);
-  const share = f.clientShare;
-  if (share) {
-    const st = approvalState(share);
-    const style = clientShareChip(st);
+  if (approval) {
+    const st = fileApprovalState(approval);
     return (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-        <span title={share.purpose === "approval" ? "Shared with the client for approval" : "Shared with the client to review"} style={style}>
-          {approvalLabel(share)}
+        <span title={approval.purpose === "approval" ? "Shared with the client for approval" : "Shared with the client to review"} style={clientShareChip(st)}>
+          {fileApprovalLabel(approval)}
         </span>
-        <button type="button" className="btn-link" style={{ fontSize: 10.5 }} title="Stop sharing this with the client" onClick={() => onUnshare(f.id)}>
+        <button type="button" className="btn-link" style={{ fontSize: 10.5 }} title="Stop sharing this with the client" onClick={() => onUnshare(approval.id)}>
           Unshare
         </button>
       </span>
@@ -2744,10 +2774,10 @@ function ClientShareControl({ f, onShareToClient, onUnshare }: { f: ClientFileLi
   }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <button type="button" className="btn btn-sm" style={{ fontSize: 10.5 }} title="Share to read / collaborate" onClick={() => { onShareToClient(f.id, "fyi"); setOpen(false); }}>
+      <button type="button" className="btn btn-sm" style={{ fontSize: 10.5 }} title="Share to read / collaborate" onClick={() => { onShare("fyi"); setOpen(false); }}>
         To review
       </button>
-      <button type="button" className="btn btn-primary btn-sm" style={{ fontSize: 10.5 }} title="Ask the client to approve or request changes" onClick={() => { onShareToClient(f.id, "approval"); setOpen(false); }}>
+      <button type="button" className="btn btn-primary btn-sm" style={{ fontSize: 10.5 }} title="Ask the client to approve or request changes" onClick={() => { onShare("approval"); setOpen(false); }}>
         For approval
       </button>
       <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => setOpen(false)}>Cancel</button>
@@ -2755,661 +2785,342 @@ function ClientShareControl({ f, onShareToClient, onUnshare }: { f: ClientFileLi
   );
 }
 
-function FileRow({ f, onSetLinkUrl, onRemoveLink, onOpen, onShareToClient, onUnshare, onToggleContractor, onDiscuss }: { f: ClientFileLink; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpen?: () => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onToggleContractor?: (linkId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
-  const [linking, setLinking] = useState(false);
-  const [draft, setDraft] = useState("");
+/** One live Graph item in the browsed folder — the replacement for the old
+ * hand-typed `FileRow`. Folders themselves aren't shareable/discussable here
+ * (drill into them via the tree above instead); only real files get the
+ * share/discuss controls. */
+function FileBrowserRow({ item, approval, onShare, onUnshare, onDiscuss }: { item: FileListItem; approval?: MsAccountFileApproval | undefined; onShare: (msItemId: string, name: string, purpose: "fyi" | "approval") => void; onUnshare: (approvalId: string) => void; onDiscuss?: (name: string, note: string) => void }) {
   const [discussing, setDiscussing] = useState(false);
   const [note, setNote] = useState("");
   const [posted, setPosted] = useState(false);
   return (
     <div style={{ borderBottom: `1px solid ${T.grid}` }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-      <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(f.name)}</span>
-      {f.url ? (
-        <a href={f.url} target="_blank" rel="noreferrer" onClick={() => onOpen?.()} style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{f.name}</a>
-      ) : linking ? (
-        <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{f.name}</span>
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { onSetLinkUrl(f.id, draft.trim()); setLinking(false); } if (e.key === "Escape") setLinking(false); }}
-            placeholder="Paste SharePoint / OneDrive link…"
-            className="input"
-            style={{ flex: 1, minWidth: 120, fontSize: 11.5, padding: "4px 8px" }}
-          />
-          <button type="button" className="btn btn-primary btn-sm" disabled={!draft.trim()} onClick={() => { onSetLinkUrl(f.id, draft.trim()); setLinking(false); }}>Save</button>
-          <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setLinking(false)}>Cancel</button>
-        </span>
-      ) : (
-        <button type="button" onClick={() => setLinking(true)} title="Attach the SharePoint link for this document" style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{f.name}</span>
-          <span style={{ fontSize: 9.5, fontWeight: 700, color: "#8a6d1a", background: "#faf3dc", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>＋ Add link</span>
-        </button>
-      )}
-      {!linking && (
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 10.5, color: T.inkMuted }}>{f.addedAt.slice(0, 10)}</span>
-          {onToggleContractor && (
-            <button
-              type="button"
-              onClick={() => onToggleContractor(f.id)}
-              title={f.contractorAccessible ? "Shared with contractors — click to make internal-only" : "Internal-only — click to give contractors access"}
-              style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", cursor: "pointer", border: `1px solid ${f.contractorAccessible ? "#16708f" : T.grid}`, background: f.contractorAccessible ? "#e6f3f8" : "transparent", color: f.contractorAccessible ? "#0f5a74" : T.inkMuted }}
-            >
-              {f.contractorAccessible ? "✓ contractor" : "→ contractor"}
-            </button>
-          )}
-          {onShareToClient && onUnshare && <ClientShareControl f={f} onShareToClient={onShareToClient} onUnshare={onUnshare} />}
-          {onDiscuss && (
-            <button type="button" onClick={() => { setDiscussing((d) => !d); setPosted(false); }} title={`Discuss “${f.name}” — files it under this document in Discussions`} className="btn-link" style={{ fontSize: 11, fontWeight: 700 }}>💬 Discuss</button>
-          )}
-          <button type="button" onClick={() => onRemoveLink(f.id)} title={`Remove “${f.name}” (the file in SharePoint is untouched)`} aria-label={`Remove ${f.name}`} style={{ background: "none", border: "none", cursor: "pointer", color: T.inkMuted, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
-        </span>
-      )}
-    </div>
-    {discussing && onDiscuss && (
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 0 10px 22px" }}>
-        {posted ? (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Filed under “{f.name}” in Discussions</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+        <span aria-hidden style={{ fontSize: 13 }}>{item.isFolder ? "📁" : glyphFor(item.name)}</span>
+        {item.webUrl ? (
+          <a href={item.webUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: navy }}>{item.name}</a>
         ) : (
-          <>
-            <textarea className="textarea" rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Start a discussion about “${f.name}”…`} style={{ width: "100%", fontSize: 12 }} />
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button type="button" className="btn btn-primary btn-sm" disabled={!note.trim()} onClick={() => { onDiscuss(f.name, note.trim()); setNote(""); setPosted(true); }}>Post to Discussions</button>
-              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setDiscussing(false); setNote(""); }}>Cancel</button>
-              <span style={{ fontSize: 10, color: T.inkMuted }}>Everyone on the account sees it, filed under this document.</span>
-            </div>
-          </>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{item.name}</span>
+        )}
+        {!item.isFolder && (
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 10.5, color: T.inkMuted }}>{(item.size / 1024).toFixed(0)} KB</span>
+            <FileShareControl {...(approval ? { approval } : {})} onShare={(purpose) => onShare(item.id, item.name, purpose)} onUnshare={onUnshare} />
+            {onDiscuss && (
+              <button type="button" onClick={() => { setDiscussing((d) => !d); setPosted(false); }} title={`Discuss “${item.name}” — files it under this document in Discussions`} className="btn-link" style={{ fontSize: 11, fontWeight: 700 }}>💬 Discuss</button>
+            )}
+          </span>
         )}
       </div>
-    )}
-    </div>
-  );
-}
-
-function FilesTab({ account, onAddLink, onSetLinkUrl, onRemoveLink, onOpenItem, onShareToClient, onUnshare, onToggleContractor, onDiscussFile }: { account: ClientAccount; onAddLink: (name: string, kind: "file" | "doc", url?: string) => void; onSetLinkUrl: (linkId: string, url: string) => void; onRemoveLink: (linkId: string) => void; onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void; onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void; onUnshare?: (linkId: string) => void; onToggleContractor?: (linkId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<"file" | "doc">("file");
-  const [url, setUrl] = useState("");
-  const list = (title: string, items: ClientAccount["files"], emptyHint: string) => (
-    <div style={card}>
-      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{items.length} {items.length === 1 ? "item" : "items"}</span>}>{title}</SectionTitle>
-      {items.map((f) => (
-        <FileRow
-          key={f.id}
-          f={f}
-          onSetLinkUrl={onSetLinkUrl}
-          onRemoveLink={onRemoveLink}
-          // Opening the link is the one open we can observe without Microsoft:
-          // the store records it only if THIS viewer holds a live share for it.
-          {...(onOpenItem ? { onOpen: () => onOpenItem(f.kind, f.id) } : {})}
-          {...(onShareToClient ? { onShareToClient } : {})}
-          {...(onUnshare ? { onUnshare } : {})}
-          {...(onToggleContractor ? { onToggleContractor } : {})}
-          onDiscuss={onDiscussFile}
-        />
-      ))}
-      {items.length === 0 && <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>{emptyHint}</div>}
-    </div>
-  );
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div className="home-row-1" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {list("Files", account.files, "No files linked yet. Files live in SharePoint/Teams (once the M365 layer is connected) — link one below, or click a core doc on the right to attach its link.")}
-        {list("Core Documentation", account.docs, "The standard doc set isn't here — add one below.")}
-      </div>
-      <div style={card}>
-        <SectionTitle>Link a file or document</SectionTitle>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Fall_Package_v2.pptx" className="input" style={{flex: 2, minWidth: 180 }} />
-          <select value={kind} onChange={(e) => setKind(e.target.value as "file" | "doc")} className="select">
-            <option value="file">File</option>
-            <option value="doc">Core doc</option>
-          </select>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="SharePoint link (optional)" className="input" style={{flex: 2, minWidth: 160 }} />
-          <button
-            type="button"
-            disabled={!name.trim()}
-            onClick={() => {
-              onAddLink(name.trim(), kind, url.trim() || undefined);
-              setName("");
-              setUrl("");
-            }}
-            className="btn btn-primary btn-sm"
-          >
-            Add
-          </button>
+      {discussing && onDiscuss && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 0 10px 22px" }}>
+          {posted ? (
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Filed under “{item.name}” in Discussions</span>
+          ) : (
+            <>
+              <textarea className="textarea" rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Start a discussion about “${item.name}”…`} style={{ width: "100%", fontSize: 12 }} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button type="button" className="btn btn-primary btn-sm" disabled={!note.trim()} onClick={() => { onDiscuss(item.name, note.trim()); setNote(""); setPosted(true); }}>Post to Discussions</button>
+                <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => { setDiscussing(false); setNote(""); }}>Cancel</button>
+                <span style={{ fontSize: 10, color: T.inkMuted }}>Everyone on the account sees it, filed under this document.</span>
+              </div>
+            </>
+          )}
         </div>
-        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>
-          Storage itself lives in SharePoint/Teams Files (single source of truth, versioning) per
-          the M365 mapping — this workspace links to it, never forks it.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Per-person notification channel (client call: some want Teams, some email,
- * some both). The channel is honoured once M365 is connected; in-app always. */
-function NotifyPref({ person, pref, onSet }: { person: string; pref: "teams" | "email" | "both" | undefined; onSet: (person: string, pref: "teams" | "email" | "both") => void }) {
-  return (
-    <select
-      value={pref ?? "both"}
-      onChange={(e) => onSet(person, e.target.value as "teams" | "email" | "both")}
-      title="How this person is notified — applied via Teams/email once M365 is connected"
-      className="select"
-      style={{ fontSize: 10.5, padding: "3px 7px" }}
-    >
-      <option value="both">🔔 Teams + email</option>
-      <option value="teams">Teams only</option>
-      <option value="email">Email only</option>
-    </select>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Contractor Access — a HANDOVER view, one card per person.
-//
-// The old tab answered "who has access". The questions actually asked when a
-// contractor finishes are: what did we send them, when, have they opened it,
-// and what do we revoke now. Each card answers all four, and the offboard
-// checklist at its foot is the answer to the fourth, written out.
-//
-// Revoking never deletes a row. "Sent 3 Aug, opened 4 Aug, revoked 20 Aug" has
-// to still be readable a year later. See workspace/handover.ts.
-// ---------------------------------------------------------------------------
-
-const KIND_LABEL: Record<Share["itemKind"], string> = { file: "File", doc: "Document", task: "Task" };
-
-/** Colour by state — chase and never-opened are the two worth catching. */
-function stateStyle(state: ShareState): React.CSSProperties {
-  const map: Record<ShareState, [string, string, string]> = {
-    opened: ["#116a43", "#e8f5ee", "#bfe3d0"],
-    waiting: [T.inkSecondary, "#f2f4f8", T.grid],
-    chase: ["#8a6d1a", "#faf3dc", "#e7c66f"],
-    "revoked-unopened": ["#9b2c2c", "#fdeced", "#f3c2c4"],
-    revoked: [T.inkMuted, "#f2f4f8", T.grid],
-  };
-  const [color, background, border] = map[state];
-  return { color, background, border: `1px solid ${border}`, fontSize: 10, fontWeight: 700, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" };
-}
-
-function ShareRow({ share, today, onRevoke }: { share: Share; today: string; onRevoke: (shareId: string) => void }) {
-  const state = shareState(share, today);
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 10.5, color: T.inkMuted, width: 62, flexShrink: 0 }}>{KIND_LABEL[share.itemKind]}</span>
-      <span
-        style={{
-          fontSize: 12.5,
-          fontWeight: 600,
-          color: share.revokedAt ? T.inkMuted : T.ink,
-          textDecoration: share.revokedAt ? "line-through" : "none",
-          flex: 1,
-          minWidth: 120,
-        }}
-      >
-        {share.itemName}
-      </span>
-      <span style={{ fontSize: 10.5, color: T.inkMuted, whiteSpace: "nowrap" }}>
-        sent {share.sentAt.slice(0, 10)} by {share.sentBy}
-      </span>
-      <span style={stateStyle(state)}>{stateLabel(state, share)}</span>
-      {!share.revokedAt && (
-        <button
-          type="button"
-          className="btn btn-danger btn-sm"
-          title={`Revoke “${share.itemName}” from ${share.personName} — the record of the send stays`}
-          onClick={() => onRevoke(share.id)}
-        >
-          Revoke
-        </button>
       )}
     </div>
   );
 }
 
-function SendPanel({
-  personName,
-  items,
-  onSend,
-}: {
-  personName: string;
-  items: ShareableItem[];
-  onSend: (chosen: ShareableItem[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const key = (i: ShareableItem) => `${i.kind}:${i.itemId}`;
-  const chosen = items.filter((i) => picked.has(key(i)));
+function SharedFilesList({ approvals, onUnshare }: { approvals: MsAccountFileApproval[]; onUnshare: (approvalId: string) => void }) {
+  return (
+    <div style={card}>
+      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{approvals.length} {approvals.length === 1 ? "item" : "items"}</span>}>Shared with client</SectionTitle>
+      {approvals.map((a) => {
+        const st = fileApprovalState(a);
+        return (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
+            <span aria-hidden style={{ fontSize: 13 }}>{glyphFor(a.name)}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{a.name}</span>
+            <span style={clientShareChip(st)}>{fileApprovalLabel(a)}</span>
+            {a.note && st === "changes" && <span style={{ fontSize: 11, color: "#9b2c2c" }}>“{a.note}”</span>}
+            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: T.inkMuted }}>{a.sharedAt.slice(0, 10)}</span>
+              <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => onUnshare(a.id)}>Unshare</button>
+            </span>
+          </div>
+        );
+      })}
+      {approvals.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>
+          Nothing shared with the client yet — browse the account's files below and share one.
+        </div>
+      )}
+    </div>
+  );
+}
 
-  if (items.length === 0) {
-    return <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>{personName} already has everything in this workspace.</div>;
+/** "The folder IS the file list" (docs/api-spec-workspace-mutations.md) —
+ * a live Graph browse/upload of the account's real SharePoint folder tree
+ * (same `FolderTreePicker`/`listFolder`/`uploadFile` ClientAdminPanel.tsx's
+ * Admin-tab Files panel already uses), plus which of those real files are
+ * shared into the client space. Replaces the old hand-typed `ClientFileLink`
+ * list entirely — there is no app-side file inventory to add/rename/remove
+ * a row from anymore. */
+function FilesTab({ accountId, loginHintEmail, fileApprovals, onShareFile, onUnshareFile, onDiscussFile }: { accountId?: string | null | undefined; loginHintEmail?: string | undefined; fileApprovals: MsAccountFileApproval[]; onShareFile: (msItemId: string, name: string, purpose: "fyi" | "approval") => void; onUnshareFile: (approvalId: string) => void; onDiscussFile: (name: string, note: string) => void }) {
+  const [selectedNode, setSelectedNode] = useState<FolderTreeNode | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const [listing, setListing] = useState<FileListing | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+
+  const selectedKantataId = selectedNode?.kantataId ?? "";
+  const approvalByItemId = new Map(fileApprovals.map((a) => [a.msItemId, a] as const));
+
+  async function reload(kantataId: string) {
+    if (!accountId) return;
+    setLoading(true);
+    setErr(null);
+    try {
+      setListing(await listFolder(accountId, kantataId, loginHintEmail));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "failed to list folder");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  if (!open) {
+  if (!accountId) {
     return (
-      <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
-        Send something to {personName.split(" ")[0]} →
-      </button>
+      <div style={card}>
+        <SectionTitle>Files</SectionTitle>
+        <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5 }}>
+          This workspace isn't linked to the shared account record yet — open the Admin tab to set it up.
+        </div>
+      </div>
     );
   }
 
   return (
-    <div style={{ marginTop: 8, padding: 10, background: "#f7f8fb", borderRadius: 8, border: `1px solid ${T.grid}` }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-        Not yet with {personName}
-      </div>
-      <div style={{ maxHeight: 190, overflowY: "auto" }}>
-        {items.map((i) => (
-          <label key={key(i)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={picked.has(key(i))}
-              onChange={() =>
-                setPicked((p) => {
-                  const next = new Set(p);
-                  if (next.has(key(i))) next.delete(key(i));
-                  else next.add(key(i));
-                  return next;
-                })
-              }
-            />
-            <span style={{ fontSize: 10.5, color: T.inkMuted, width: 62 }}>{KIND_LABEL[i.kind]}</span>
-            <span style={{ fontSize: 12.5, color: T.ink }}>{i.itemName}</span>
-          </label>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          disabled={chosen.length === 0}
-          onClick={() => {
-            onSend(chosen);
-            setPicked(new Set());
-            setOpen(false);
-          }}
-        >
-          Send {chosen.length > 0 ? `${chosen.length} ` : ""}to {personName.split(" ")[0]}
-        </button>
-        <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PersonHandoverCard({
-  person,
-  account,
-  today,
-  onSend,
-  onRevokeShare,
-  onRevokeAll,
-  onRemove,
-  onOffboardEverywhere,
-  onSetNotifyPref,
-}: {
-  person: ExternalMember;
-  account: ClientAccount;
-  today: string;
-  onSend: (personName: string, items: ShareableItem[]) => void;
-  onRevokeShare: (shareId: string) => void;
-  onRevokeAll: (personName: string) => void;
-  onRemove: (externalId: string) => void;
-  onOffboardEverywhere: (personName: string) => void;
-  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
-}) {
-  const [showHistory, setShowHistory] = useState(false);
-  const handover = personHandover(account, person.name, today);
-  const checklist = offboardChecklist(handover);
-  const revoked = handover.shares.filter((s) => !!s.revokedAt);
-  const visible = showHistory ? handover.shares : handover.live;
-
-  return (
-    <div style={{ ...card, padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <Avatar name={person.name} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{person.name}</span>
-        <span style={{ fontSize: 11.5, color: T.inkMuted }}>{person.org}</span>
-        <TagChip>{person.role}</TagChip>
-        <TagChip>{person.access}</TagChip>
-        {handover.chase.length > 0 && (
-          <span style={stateStyle("chase")}>
-            {handover.chase.length} not opened
-          </span>
-        )}
-        <span style={{ marginLeft: "auto" }}>
-          <NotifyPref person={person.name} pref={account.notifyPrefs?.[person.name]} onSet={onSetNotifyPref} />
-        </span>
-      </div>
-
-      <div style={{ fontSize: 11, color: T.inkMuted, margin: "6px 0 10px" }}>
-        Access granted {person.addedAt.slice(0, 10)}
-        {person.invitedBy ? ` by ${person.invitedBy}` : ""} · {handover.sent} sent · {handover.opened} opened
-        {handover.openTasks.length > 0 ? ` · ${handover.openTasks.length} open task${handover.openTasks.length === 1 ? "" : "s"}` : ""}
-      </div>
-
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>
-        {showHistory ? "Everything ever sent" : "What they have"}
-      </div>
-      {visible.length === 0 ? (
-        <div style={{ fontSize: 12, color: T.inkMuted, padding: "6px 0" }}>
-          Nothing sent to {person.name.split(" ")[0]} yet.
-        </div>
-      ) : (
-        visible.map((s) => <ShareRow key={s.id} share={s} today={today} onRevoke={onRevokeShare} />)
-      )}
-      {revoked.length > 0 && (
-        <button type="button" className="btn-link" style={{ fontSize: 11, marginTop: 6 }} onClick={() => setShowHistory((h) => !h)}>
-          {showHistory ? "Show only what they have" : `Show ${revoked.length} revoked item${revoked.length === 1 ? "" : "s"}`}
-        </button>
-      )}
-
-      {handover.openTasks.length > 0 && (
-        <>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "12px 0 2px" }}>
-            Work assigned to them
-          </div>
-          {handover.openTasks.map((t) => (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.grid}` }}>
-              <span style={{ fontSize: 12.5, color: T.ink, flex: 1 }}>{t.title}</span>
-              <span style={{ fontSize: 10.5, color: T.inkMuted }}>{t.due ? `due ${t.due}` : "no date"}</span>
-              <TagChip>{t.status === "doing" ? "in progress" : "to do"}</TagChip>
-            </div>
-          ))}
-        </>
-      )}
-
-      <SendPanel
-        personName={person.name}
-        items={unsharedWith(shareableItems(account), handover)}
-        onSend={(chosen) => onSend(person.name, chosen)}
-      />
-
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.grid}` }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-          When they're done
-        </div>
-        {checklist.map((line) => (
-          <div key={line} style={{ fontSize: 12, color: T.inkSecondary, padding: "2px 0" }}>
-            {line}
-          </div>
-        ))}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-          {handover.live.length > 0 && (
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              title={`Revoke all ${handover.live.length} live items from ${person.name}. They keep workspace access; the send record is kept.`}
-              onClick={() => onRevokeAll(person.name)}
-            >
-              Revoke all {handover.live.length} items
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            title="Remove from this workspace — revokes everything they hold here, immediately"
-            onClick={() => onRemove(person.id)}
-          >
-            Remove from this workspace
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger-solid btn-sm"
-            title="Remove this person from EVERY client workspace, audit-logged"
-            onClick={() => onOffboardEverywhere(person.name)}
-          >
-            Offboard everywhere
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Contractor View (spec 5.5) — the extranet replacement. The scoped surface a
- * contractor sees when granted access: only their tasks, only their files, only
- * the discussion threads shared with them. Rendered here as a preview for the
- * PM ("this is what your contractor sees") with inline controls to add/remove
- * what's shared. The real per-contractor scoping (OPEN-1) is enforced by Team/
- * channel permissions in Part B; this view defines WHAT is shareable.
- */
-function ContractorView({
-  account,
-  tasks,
-  onToggleTask,
-  onToggleFile,
-  onToggleMessage,
-  goTo,
-}: {
-  account: ClientAccount;
-  tasks: Task[];
-  onToggleTask?: (taskId: string) => void;
-  onToggleFile?: (linkId: string) => void;
-  onToggleMessage?: (messageId: string) => void;
-  goTo: (t: ClientTab) => void;
-}) {
-  const sharedTasks = contractorTasks(tasks);
-  const sharedFiles = contractorFiles(account);
-  const sharedMsgs = contractorMessages(account.thread);
-  const contractors = account.externals.filter((e) => e.role === "contractor");
-
-  const sectionHead = (label: string, count: number, hint: string, onAdd?: () => void) => (
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: T.inkMuted }}>
-        {label} <span style={{ color: T.inkMuted, fontWeight: 400 }}>· {count}</span>
-      </span>
-      {onAdd && <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={onAdd}>{hint} →</button>}
-    </div>
-  );
-  const empty = (text: string) => <div style={{ fontSize: 11.5, color: T.inkMuted, padding: "8px 0", lineHeight: 1.5 }}>{text}</div>;
-
-  return (
-    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
-      <div>
-        <SectionTitle right={<span style={{ fontSize: 11, color: T.inkMuted }}>{contractors.length} contractor{contractors.length === 1 ? "" : "s"}</span>}>Contractor View</SectionTitle>
-        <div style={{ fontSize: 11.5, color: T.inkSecondary, lineHeight: 1.55, marginTop: 2 }}>
-          Exactly what a contractor sees when granted access — their tasks, their files, their threads. Nothing else from the
-          workspace (never budgets, costs, or the internal back-and-forth). Share things in from the Project Plan, Files, and
-          Discussions; per-contractor folder scoping is handled by Team permissions.
-        </div>
-      </div>
-
-      {/* My tasks & due dates */}
-      <div>
-        {sectionHead("My tasks & due dates", sharedTasks.length, "Share tasks on the plan", () => goTo("plan"))}
-        {sharedTasks.length === 0
-          ? empty("No tasks shared yet. On the Project Plan, use the → Contractor toggle to share a task's due date without exposing the full plan.")
-          : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {sharedTasks.map((t) => (
-                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-                  <input type="checkbox" checked readOnly={!onToggleTask} onChange={() => onToggleTask?.(t.id)} title="Remove from the contractor plan" style={{ width: 14, height: 14, flexShrink: 0, cursor: onToggleTask ? "pointer" : "default" }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                  {t.ownerName && <span style={{ fontSize: 11, color: T.inkSecondary, flexShrink: 0 }}>{t.ownerName}</span>}
-                  <span style={{ fontSize: 11, color: t.due && t.status !== "done" && t.due < AS_OF_TODAY() ? T.status.critical : T.inkMuted, fontWeight: 600, flexShrink: 0, minWidth: 66, textAlign: "right" }}>
-                    {t.due ? fmtDay(t.due) : "—"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-
-      {/* My files */}
-      <div>
-        {sectionHead("My files", sharedFiles.length, "Share files", () => goTo("files"))}
-        {sharedFiles.length === 0
-          ? empty("No files shared yet. In Files, grant a contractor access to a file or an upload folder so they can pull the strategy doc or drop finished copy/design back in.")
-          : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {sharedFiles.map((f) => (
-                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-                  <span aria-hidden style={{ fontSize: 13, flexShrink: 0 }}>{f.kind === "doc" ? "📄" : "📎"}</span>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                  <span title={f.contractorWritable ? "Contractor can upload here" : "Read-only for the contractor"} style={{ fontSize: 9.5, fontWeight: 700, flexShrink: 0, padding: "1px 7px", borderRadius: 999, background: f.contractorWritable ? "#e6f3f8" : "#f0efec", color: f.contractorWritable ? "#0f5a74" : T.inkSecondary }}>
-                    {f.contractorWritable ? "↑ upload" : "read"}
-                  </span>
-                  {onToggleFile && <button type="button" className="btn-link" style={{ fontSize: 11, flexShrink: 0 }} onClick={() => onToggleFile(f.id)}>remove</button>}
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-
-      {/* Relevant discussions */}
-      <div>
-        {sectionHead("Relevant discussions", sharedMsgs.length, "Share a thread", () => goTo("discussions"))}
-        {sharedMsgs.length === 0
-          ? empty("No discussion shared yet. In Discussions, share a specific message to the contractor. They see only that slice — everything still stays in the full internal thread for history.")
-          : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {sharedMsgs.map((m) => (
-                <div key={m.id} style={{ background: "#f7f6f3", borderLeft: `3px solid #16708f`, borderRadius: 6, padding: "8px 10px" }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: T.ink }}>{m.author}</span>
-                    {m.topic && <span style={{ fontSize: 10, color: T.inkMuted }}>· {m.topic}</span>}
-                    <span style={{ fontSize: 10, color: T.inkMuted, marginLeft: "auto" }}>{m.at.slice(0, 10)}</span>
-                    {onToggleMessage && <button type="button" className="btn-link" style={{ fontSize: 10.5 }} onClick={() => onToggleMessage(m.id)}>unshare</button>}
-                  </div>
-                  <div style={{ fontSize: 12, color: T.inkSecondary, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{m.body}</div>
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
-
-function AccessTab({
-  account,
-  today,
-  onAdd,
-  onRemove,
-  onOffboardEverywhere,
-  onSetNotifyPref,
-  onShare,
-  onRevokeShare,
-  onRevokeAllForPerson,
-}: {
-  account: ClientAccount;
-  today: string;
-  onAdd: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
-  onRemove: (externalId: string) => void;
-  onOffboardEverywhere: (personName: string) => void;
-  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
-  onShare?: (personName: string, items: ShareableItem[]) => void;
-  onRevokeShare?: (shareId: string) => void;
-  onRevokeAllForPerson?: (personName: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [org, setOrg] = useState("");
-  const [role, setRole] = useState<ExternalMember["role"]>("contractor");
-  const [access, setAccess] = useState<ExternalMember["access"]>("files-only");
-  const attention = needsAttention(account, today);
-
-  return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {attention.length > 0 && (
-        <div style={{ ...card, padding: "10px 14px", borderLeft: `3px solid #e7c66f`, background: "#fffdf5" }}>
-          <span style={{ fontSize: 12.5, color: T.ink }}>
-            <strong>Waiting on someone.</strong>{" "}
-            {attention.map((r) => `${r.personName} (${r.chase})`).join(", ")} — sent {CHASE_AFTER_DAYS}+ days ago and not
-            opened.
-          </span>
-        </div>
-      )}
-
       <div style={card}>
-        <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>notify: each person's choice</span>}>AGP team</SectionTitle>
-        {account.members.map((m) => (
-          <div key={m.personId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.grid}` }}>
-            <Avatar name={m.name} />
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{m.name}</span>
-            <span style={{ fontSize: 11.5, color: T.inkMuted }}>{m.title}</span>
-            <span style={{ marginLeft: "auto" }}><NotifyPref person={m.name} pref={account.notifyPrefs?.[m.name]} onSet={onSetNotifyPref} /></span>
+        <SectionTitle right={listing?.folderWebUrl ? <a href={listing.folderWebUrl} target="_blank" rel="noreferrer" className="btn-link" style={{ fontSize: 12 }}>Open in SharePoint ↗</a> : undefined}>
+          Files
+        </SectionTitle>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setBrowsing((b) => !b)}>
+              {browsing ? "Hide folders" : "Browse folders"}
+            </button>
+            <span style={{ fontSize: 12.5, color: T.inkMuted }}>{selectedNode ? `Selected: ${selectedNode.name}` : "No folder selected"}</span>
+            {selectedKantataId && (
+              <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
+                {uploadPct !== null ? `Uploading… ${uploadPct}%` : "Upload"}
+                <input
+                  type="file"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setUploadPct(0);
+                    uploadFile(accountId, selectedKantataId, file, { ...(loginHintEmail ? { loginHintEmail } : {}), onProgress: (p) => setUploadPct(Math.round((p.bytesSent / p.totalBytes) * 100)) })
+                      .then(() => reload(selectedKantataId))
+                      .catch((e2) => setErr(e2 instanceof Error ? e2.message : "upload failed"))
+                      .finally(() => setUploadPct(null));
+                  }}
+                />
+              </label>
+            )}
           </div>
+          {browsing && (
+            <FolderTreePicker
+              accountId={accountId}
+              {...(loginHintEmail ? { loginHintEmail } : {})}
+              selectedKantataId={selectedKantataId}
+              onSelect={(node) => {
+                setSelectedNode(node);
+                setListing(null);
+                void reload(node.kantataId);
+              }}
+            />
+          )}
+        </div>
+        {loading && <div style={{ fontSize: 12.5, color: T.inkMuted }}>Loading…</div>}
+        {err && <div style={{ fontSize: 12.5, color: T.status.critical }}>{err}</div>}
+        {listing && listing.items.length === 0 && <div style={{ fontSize: 11.5, color: T.inkMuted }}>Empty.</div>}
+        {listing?.items.map((item) => (
+          <FileBrowserRow key={item.id} item={item} {...(approvalByItemId.get(item.id) ? { approval: approvalByItemId.get(item.id) } : {})} onShare={onShareFile} onUnshare={onUnshareFile} onDiscuss={onDiscussFile} />
         ))}
-        {account.members.length === 0 && <div style={{ fontSize: 12, color: T.inkMuted }}>No AGP members yet — the team arrives from Kantata, or add someone from the People hub.</div>}
-      </div>
-
-      {account.externals.map((e) => (
-        <PersonHandoverCard
-          key={e.id}
-          person={e}
-          account={account}
-          today={today}
-          onSend={(personName, items) => onShare?.(personName, items)}
-          onRevokeShare={(shareId) => onRevokeShare?.(shareId)}
-          onRevokeAll={(personName) => onRevokeAllForPerson?.(personName)}
-          onRemove={onRemove}
-          onOffboardEverywhere={onOffboardEverywhere}
-          onSetNotifyPref={onSetNotifyPref}
-        />
-      ))}
-
-      <div style={card}>
-        <SectionTitle>Grant access — clients &amp; contractors</SectionTitle>
-        {account.externals.length === 0 && (
-          <div style={{ fontSize: 12, color: T.inkMuted, marginBottom: 8 }}>
-            No external members yet. Add someone and their handover record starts here.
+        {!listing && !loading && (
+          <div style={{ fontSize: 11.5, color: T.inkMuted, lineHeight: 1.5, paddingTop: 4 }}>
+            Browse folders above to see the real files in SharePoint/Teams — nothing is typed in by hand here anymore.
           </div>
         )}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="input" style={{flex: 1, minWidth: 130 }} />
-          <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Organization" className="input" style={{flex: 1, minWidth: 130 }} />
-          <select value={role} onChange={(e) => setRole(e.target.value as ExternalMember["role"])} className="select">
-            <option value="client">Client</option>
-            <option value="contractor">Contractor</option>
-          </select>
-          <select value={access} onChange={(e) => setAccess(e.target.value as ExternalMember["access"])} className="select">
-            <option value="workspace">Full workspace</option>
-            <option value="files-only">Files only</option>
-            <option value="tasks-only">Tasks only</option>
-          </select>
-          <button
-            type="button"
-            disabled={!name.trim() || !org.trim()}
-            onClick={() => {
-              onAdd(name.trim(), org.trim(), role, access);
-              setName("");
-              setOrg("");
-            }}
-            className="btn btn-primary btn-sm"
-          >
-            Grant access
-          </button>
-        </div>
-        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 8 }}>
-          Guests see only what their level allows; internal financials are never visible to
-          external roles. Real identity enforcement lands with Entra guest accounts / Supabase RLS.
-        </div>
       </div>
+      <SharedFilesList approvals={fileApprovals} onUnshare={onUnshareFile} />
+    </div>
+  );
+}
 
-      <div style={card}>
-        <SectionTitle>Access log</SectionTitle>
-        {[...account.activity].reverse().filter((a) => a.kind === "team").slice(0, 12).map((a) => (
-          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: T.inkSecondary, padding: "5px 0" }}>
-            <span>{a.text}</span>
-            <span style={{ color: T.inkMuted, fontVariantNumeric: "tabular-nums" }}>{a.at.slice(0, 10)}</span>
-          </div>
-        ))}
-        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 10, lineHeight: 1.5 }}>
-          <strong>What “opened” means here.</strong> An open is recorded when the person opens the item
-          from inside this workspace — that we see directly. Opens that happen straight in SharePoint
-          are reported by Microsoft once the SharePoint connection is switched on; until then an item
-          opened that way still reads as “not opened yet”. It means we haven't seen an open, not that
-          there wasn't one.
-        </div>
+// ---------------------------------------------------------------------------
+// Admin — the Client Admin panel (teams-provisioning-plan.md B3-B7),
+// embedded here instead of its old standalone route, scoped automatically
+// to this client. `ClientAdminPanel.tsx` (formerly `MsWorkspacePanel.tsx`)
+// operates on `collab.client_account` rows — a completely separate
+// Postgres schema from this file's whole JSON-document `ClientAccount`
+// model, with its own unrelated uuid. The only usable join between the two
+// is `clientName`, case-insensitive, and it isn't unique — same bridge
+// pattern as store.ts's `bridgeKantataProjectIds`: an ambiguous or missing
+// match is surfaced clearly here, never guessed or silently created,
+// because a zero-match state can mean "genuinely doesn't exist yet" just
+// as easily as "exists, but this viewer isn't a member of it yet."
+// ---------------------------------------------------------------------------
+
+function ClientAdminTab({
+  clientName,
+  loginHintEmail,
+  collabAccountId,
+  collabData,
+  collabDataError,
+  onReloadCollabData,
+  onAccountCreated,
+}: {
+  clientName: string;
+  loginHintEmail?: string | undefined;
+  /** The enclosing ClientWorkspace already resolved this client's collab
+   * account (same clientName bridge this tab used to redo independently)
+   * and fetched its data — reused here instead of a second `fetchAllAccounts()`
+   * call and a second, thinner fetch of the same row. Only `null` collapses
+   * "still loading"/"no match"/"ambiguous" into one value (matching
+   * `resolveAccountIdByName`'s own contract), so this tab still falls back
+   * to its own richer resolve() to tell those apart for its messaging. */
+  collabAccountId: string | null | undefined;
+  collabData: WorkspaceAccountPayload | null | undefined;
+  /** True when the PARENT's own resolve/fetch attempt failed (not just
+   * "still in flight") — the signal this tab needs to actually fall back to
+   * its own resolve() instead of waiting on collabData forever. Without it,
+   * `collabAccountId` alone can't distinguish "data's still loading" from
+   * "the parent already gave up," and this tab would show a permanent
+   * "Loading…" for the latter. */
+  collabDataError: boolean;
+  onReloadCollabData: () => Promise<void>;
+  /** Tell the parent a brand-new collab account now exists for this
+   * clientName — its own resolve effect is keyed on clientName, which
+   * hasn't changed, so it won't re-run on its own after this tab's own
+   * "Create Client Admin record" button succeeds. */
+  onAccountCreated: () => void;
+}) {
+  type Resolution =
+    | { kind: "loading" }
+    | { kind: "error"; message: string }
+    | { kind: "none" }
+    | { kind: "ambiguous"; count: number }
+    | { kind: "found"; account: MsAccountData };
+  const [state, setState] = useState<Resolution>({ kind: "loading" });
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+
+  // Latest clientName, checked after this tab's own fetchAllAccounts() call
+  // resolves — this component is never remounted on an account switch (no
+  // `key` at its call site), so a slow resolve() started for a PREVIOUS
+  // clientName can otherwise land after a newer one already rendered,
+  // overwriting it with the wrong client's Admin data.
+  const clientNameRef = useRef(clientName);
+  useEffect(() => {
+    clientNameRef.current = clientName;
+  }, [clientName]);
+
+  async function resolve() {
+    const forName = clientName;
+    setState({ kind: "loading" });
+    try {
+      const { accounts } = await fetchAllAccounts();
+      if (clientNameRef.current !== forName) return;
+      const matches = accounts.filter((a) => a.clientName.toLowerCase() === forName.toLowerCase());
+      if (matches.length === 0) {
+        setState({ kind: "none" });
+        return;
+      }
+      if (matches.length > 1) {
+        setState({ kind: "ambiguous", count: matches.length });
+        return;
+      }
+      // fetchAllAccounts() is the LIST branch of GET /api/workspace, which
+      // deliberately omits msTeam/kantataProjectIds/scopedToProjects (that
+      // endpoint's own documented scope) — ClientAdminPanel dereferences
+      // those fields unconditionally, so this account still needs the same
+      // single-account fetch the parent's own resolve does before it's
+      // handed off, or ClientAdminPanel crashes on account.msTeam.teamId.
+      const full = await fetchAccountCollabData(matches[0]!.id);
+      if (clientNameRef.current !== forName) return;
+      const account = full.accounts.find((a) => a.id === matches[0]!.id);
+      if (!account) {
+        setState({ kind: "none" });
+        return;
+      }
+      setState({ kind: "found", account });
+    } catch (err) {
+      if (clientNameRef.current !== forName) return;
+      setState({ kind: "error", message: err instanceof Error ? err.message : "failed to load Client Admin data" });
+    }
+  }
+
+  useEffect(() => {
+    // The parent already has a single resolved match, and its own fetch
+    // hasn't failed — nothing to re-derive; `fromParent` below picks it up
+    // once collabData lands. If the parent's attempt DID fail, fall back to
+    // this tab's own resolve() rather than waiting on a collabData that will
+    // never arrive.
+    if (collabAccountId && !collabDataError) return;
+    void resolve();
+  }, [clientName, collabAccountId, collabDataError]);
+
+  const fromParent = collabAccountId ? collabData?.accounts.find((a) => a.id === collabAccountId) : undefined;
+  if (fromParent) {
+    return <ClientAdminPanel account={fromParent} loginHintEmail={loginHintEmail} onAccountChanged={onReloadCollabData} />;
+  }
+
+  if (state.kind === "loading") return <div style={{ fontSize: 13, color: T.inkMuted }}>Loading…</div>;
+  if (state.kind === "error") return <div style={{ fontSize: 13, color: T.status.critical }}>{state.message}</div>;
+  if (state.kind === "ambiguous") {
+    return (
+      <div style={{ fontSize: 13, color: T.status.critical }}>
+        Multiple Client Admin records named "{clientName}" found ({state.count}) — this needs an app admin to resolve.
       </div>
+    );
+  }
+  if (state.kind === "found") {
+    return <ClientAdminPanel account={state.account} loginHintEmail={loginHintEmail} onAccountChanged={() => void resolve()} />;
+  }
+
+  // state.kind === "none"
+  return (
+    <div style={{ fontSize: 13, color: T.inkSecondary, lineHeight: 1.6 }}>
+      <p>
+        No Client Admin record found for "{clientName}". If you believe one already exists, ask an app admin to add you to
+        it — otherwise:
+      </p>
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        disabled={creating}
+        onClick={() => {
+          setCreating(true);
+          setCreateErr(null);
+          createAccount(clientName)
+            .then(() => {
+              onAccountCreated();
+              return resolve();
+            })
+            .catch((err) => setCreateErr(err instanceof Error ? err.message : "failed to create"))
+            .finally(() => setCreating(false));
+        }}
+      >
+        {creating ? "Creating…" : "Create Client Admin record"}
+      </button>
+      {createErr && <div style={{ color: T.status.critical, fontSize: 12, marginTop: 8 }}>{createErr}</div>}
     </div>
   );
 }
@@ -3425,23 +3136,19 @@ export function ClientWorkspace({
   onBack,
   onAddTask,
   onTaskStatus,
-  onPost,
-  onAddLink,
-  onSetLinkUrl,
-  onRemoveLink,
   onAddExternal,
-  onRemoveExternal,
-  onOffboardEverywhere,
   onToggleClientVisible,
   onToggleContractorVisible,
-  onToggleFileContractorAccessible,
-  onToggleMessageContractorVisible,
   onRemindDeliverable,
-  onSetNotifyPref,
   onTabChange,
+  loginHintEmail,
   onSetProjectScope,
-  onEditPost,
-  onDeletePost,
+  collabAccountId,
+  collabData,
+  collabDataError = false,
+  onReloadCollabData,
+  onAccountCreated,
+  taskError,
   importCandidates = [],
   taskCandidates = [],
   onImportCampaigns,
@@ -3463,12 +3170,8 @@ export function ClientWorkspace({
   onAddNewMember,
   pendingKantataWrites = [],
   onPushToKantata,
-  onShare,
-  onRevokeShare,
-  onRevokeAllForPerson,
-  onOpenItem,
-  onShareToClient,
-  onUnshareFromClient,
+  onShareFile,
+  onUnshareFile,
   onClientDecision,
   onSetTaskHours,
   onPublishResourcing,
@@ -3515,20 +3218,15 @@ export function ClientWorkspace({
   pendingKantataWrites?: PendingWrite[];
   /** Send the ticked changes. Resolves with what actually landed. */
   onPushToKantata?: (refs: string[]) => Promise<WriteResponse>;
-  /** Hand items to an outside person — starts their handover record. */
-  onShare?: (personName: string, items: ShareableItem[]) => void;
-  /** Revoke one share. The record of the send is kept, stamped revoked. */
-  onRevokeShare?: (shareId: string) => void;
-  /** Revoke everything still live with one person — the "they're done" button. */
-  onRevokeAllForPerson?: (personName: string) => void;
-  /** Record that the signed-in person opened a file/doc from in here. */
-  onOpenItem?: (itemKind: "file" | "doc", itemId: string) => void;
-  /** Share a document into the client space — to review, or for approval. */
-  onShareToClient?: (linkId: string, purpose: "fyi" | "approval") => void;
+  /** Share a real SharePoint item (by its Graph item id) into the client
+   * space — to review, or for approval. */
+  onShareFile: (msItemId: string, name: string, purpose: "fyi" | "approval") => void;
   /** Stop sharing a document with the client. */
-  onUnshareFromClient?: (linkId: string) => void;
-  /** The client's decision on a shared document — approve or request changes. */
-  onClientDecision?: (linkId: string, decision: "approved" | "changes", note?: string) => void;
+  onUnshareFile: (approvalId: string) => void;
+  /** The client's decision on a shared document — approve or request changes.
+   * Also used for an internal staffer to record a decision on the client's
+   * behalf (e.g. relayed by phone/email). */
+  onClientDecision?: (approvalId: string, decision: "approved" | "changes", note?: string) => void;
   /** Set the PM's hour estimate on a task — feeds weekly resourcing. */
   onSetTaskHours?: (taskId: string, hours: number | undefined) => void;
   /** Publish the derived weekly reservations to Kantata (review-gated). */
@@ -3572,34 +3270,47 @@ export function ClientWorkspace({
   onClearCampaigns?: () => void;
   onAddTask: (title: string, ownerName?: string, due?: string, label?: string) => void;
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
-  onPost: (body: string, topic?: string) => void;
-  onAddLink: (name: string, kind: "file" | "doc", url?: string) => void;
-  onSetLinkUrl: (linkId: string, url: string) => void;
-  onRemoveLink: (linkId: string) => void;
-  onAddExternal: (name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"]) => void;
-  onRemoveExternal: (externalId: string) => void;
-  onOffboardEverywhere: (personName: string) => void;
+  onAddExternal: (name: string, org: string, role: ExternalMember["role"]) => void;
   /** Flag a task as a client-facing deliverable (curated client view). */
   onToggleClientVisible: (taskId: string) => void;
   /** Flag a task onto the contractor's scoped plan (spec 5.3/5.5). */
   onToggleContractorVisible?: (taskId: string) => void;
-  /** Grant / revoke contractor access to a file or doc (spec 5.5 "My files"). */
-  onToggleFileContractorAccessible?: (linkId: string) => void;
-  /** Flip a discussion message into the contractor-visible slice (spec 5.4). */
-  onToggleMessageContractorVisible?: (messageId: string) => void;
   /** Nudge the client about a deliverable that's due. */
   onRemindDeliverable: (taskId: string) => void;
-  /** Set a person's notification channel (Teams/email/both). */
-  onSetNotifyPref: (personName: string, pref: "teams" | "email" | "both") => void;
   /** Set which Kantata projects this workspace covers (Cara's pilot ask). */
   onSetProjectScope?: (projectIds: string[], scoped: boolean) => void;
-  /** Edit / delete your own discussion post. */
-  onEditPost?: (messageId: string, body: string) => void;
-  onDeletePost?: (messageId: string) => void;
+  /** This client's real Postgres account id, resolved once in App.tsx by
+   * matching clientName (no shared id between the two account universes) —
+   * `null` while unresolved (no match, or ambiguous). `undefined` briefly
+   * while the very first lookup is still in flight. */
+  collabAccountId?: string | null | undefined;
+  /** The resolved account's live collab-schema data (thread/tasks/
+   * campaigns/etc, docs/api-spec-workspace-mutations.md) — `null` until
+   * `collabAccountId` resolves and the first fetch lands. */
+  collabData?: WorkspaceAccountPayload | null | undefined;
+  /** True when App.tsx's own resolve-or-fetch attempt failed — lets
+   * ClientAdminTab fall back to its own resolve() instead of waiting
+   * forever on a collabData that will never arrive. Defaults false. */
+  collabDataError?: boolean | undefined;
+  /** Re-fetch `collabData` after a mutation — App.tsx owns the fetch, this
+   * component only ever triggers a refresh through it. */
+  onReloadCollabData: () => Promise<void>;
+  /** Tell App.tsx a brand-new collab account now exists for this client
+   * (the Admin tab's "Create Client Admin record" button) — its own
+   * clientName-keyed resolve effect won't re-fire on its own since the name
+   * didn't change. */
+  onAccountCreated: () => void;
+  /** A task/campaign/import mutation that failed server-side (a stale
+   * `expectedUpdatedAt` conflict, a network error) — App.tsx owns the
+   * mutations themselves, this only surfaces the result. */
+  taskError?: string | null | undefined;
   /** Report the visible tab upward, so the page-level feedback button can ask
    * about the surface the person is actually looking at. Optional: nothing
    * inside this component depends on anyone listening. */
   onTabChange?: (tab: ClientTab) => void;
+  /** Login hint for the M365 MSAL popup, threaded to the Admin tab's Client
+   * Admin panel — the same signed-in email already used everywhere else. */
+  loginHintEmail?: string | undefined;
 }) {
   const [tab, setTab] = useState<ClientTab>(initialTab ?? "home");
   // Follow a deep link that changes target while the workspace is already open
@@ -3639,11 +3350,24 @@ export function ClientWorkspace({
   const startDiscussion = (topic: string) => { setDiscussTopic(topic); setTab("discussions"); };
   // A fresh workspace with matched work opens the review panel by itself —
   // the next action should be on screen, not hidden behind a corner button.
-  const [reviewOpen, setReviewOpen] = useState(
-    () =>
-      (importCandidates.length > 0 && account.campaigns.length === 0) ||
-      (taskCandidates.length > 0 && account.tasks.length === 0 && account.campaigns.length === 0),
-  );
+  // Campaigns/tasks now live in Postgres (`collabData`, fetched async by
+  // App.tsx), which is still null on this component's first render — a
+  // plain useState(() => ...) lazy initializer would always see it as
+  // empty and misfire. Deferred into an effect that waits for the first
+  // real `collabData`, decided once (`reviewDecided`), same one-shot intent
+  // the lazy initializer used to have.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const reviewDecided = useRef(false);
+  useEffect(() => {
+    if (reviewDecided.current || !collabData) return;
+    reviewDecided.current = true;
+    if (
+      (importCandidates.length > 0 && collabData.campaigns.length === 0) ||
+      (taskCandidates.length > 0 && collabData.tasks.length === 0 && collabData.campaigns.length === 0)
+    ) {
+      setReviewOpen(true);
+    }
+  }, [collabData, importCandidates.length, taskCandidates.length]);
   const matchCount = importCandidates.length + taskCandidates.length;
   // Mirrored internal tasks get a display label so their origin is visible.
   const tasks: Task[] = sharedTasks.map(({ task, fromInternal }) =>
@@ -3659,7 +3383,7 @@ export function ClientWorkspace({
     ...new Set([
       ...(liveContext?.projects ?? []).flatMap((p) => p.milestones.map((m) => m.title)),
       ...tasks.map((t) => t.projectLabel).filter((l): l is string => !!l),
-      ...account.campaigns.map((c) => c.name),
+      ...(collabData ? collabData.campaigns.map((c) => c.name) : account.campaigns.map((c) => c.name)),
     ]),
   ];
   // The real projects (Kantata milestones) discussions are organized by, and a
@@ -3680,6 +3404,108 @@ export function ClientWorkspace({
     if (projectSet.has(key)) return topic;
     return taskProject.get(key);
   };
+
+  // JSON-document migration (docs/api-spec-workspace-mutations.md): the
+  // discussion thread, tasks and campaigns now live in Postgres
+  // (collab.thread_message/task/campaign), not account.thread/tasks/
+  // campaigns — resolved once, in App.tsx (bridged by matching clientName,
+  // no shared id between the two account universes), and handed down here
+  // as `collabAccountId`/`collabData` rather than re-resolved/re-fetched in
+  // this component too. Every message-posting spot on this page (Home's
+  // preview, Dashboard's inline post box, CollaborateHub, TaskDetail, and
+  // Discussions itself) reads/writes through this ONE resolved thread, so a
+  // message posted from any of them shows up in all of them immediately.
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const rawMessages = collabData?.thread ?? [];
+
+  // Memoized: Thread.tsx's own topic/author aggregations are useMemo'd keyed
+  // on `[messages]` by reference — a fresh array here every render would
+  // silently defeat that memoization even when nothing actually changed.
+  const liveMessages: ThreadMessage[] = useMemo(
+    () =>
+      rawMessages.map((m) => ({
+        id: m.id,
+        author: m.author,
+        kind: m.kind,
+        at: m.createdAt,
+        body: m.body,
+        ...(m.topic ? { topic: m.topic } : {}),
+        ...(m.editedAt ? { editedAt: m.editedAt } : {}),
+        clientVisible: m.clientVisible,
+        contractorVisible: m.contractorVisible,
+        ...(m.kantataId ? { kantataId: m.kantataId } : {}),
+        ...(m.kantataLevel ? { kantataLevel: m.kantataLevel } : {}),
+      })),
+    [rawMessages],
+  );
+  // Computed once and reused everywhere `Campaign[]` is needed (the shadow
+  // account below, and ImportReview's own `campaigns` prop further down) —
+  // not recomputed a second time from the same `collabData.campaigns`.
+  const liveTasks = useMemo(() => (collabData ? collabData.tasks.map(toOldTask) : null), [collabData]);
+  const liveCampaigns = useMemo(() => (collabData ? collabData.campaigns.map(toOldCampaign) : null), [collabData]);
+  // Home/ClientDashboard/DigestComposer read `.thread`/`.tasks`/`.campaigns`
+  // off the whole `account` object they already take, rather than separate
+  // props — this shadow view lets all three pick up live Postgres data with
+  // no signature change to any of them.
+  const accountWithLiveData: ClientAccount = useMemo(
+    () => ({
+      ...account,
+      thread: liveMessages,
+      ...(liveTasks && liveCampaigns ? { tasks: liveTasks, campaigns: liveCampaigns } : {}),
+    }),
+    [account, liveMessages, liveTasks, liveCampaigns],
+  );
+
+  async function handlePostMessage(body: string, topic?: string) {
+    if (!collabAccountId) {
+      setThreadError("This workspace isn't linked to the shared discussion system yet — open the Admin tab to check its setup.");
+      return;
+    }
+    try {
+      await postMessage(collabAccountId, body, topic);
+      await onReloadCollabData();
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : "failed to post");
+    }
+  }
+  async function handleEditMessage(messageId: string, body: string) {
+    const existing = rawMessages.find((m) => m.id === messageId);
+    if (!existing) return;
+    try {
+      await editMessage(messageId, body, existing.updatedAt);
+      await onReloadCollabData();
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : "failed to save edit");
+    }
+  }
+  async function handleDeleteMessage(messageId: string) {
+    try {
+      await deleteMessage(messageId);
+      await onReloadCollabData();
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : "failed to delete");
+    }
+  }
+  async function handleToggleMessageContractorVisible(messageId: string) {
+    const existing = rawMessages.find((m) => m.id === messageId);
+    if (!existing) return;
+    try {
+      await setMessageVisibility(messageId, { contractorVisible: !existing.contractorVisible });
+      await onReloadCollabData();
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : "failed to change visibility");
+    }
+  }
+  async function handleToggleMessageClientVisible(messageId: string) {
+    const existing = rawMessages.find((m) => m.id === messageId);
+    if (!existing) return;
+    try {
+      await setMessageVisibility(messageId, { clientVisible: !existing.clientVisible });
+      await onReloadCollabData();
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : "failed to change visibility");
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3730,7 +3556,7 @@ export function ClientWorkspace({
               onClick={() => setHubOpen((o) => !o)}
               style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}
             >
-              {account.members.slice(0, 3).map((m, i) => (
+              {(collabData?.members ?? []).slice(0, 3).map((m, i) => (
                 <span key={m.personId} style={{ marginLeft: i === 0 ? 0 : -8, borderRadius: "50%", border: "2px solid #fff", display: "inline-flex" }}>
                   <Avatar name={m.name} size={28} />
                 </span>
@@ -3739,18 +3565,25 @@ export function ClientWorkspace({
             </button>
             {hubOpen && (
               <CollaborateHub
-                account={account}
+                members={collabData?.members ?? []}
+                externals={collabData?.externals ?? []}
                 people={people}
                 {...(onAddMember ? { onAddMember } : {})}
                 {...(onAddNewMember ? { onAddNewMember } : {})}
                 onAddExternal={onAddExternal}
-                onPost={onPost}
+                onPost={handlePostMessage}
                 onOpenAccess={() => { setHubOpen(false); setTab("access"); }}
                 onClose={() => setHubOpen(false)}
               />
             )}
           </div>
         </div>
+
+        {taskError && (
+          <div style={{ fontSize: 12, color: T.status.critical, background: "#fdeced", border: "1px solid #f3c2c4", borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>
+            {taskError}
+          </div>
+        )}
 
         {/* Our additions live BELOW the wireframe band: internal facts left,
             workspace actions right. */}
@@ -3810,7 +3643,7 @@ export function ClientWorkspace({
           context={liveContext}
           clientName={account.clientName}
           suggestions={linkSuggestions}
-          hasImportedWork={account.campaigns.length > 0}
+          hasImportedWork={(liveCampaigns?.length ?? account.campaigns.length) > 0}
           onRelink={onRelink}
           onLinkProjects={onLinkProjects}
         />
@@ -3824,7 +3657,7 @@ export function ClientWorkspace({
         <ImportReview
           candidates={importCandidates}
           taskCandidates={taskCandidates}
-          campaigns={account.campaigns}
+          campaigns={liveCampaigns ?? account.campaigns}
           onImport={onImportCampaigns}
           onImportTasks={onImportTasks}
           onImportAll={onImportAll}
@@ -3838,8 +3671,10 @@ export function ClientWorkspace({
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {onImportCampaigns && (
             <SetupChecklist
-              account={account}
+              account={accountWithLiveData}
               tasks={tasks}
+              fileApprovals={collabData?.fileApprovals ?? []}
+              externals={collabData?.externals ?? []}
               candidatesCount={importCandidates.length}
               taskCandidatesCount={taskCandidates.length}
               goTo={setTab}
@@ -3857,11 +3692,11 @@ export function ClientWorkspace({
               />
             </div>
           )}
-          <Home account={account} tasks={tasks} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
+          <Home account={accountWithLiveData} tasks={tasks} fileApprovals={collabData?.fileApprovals ?? []} externals={collabData?.externals ?? []} activity={collabData?.activity ?? []} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
           {/* Below the wireframe: our additions side by side, not stacked. */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 14, alignItems: "start" }}>
             {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
-            <WhatsNew account={account} />
+            <WhatsNew activity={collabData?.activity ?? []} />
           </div>
         </div>
       )}
@@ -3917,26 +3752,41 @@ export function ClientWorkspace({
           {...(focusTaskId ? { focusTaskId } : {})}
         />
       )}
-      {tab === "dashboard" && <ClientDashboard account={account} tasks={tasks} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={onPost} onDiscuss={startDiscussion} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(account, people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
-      {tab === "files" && <FilesTab account={account} onAddLink={onAddLink} onSetLinkUrl={onSetLinkUrl} onRemoveLink={onRemoveLink} {...(onOpenItem ? { onOpenItem } : {})} {...(onShareToClient ? { onShareToClient } : {})} {...(onUnshareFromClient ? { onUnshare: onUnshareFromClient } : {})} {...(onToggleFileContractorAccessible ? { onToggleContractor: onToggleFileContractorAccessible } : {})} onDiscussFile={(fileName, note) => { onPost(note, fileName); setTab("discussions"); }} />}
+      {tab === "dashboard" && <ClientDashboard account={accountWithLiveData} tasks={tasks} fileApprovals={collabData?.fileApprovals ?? []} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={handlePostMessage} onDiscuss={startDiscussion} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(collabData?.members ?? [], collabData?.externals ?? [], people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
+      {tab === "files" && (
+        <FilesTab
+          accountId={collabAccountId}
+          {...(loginHintEmail ? { loginHintEmail } : {})}
+          fileApprovals={collabData?.fileApprovals ?? []}
+          onShareFile={onShareFile}
+          onUnshareFile={onUnshareFile}
+          onDiscussFile={(fileName, note) => { void handlePostMessage(note, fileName); setTab("discussions"); }}
+        />
+      )}
       {tab === "discussions" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <DigestComposer account={account} tasks={tasks} onPost={onPost} />
-          <HandoffComposer account={account} topics={projectTopics} mentionRoster={buildMentionRoster(account, people)} onPost={onPost} />
+          {threadError && (
+            <div style={{ fontSize: 12, color: T.status.critical, background: "#fdeced", border: "1px solid #f3c2c4", borderRadius: 8, padding: "8px 12px" }}>
+              {threadError}
+            </div>
+          )}
+          <DigestComposer account={accountWithLiveData} tasks={tasks} onPost={handlePostMessage} />
+          <HandoffComposer account={account} topics={projectTopics} mentionRoster={buildMentionRoster(collabData?.members ?? [], collabData?.externals ?? [], people)} onPost={handlePostMessage} />
           <Thread
-            messages={account.thread}
-            onPost={onPost}
+            messages={liveMessages}
+            onPost={handlePostMessage}
             userName={userName}
-            {...(onEditPost ? { onEdit: onEditPost } : {})}
-            {...(onDeletePost ? { onDelete: onDeletePost } : {})}
-            {...(onToggleMessageContractorVisible ? { onToggleContractor: onToggleMessageContractorVisible } : {})}
+            onEdit={handleEditMessage}
+            onDelete={handleDeleteMessage}
+            onToggleContractor={handleToggleMessageContractorVisible}
+            onToggleClient={handleToggleMessageClientVisible}
             topics={projectTopics}
             projectOptions={discussionProjects}
             projectOf={projectOfTopic}
             {...(discussTopic ? { initialTopic: discussTopic } : {})}
             taskTitles={tasks.map((t) => t.title)}
-            fileNames={[...account.files, ...account.docs].map((f) => f.name)}
-            mentionRoster={buildMentionRoster(account, people)}
+            fileNames={(collabData?.fileApprovals ?? []).map((f) => f.name)}
+            mentionRoster={buildMentionRoster(collabData?.members ?? [], collabData?.externals ?? [], people)}
             onQuickAdd={(name) => {
               const person = people.find((p) => p.name === name);
               if (person) onAddMember?.(person.id);
@@ -3957,38 +3807,26 @@ export function ClientWorkspace({
       )}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <ContractorView
-            account={account}
-            tasks={tasks}
-            {...(onToggleContractorVisible ? { onToggleTask: onToggleContractorVisible } : {})}
-            {...(onToggleFileContractorAccessible ? { onToggleFile: onToggleFileContractorAccessible } : {})}
-            {...(onToggleMessageContractorVisible ? { onToggleMessage: onToggleMessageContractorVisible } : {})}
-            goTo={setTab}
-          />
-          <AccessTab
-            account={account}
-            today={AS_OF_TODAY()}
-            onAdd={onAddExternal}
-            onRemove={onRemoveExternal}
-            onOffboardEverywhere={onOffboardEverywhere}
-            onSetNotifyPref={onSetNotifyPref}
-            {...(onShare ? { onShare } : {})}
-            {...(onRevokeShare ? { onRevokeShare } : {})}
-            {...(onRevokeAllForPerson ? { onRevokeAllForPerson } : {})}
-          />
-        </div>
+        <ClientAdminTab
+          clientName={account.clientName}
+          loginHintEmail={loginHintEmail}
+          collabAccountId={collabAccountId}
+          collabData={collabData}
+          collabDataError={collabDataError}
+          onReloadCollabData={onReloadCollabData}
+          onAccountCreated={onAccountCreated}
+        />
       )}
       {openTask && (
         <TaskDetail
           // Always render the freshest copy from the plan, so per-person edits
           // (hours, done, owner) show immediately without local patching.
           task={tasks.find((t) => t.id === openTask.id) ?? openTask}
-          messages={account.thread}
+          messages={liveMessages}
           clientName={account.clientName}
-          mentionRoster={buildMentionRoster(account, people)}
+          mentionRoster={buildMentionRoster(collabData?.members ?? [], collabData?.externals ?? [], people)}
           onStatus={(id, s) => { onTaskStatus(id, s); setOpenTask((t) => (t && t.id === id ? { ...t, status: s } : t)); }}
-          onPost={onPost}
+          onPost={handlePostMessage}
           goTo={setTab}
           onClose={() => setOpenTask(null)}
           onDiscuss={startDiscussion}

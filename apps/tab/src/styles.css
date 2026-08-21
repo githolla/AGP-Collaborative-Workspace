@@ -282,6 +282,26 @@ button { font-family: inherit; }
 
 .num { font-variant-numeric: tabular-nums; }
 
+/* A revoke/grant round trip includes a live Graph call and can take a real
+   couple of seconds — without this, a busy action looks identical to a dead
+   button (Client Admin's grant revoke was reported as "not working" when it
+   was actually just slow with no feedback). */
+.spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
+
 /* recessive scrollbars where supported */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 

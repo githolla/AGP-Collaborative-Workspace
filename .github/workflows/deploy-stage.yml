@@ -52,6 +52,10 @@ jobs:
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
             --build-arg VITE_ENABLE_MICROSOFT_LOGIN=${{ secrets.VITE_ENABLE_MICROSOFT_LOGIN }} \
             --build-arg VITE_SUPABASE_REDIRECT_URI=${{ secrets.VITE_SUPABASE_REDIRECT_URI }} \
+            --build-arg VITE_GRAPH_CLIENT_ID=${{ secrets.VITE_GRAPH_CLIENT_ID }} \
+            --build-arg VITE_GRAPH_TENANT_ID=${{ secrets.VITE_GRAPH_TENANT_ID }} \
+            --build-arg VITE_GRAPH_REDIRECT_URI=${{ secrets.VITE_GRAPH_REDIRECT_URI }} \
+            --build-arg VITE_APP_ADMIN_EMAILS=${{ secrets.VITE_APP_ADMIN_EMAILS }} \
             --tag $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG \
             .
           docker tag $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG $ACR_LOGIN_SERVER/$IMAGE_NAME:$LATEST_TAG

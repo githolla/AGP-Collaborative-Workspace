@@ -30,6 +30,14 @@ CMD ["pnpm", "--filter", "@agp/tab", "dev", "--host", "--port", "3000"]
 
 # Build stage compiles the Vite frontend (apps/tab) — same command as
 # vercel.json's buildCommand. Supabase auth vars are compile-time for Vite.
+# Every VITE_*-prefixed var the client reads at runtime (App.tsx's
+# readViteEnv, graphAuth.ts's env()) MUST be listed here as its own ARG and
+# forwarded into the build RUN command below — .env's `env_file` in
+# docker-compose.yml only reaches the container at RUNTIME, never this build
+# stage, so a var missing from this list bakes in as permanently empty no
+# matter what .env says (caught live: VITE_GRAPH_CLIENT_ID/VITE_GRAPH_TENANT_ID
+# were added for B1/MSAL but never added here, so Graph never worked from
+# this image despite being correctly set in .env).
 FROM node:22-alpine AS build
 WORKDIR /app
 ENV NODE_ENV=production
@@ -37,12 +45,20 @@ ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_ENABLE_MICROSOFT_LOGIN
 ARG VITE_SUPABASE_REDIRECT_URI
+ARG VITE_GRAPH_CLIENT_ID
+ARG VITE_GRAPH_TENANT_ID
+ARG VITE_GRAPH_REDIRECT_URI
+ARG VITE_APP_ADMIN_EMAILS
 COPY --from=base /app ./
 RUN corepack enable && corepack prepare --activate
 RUN VITE_SUPABASE_URL=${VITE_SUPABASE_URL} \
 	VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY} \
 	VITE_ENABLE_MICROSOFT_LOGIN=${VITE_ENABLE_MICROSOFT_LOGIN} \
 	VITE_SUPABASE_REDIRECT_URI=${VITE_SUPABASE_REDIRECT_URI} \
+	VITE_GRAPH_CLIENT_ID=${VITE_GRAPH_CLIENT_ID} \
+	VITE_GRAPH_TENANT_ID=${VITE_GRAPH_TENANT_ID} \
+	VITE_GRAPH_REDIRECT_URI=${VITE_GRAPH_REDIRECT_URI} \
+	VITE_APP_ADMIN_EMAILS=${VITE_APP_ADMIN_EMAILS} \
 	pnpm --filter @agp/tab build
 
 # Final production image used for Azure/container deployments. Runs the tsx

@@ -12,12 +12,18 @@ export interface AuthGateResult {
   user?: { name?: string; email?: string };
 }
 
+/** `id`/`role` are already present on Supabase's real `/auth/v1/user`
+ * response — carried here (not just email/name) so `requireUser.ts` can use
+ * this same verification for the collab-schema endpoints, which need the
+ * verified user id to scope every RLS-enforced query to. */
 interface SupabaseUser {
+  id?: string;
+  role?: string;
   email?: string;
   user_metadata?: Record<string, unknown>;
 }
 
-async function verifySupabaseToken(token: string, url: string, serviceRoleKey: string): Promise<{ ok: boolean; reason?: string; user?: SupabaseUser }> {
+export async function verifySupabaseToken(token: string, url: string, serviceRoleKey: string): Promise<{ ok: boolean; reason?: string; user?: SupabaseUser }> {
   try {
     const res = await fetch(`${url}/auth/v1/user`, {
       headers: {

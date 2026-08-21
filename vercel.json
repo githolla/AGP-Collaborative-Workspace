@@ -4,7 +4,7 @@
   "outputDirectory": "apps/tab/dist",
   "installCommand": "pnpm install --frozen-lockfile",
   "functions": {
-    "api/*.ts": {
+    "api/**/*.ts": {
       "maxDuration": 30
     }
   },

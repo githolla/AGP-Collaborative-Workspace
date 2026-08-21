@@ -26,6 +26,19 @@ export interface ThreadMessage {
    * so the full history is preserved while contractors see only their slice.
    */
   contractorVisible?: boolean;
+  /** Client-visible slice, the same rule as contractorVisible — independent
+   * of it, so a message can be shared to the contractor, the client, both,
+   * or neither. See workspace/teams-provisioning-plan.md C2/C4. */
+  clientVisible?: boolean;
+  /**
+   * What this message is about, as a real Kantata reference — a project,
+   * milestone, phase, or task id. `topic` above is the free-text human label
+   * and cannot be matched against a grant; an external only ever sees a
+   * message when kantataId falls under a milestone they hold, regardless of
+   * how it is flagged. Absent = never reaches an external, however flagged.
+   */
+  kantataId?: string;
+  kantataLevel?: "project" | "milestone" | "phase" | "task";
 }
 
 /** Audit-trail snapshot (roi-calculator-spec §10) written on every factor change. */
@@ -149,6 +162,10 @@ export interface Task {
    * redistributes scheduled hours. Absent ⇒ the hours land in the due week.
    */
   startDate?: string;
+  /** The SharePoint folder this task's files live in, once provisioned
+   * (teams-provisioning-plan.md B4). Absent until someone uploads into it,
+   * grants it, or asks for it — task folders are created on demand. */
+  msFolderId?: string;
 }
 
 /** One line in the workspace "what's new" feed (Collab Hub Must). */
@@ -207,17 +224,6 @@ export interface ClientFileLink {
    * See workspace/clientApproval.ts.
    */
   clientShare?: ClientShare;
-  /**
-   * Contractor access (spec 5.5). When true, this file/folder appears in the
-   * contractor's scoped "My files" view. Contractors get read on most granted
-   * files and write on specific upload folders (see `contractorWritable`) so
-   * they can drop finished copy/design back in. Absent = internal only.
-   */
-  contractorAccessible?: boolean;
-  /** Grants the contractor WRITE (upload) on this folder/file, not just read —
-   * the "drop finished work here" folders. Only meaningful with
-   * contractorAccessible. */
-  contractorWritable?: boolean;
 }
 
 /** A document shared with the client, and where its approval stands. */
@@ -255,6 +261,10 @@ export interface Campaign {
   nextMilestoneDate?: string;
   /** "kantata" = synced from the live pull (renders the provenance chip). */
   source?: "kantata";
+  /** Kantata workspace id, when this campaign came from a matched project
+   * (never set for a HubSpot deal). Carried through so a confirmed import
+   * can also link the collab-schema account's kantata_project_ids. */
+  kantataProjectId?: string;
 }
 
 export interface ExternalMember {
@@ -262,7 +272,6 @@ export interface ExternalMember {
   name: string;
   org: string;
   role: "client" | "contractor";
-  access: "workspace" | "files-only" | "tasks-only";
   /** Access register (Layer 0.5): who granted access and when they last showed up. */
   invitedBy?: string;
   lastActive?: string;
@@ -276,6 +285,10 @@ export interface ExternalMember {
    * none = not yet provisioned, invited = guest invite sent, active = signed in.
    */
   entraStatus?: "none" | "invited" | "active";
+  /** The Entra object id returned by the invite (`grantedToV2.user.id`), once
+   * the guest exists — set from the invite response, never guessed. Absent
+   * until entraStatus moves past "none". */
+  entraUserId?: string;
 }
 
 /**
@@ -289,10 +302,17 @@ export interface Share {
   id: string;
   /** Recipient, by name — externals are named before they have identities. */
   personName: string;
-  itemKind: "file" | "doc" | "task";
+  itemKind: "file" | "doc" | "task" | "folder";
   itemId: string;
   /** Name captured AT SEND TIME, so the record survives a rename or deletion. */
   itemName: string;
+  /** The SharePoint item this grant covers, when itemKind is "folder"
+   * (teams-provisioning-plan.md B7). */
+  msItemId?: string;
+  /** Which level of the folder tree was granted — a milestone by default;
+   * project and phase are rarer, task is the exception for a milestone too
+   * broad to hand over whole. */
+  grantLevel?: "project" | "milestone" | "phase" | "task";
   sentAt: string;
   sentBy: string;
   /** First observed open. Absent until we actually see one — never inferred. */
@@ -307,11 +327,47 @@ export interface Share {
   revokedBy?: string;
 }
 
+/** A folder in the account's SharePoint document library, keyed on the
+ * Kantata id it stands for (teams-provisioning-plan.md B2/B4). Names change
+ * when Kantata retitles something; `kantataId` and `folderId` do not, so a
+ * rename is a PATCH of this row, never a second one. */
+export interface MsFolder {
+  kantataId: string;
+  folderId: string;
+  /** Parent folder id — the chain an access check walks. Ids survive
+   * renames; paths do not, so nothing is keyed on a stored path. */
+  parentFolderId?: string;
+  name: string;
+  level: "project" | "milestone" | "phase" | "task";
+}
+
+/** The Microsoft Team provisioned for one `ClientAccount`. See `MsFolder`. */
+export interface MsTeam {
+  teamId: string;
+  groupId: string;
+  /** The team site — carried for links and diagnostics. */
+  siteId: string;
+  driveId: string;
+  webUrl: string;
+  /** Channels created, keyed by name — idempotency by stored id. */
+  channels: { key: string; channelId: string }[];
+  folders: MsFolder[];
+  provisionedAt?: string;
+}
+
 export interface ClientAccount {
   id: string;
   clientName: string;
-  /** Internal AGP members on the account. */
-  members: { personId: string; name: string; title: string }[];
+  /**
+   * Internal AGP members on the account. `email` + `role` are optional so
+   * members added before roles existed still load — a member with no role
+   * is presumed a regular member, never an admin (teams-provisioning-plan.md
+   * D1/D2). `role: "admin"` is a WORKSPACE admin for this one account, set on
+   * whoever creates the workspace and on anyone they promote; distinct from
+   * an app admin, who manages every workspace and is bootstrapped from
+   * `APP_ADMIN_EMAILS` (see workspace/roles.ts).
+   */
+  members: { personId: string; name: string; title: string; email?: string; role?: "admin" | "member" }[];
   /** Clients + contractors (Contractor Access tab). Removal revokes instantly. */
   externals: ExternalMember[];
   /**
@@ -319,6 +375,13 @@ export interface ClientAccount {
    * Optional so workspaces saved before handover tracking existed still load.
    */
   shares?: Share[];
+  /**
+   * The Microsoft Team provisioned for this account (teams-provisioning-plan.md
+   * B2/B3). Absent until an admin creates the Team by hand and its URL is
+   * pasted in. One Team per client, covering every Kantata project matched
+   * to it — never per project.
+   */
+  msTeam?: MsTeam;
   clientContacts: number;
   campaigns: Campaign[];
   notifications: ClientNotification[];
@@ -353,13 +416,6 @@ export interface ClientAccount {
    */
   autoPopulated?: boolean;
   archived?: boolean;
-  /**
-   * How each person on the account prefers to be notified (client call: some
-   * want Teams, some email, some both). Keyed by person name. The channel is
-   * honoured once the M365 layer is connected; the in-app notification always
-   * fires. Absent = the account default (both).
-   */
-  notifyPrefs?: Record<string, "teams" | "email" | "both">;
   createdAt: string;
 }
 

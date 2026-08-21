@@ -15,8 +15,17 @@ import path from "node:path";
 
 const SRC = path.resolve(__dirname);
 
-/** Guest-visible entry points. */
-const GUEST_ENTRY_POINTS = ["components/ClientWorkspace.tsx", "components/ClientList.tsx"];
+/**
+ * Guest-visible entry points. `ClientWorkspace.tsx`/`ClientList.tsx` predate
+ * C2 (teams-provisioning-plan.md) — App.tsx's `IdentityGate` now routes a
+ * classified external to `ExternalWorkspace.tsx` and never mounts
+ * `Workspace()` (and therefore never renders `ClientWorkspace.tsx`) for
+ * them at all, so they are no longer the guest-reachable surface in
+ * practice. Kept here anyway, additively: removing them would only narrow
+ * this test's coverage, and internal staff still use both — there is no
+ * cost to leaving the guard on, only value if routing ever regresses.
+ */
+const GUEST_ENTRY_POINTS = ["components/ClientWorkspace.tsx", "components/ClientList.tsx", "components/ExternalWorkspace.tsx"];
 
 /** Modules that must NEVER be reachable from a guest-visible surface. */
 const DENYLIST: RegExp[] = [
@@ -102,7 +111,7 @@ describe("guest-surface allowlist (SPEC Layer 0.1 hard rule)", () => {
         // Shared generic modules (types/format/theme) are checked too — the
         // rule is about what code the guest bundle can execute.
         const source = fs.readFileSync(mod, "utf-8");
-        if (/components\/(ClientWorkspace|ClientList)/.test(mod)) {
+        if (/components\/(ClientWorkspace|ClientList|ExternalWorkspace)/.test(mod)) {
           expect(forbidden.test(source), `${path.relative(SRC, mod)} mentions internal financial fields`).toBe(false);
         }
       }

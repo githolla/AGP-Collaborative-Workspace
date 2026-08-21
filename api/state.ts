@@ -11,9 +11,24 @@
  * (last-write-wins per save, good enough until per-user auth and row-level
  * data land with Teams SSO — see docs/adr + BLOCKERS #5).
  *
- * SECURITY NOTE (accepted 2026-07-20): there is no sign-in yet, so anyone
- * with the deployment URL shares this state. Keep the URL internal until
- * SSO lands.
+ * SECURITY NOTE (accepted 2026-07-20, NARROWED 2026-08-17): with no bearer
+ * token at all and AUTH_REQUIRED unset, this endpoint is still open by
+ * design — that pre-SSO posture is unchanged. But Microsoft SSO is now LIVE
+ * for real external guests too (teams-provisioning-plan.md C1/C2), and this
+ * document (every ROI initiative, idea, and financial figure) is exactly
+ * what C2 exists to keep an external from ever reaching — C2's own
+ * client-side IdentityGate cannot be the only thing standing between an
+ * external's valid token and this endpoint, since a token holder can always
+ * call the API directly, bypassing any amount of client-side routing.
+ * Whenever a bearer token IS present, this handler now independently
+ * verifies it and refuses a caller `collab.app_user.kind` classifies as
+ * "external" — regardless of AUTH_REQUIRED, since an external's token being
+ * usable at all is the exact condition that must never reach this document.
+ * Classification failure (no collab schema in this environment, a DB error)
+ * fails OPEN here, matching every other place in this codebase that
+ * classifies internal-vs-external (App.tsx's IdentityGate, api/me.ts) — the
+ * alternative would let a transient Postgres hiccup lock out every
+ * legitimate internal user of the one document the whole app still runs on.
  */
 
 const BUCKET = "agp-workspace";
@@ -76,6 +91,31 @@ async function writeEnvelope(url: string, key: string, envelope: Envelope): Prom
 }
 
 import { requireAuth } from "./_lib/authGate.js";
+import { requireUser } from "./_lib/requireUser.js";
+import { withUserContext } from "./_lib/db.js";
+
+/**
+ * Refuses a caller `collab.app_user.kind` classifies as "external" — see
+ * this file's own SECURITY NOTE above for why this check exists here in
+ * addition to (not instead of) the client-side IdentityGate. Only runs when
+ * a bearer token is actually present; an anonymous request under the
+ * pre-SSO AUTH_REQUIRED-unset posture is unaffected (a separate, already-
+ * accepted gap this fix does not attempt to close). Never throws: any
+ * failure to classify (no collab schema applied, a DB error) resolves to
+ * `false` (not external) rather than blocking the request.
+ */
+async function callerIsExternal(authorizationHeader: string | undefined): Promise<boolean> {
+  if (!authorizationHeader) return false;
+  const verified = await requireUser(authorizationHeader);
+  if (!verified.authorized || !verified.userId) return false;
+  const userId = verified.userId;
+  try {
+    const [row] = await withUserContext(userId, async (tx) => tx<{ kind: string }[]>`select kind from collab.app_user where id = ${userId}`);
+    return row?.kind === "external";
+  } catch {
+    return false;
+  }
+}
 
 export default async function handler(
   req: { method?: string; body?: unknown; headers?: Record<string, string | string[] | undefined> },
@@ -85,9 +125,15 @@ export default async function handler(
   },
 ): Promise<void> {
   res.setHeader("Cache-Control", "no-store");
-  const auth = await requireAuth(typeof req.headers?.authorization === "string" ? req.headers.authorization : undefined);
+  const authHeader = typeof req.headers?.authorization === "string" ? req.headers.authorization : undefined;
+
+  const auth = await requireAuth(authHeader);
   if (!auth.authorized) {
     res.status(auth.status).json(auth.body);
+    return;
+  }
+  if (await callerIsExternal(authHeader)) {
+    res.status(403).json({ error: "not available to external accounts" });
     return;
   }
   const url = process.env.SUPABASE_URL;

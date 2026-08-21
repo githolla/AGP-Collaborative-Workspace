@@ -49,6 +49,7 @@ export function Thread({
   onEdit,
   onDelete,
   onToggleContractor,
+  onToggleClient,
   initialTopic,
 }: {
   messages: ThreadMessage[];
@@ -60,6 +61,10 @@ export function Thread({
   /** Share a single message into the contractor-visible slice (spec 5.4).
    * Internal-only control; contractors never see it. */
   onToggleContractor?: (messageId: string) => void;
+  /** Share a single message into the client-visible slice — same idea as
+   * `onToggleContractor`, the client's own audience (C4's "gains a client
+   * toggle beside it"). Internal-only control; clients never see it. */
+  onToggleClient?: (messageId: string) => void;
   onAskAnalyst?: () => void;
   /**
    * The AI roster is injected by internal workspaces only. Client workspaces
@@ -350,6 +355,16 @@ export function Thread({
                     style={{ fontSize: 9, fontWeight: 800, cursor: "pointer", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap", border: `1px solid ${m.contractorVisible ? "#16708f" : T.grid}`, background: m.contractorVisible ? "#e6f3f8" : "transparent", color: m.contractorVisible ? "#0f5a74" : T.inkMuted }}
                   >
                     {m.contractorVisible ? "✓ contractor" : "→ contractor"}
+                  </button>
+                )}
+                {onToggleClient && m.kind !== "agent" && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleClient(m.id)}
+                    title={m.clientVisible ? "Shared with the client — click to make internal-only" : "Internal-only — click to share this message with the client"}
+                    style={{ fontSize: 9, fontWeight: 800, cursor: "pointer", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap", border: `1px solid ${m.clientVisible ? T.roi.navy : T.grid}`, background: m.clientVisible ? "#eef2fb" : "transparent", color: m.clientVisible ? T.roi.navy : T.inkMuted }}
+                  >
+                    {m.clientVisible ? "✓ client" : "→ client"}
                   </button>
                 )}
                 {/* Your own posts only. Someone mis-posting into a discussion

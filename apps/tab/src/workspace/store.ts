@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeProjectROI, standardFactorTemplate, type RoiModel, type WorkspaceFactor } from "@agp/roi";
 import type { Initiative, InitiativeType, SandboxIdea, ThreadMessage } from "./types.js";
-import type { ClientAccount, ClientFileLink, ExternalMember } from "./types.js";
+import type { ClientAccount, ClientFileLink } from "./types.js";
 import { roiAnalystMessage, sandboxAnalystMessage } from "./agents.js";
 import { factorsFromBasis } from "./basis.js";
 import { accountLiveContext, campaignsFromMirror, taskColumn, taskIsDone } from "./campaignImport.js";
@@ -11,13 +11,11 @@ import { DEPARTMENTS, copilotFlags, draftFromIdea, inviteCopilot, observeIdea, r
 import { AGP_PEOPLE, FUNCTION_NOTES, loadMirror, personById, type AgpFunction, type AgpPerson, type MirrorStaff } from "./agpKnowledge.js";
 import { authenticate, makeTeamAccount, type LocalIdentity, type TeamAccount } from "../auth/localAuth.js";
 import { apiFetch } from "../auth/apiFetch.js";
-import { samePerson, type ShareableItem } from "./handover.js";
-import { decide, decisionSummary, shareRecord, shareSummary } from "./clientApproval.js";
 import { tasksFromPlan } from "./planner.js";
-import { applyHandoffOrder, applyPersonDone, reconcileAssignments } from "./taskAssignments.js";
-import type { TaskAssignment } from "./types.js";
-import { TEMPLATES, instantiateTemplate } from "./templates.js";
+import { reconcileAssignments } from "./taskAssignments.js";
 import type { ActivityEvent, AiMode, Task, TaskStatus, TourFeedback, WorkPackage } from "./types.js";
+import { fetchAllAccounts } from "./msAccountData.js";
+import { linkKantataProjects } from "./msPeople.js";
 
 /**
  * Client-side workspace store, persisted to localStorage. This is the pivot
@@ -172,6 +170,32 @@ function humanMessage(body: string, author: string, topic?: string): ThreadMessa
 }
 
 /**
+ * Best-effort bridge from the OLD single-JSON-document model (this file) to
+ * the NEW collab-schema `client_account.kantata_project_ids` — the field
+ * ClientAdminPanel's folder tree/milestone picker actually reads. The two
+ * account universes were never bridged (different, unrelated uuids; see
+ * scripts/migrate-json-to-collab.ts), so the only usable join is
+ * `clientName`, matched case-insensitively — and since that's not
+ * DB-unique, an ambiguous or missing match is a silent no-op, never a
+ * guess. Never throws: a client not yet migrated into the collab schema,
+ * an offline Postgres, or a caller who isn't that account's workspace_admin
+ * (api/account-projects.ts's RLS) must never break the OLD-model import
+ * flow this is attached to.
+ */
+async function bridgeKantataProjectIds(clientName: string, kantataProjectIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(kantataProjectIds)];
+  if (ids.length === 0) return;
+  try {
+    const { accounts } = await fetchAllAccounts();
+    const matches = accounts.filter((a) => a.clientName.toLowerCase() === clientName.toLowerCase());
+    if (matches.length !== 1) return;
+    await linkKantataProjects(matches[0]!.id, ids);
+  } catch (err) {
+    console.warn("bridgeKantataProjectIds failed (non-fatal):", err);
+  }
+}
+
+/**
  * EVERYTHING Kantata holds for this client, merged into the account:
  * campaigns (with their milestones) + open tasks. Idempotent — merge by
  * name/title, so re-running never duplicates. Removal stays one click away
@@ -204,7 +228,15 @@ function populateFromKantata(a: ClientAccount): { account: ClientAccount; campai
   for (const p of ctx.projects) {
     for (const t of p.tasks) {
       if (taskIsDone(t.state)) continue;
-      if (tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase())) continue;
+      // Dedup by Kantata story id when we have it — identical phase names repeat
+      // across every milestone in a fiscal-year contract, so a title-only check
+      // silently drops real tasks after the first milestone claims each title.
+      // Fall back to title only for id-less manual entries, matching the
+      // review-gated import's rule (importTasks).
+      const dup = t.id
+        ? tasks.some((e) => e.kantataStoryId === t.id)
+        : tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase());
+      if (dup) continue;
       tasks.push({
         id: newId("task"),
         title: t.title,
@@ -322,17 +354,22 @@ export function useWorkspace() {
       initiatives: keepLocallyCreated(remote.initiatives, local.initiatives, envelope.savedAt),
       ideas: keepLocallyCreated(remote.ideas, local.ideas, envelope.savedAt),
       accounts: keepLocallyCreated(remote.accounts, local.accounts, envelope.savedAt),
-      team: keepLocallyCreated(remote.team, local.team, envelope.savedAt),
+      // Sign-in accounts (interim, pre-SSO password auth) are LOCAL-ONLY and
+      // never shared — `team` carries password salts + hashes, and /api/state
+      // hands its payload to any authorized caller. Never adopted from remote,
+      // so a shared document that still has one from before this fix stops
+      // re-populating every browser that boots, rather than being purged here.
+      team: local.team,
       feedback: keepLocallyCreated(remote.feedback, local.feedback, envelope.savedAt),
     };
     // Suppress the follow-up save ONLY when we took the remote document as-is.
     // If we carried anything over, it still has to go up — otherwise the
-    // teammate whose save we just adopted never sees it.
+    // teammate whose save we just adopted never sees it. `team` never travels,
+    // so it never factors into this comparison.
     adoptingRef.current =
       merged.initiatives.length === remote.initiatives.length &&
       merged.ideas.length === remote.ideas.length &&
       merged.accounts.length === remote.accounts.length &&
-      merged.team.length === remote.team.length &&
       merged.feedback.length === remote.feedback.length;
     setState(merged);
     setSyncStatus({ mode: "shared", savedAt: envelope.savedAt });
@@ -341,10 +378,13 @@ export function useWorkspace() {
   const pushRemote = useCallback(
     async (s: PersistedState) => {
       try {
+        // `team` never leaves this browser — see the comment in `adopt`. Every
+        // other field is shared workspace content.
+        const { team: _team, ...shared } = s;
         const res = await apiFetch("/api/state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ baseVersion: versionRef.current, state: s }),
+          body: JSON.stringify({ baseVersion: versionRef.current, state: shared }),
         });
         if (res.status === 409) {
           // Someone saved first — their version wins for what it contains,
@@ -831,8 +871,14 @@ export function useWorkspace() {
    * Workspace template (Collab Hub Must): every new client workspace gets the
    * same consistent setup — the four core documents, a delivery-lead member,
    * and a welcome notification. Rows, not choices.
+   *
+   * `creator`, when supplied, becomes this workspace's first WORKSPACE ADMIN
+   * (teams-provisioning-plan.md D2: "whoever creates the workspace is its
+   * first one") — never inferred later, only ever set here or by an
+   * explicit promotion. Optional so a caller that hasn't wired identity
+   * through yet still gets a working (if admin-less) workspace.
    */
-  const createAccount = useCallback((clientName: string): string => {
+  const createAccount = useCallback((clientName: string, creator?: { name: string; title: string; email: string }): string => {
     const id = newId("acct");
     const now = new Date().toISOString();
     const coreDoc = (name: string): ClientFileLink => ({ id: newId("doc"), name, kind: "doc", addedAt: now });
@@ -840,8 +886,12 @@ export function useWorkspace() {
       id,
       clientName,
       // No default teammate — the account team comes from Kantata (the real
-      // delivery participants), added when the workspace populates. Live only.
-      members: [],
+      // delivery participants), added when the workspace populates. Live
+      // only, except for the creator, who is seeded as this workspace's
+      // first admin so someone can always grant/provision from day one.
+      members: creator
+        ? [{ personId: `u-${creator.email.trim().toLowerCase()}`, name: creator.name, title: creator.title, email: creator.email, role: "admin" }]
+        : [],
       externals: [],
       clientContacts: 0,
       campaigns: [],
@@ -863,8 +913,8 @@ export function useWorkspace() {
    * workspace when THEY choose, through the Review-import panel.
    */
   const createAccountFromMirror = useCallback(
-    (clientName: string): string => {
-      const id = createAccount(clientName);
+    (clientName: string, creator?: { name: string; title: string; email: string }): string => {
+      const id = createAccount(clientName, creator);
       // Populate EVERYTHING at birth — the workspace opens full, not empty.
       // Review import remains the undo (remove anything, or Remove all).
       mutateAccount(id, (a) => {
@@ -925,6 +975,10 @@ export function useWorkspace() {
           activity: [...account.activity, activityEvent(text, "workspace")],
         };
       });
+      if (target) {
+        const matched = campaignsFromMirror(loadMirror(), target.clientName, AS_OF_TODAY(), target.kantataProjectIds, target.scopedToProjects);
+        void bridgeKantataProjectIds(target.clientName, matched.map((c) => c.kantataProjectId).filter((x): x is string => !!x));
+      }
     },
     [mutateAccount],
   );
@@ -978,29 +1032,6 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
-  /** Import exactly the campaigns the user selected in the review panel. */
-  const importCampaigns = useCallback(
-    (id: string, selected: { name: string; status: "active" | "planned" | "complete"; nextMilestone?: string; nextMilestoneDate?: string }[]) => {
-      if (selected.length === 0) return;
-      mutateAccount(id, (a) => {
-        const campaigns = [...a.campaigns];
-        for (const imp of selected) {
-          const idx = campaigns.findIndex((c) => c.name.toLowerCase() === imp.name.toLowerCase());
-          if (idx === -1) campaigns.push({ ...imp, id: newId("cmp"), source: "kantata" as const });
-          else campaigns[idx] = { ...campaigns[idx]!, ...imp, id: campaigns[idx]!.id, source: "kantata" as const };
-        }
-        const summary = `${selected.length} campaign${selected.length === 1 ? "" : "s"} imported from Kantata — your selection.`;
-        return {
-          ...a,
-          campaigns,
-          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
-          activity: [...a.activity, activityEvent(summary, "workspace")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
   /** Project Finder: a human hand-picked Kantata projects for this client.
    * Links are permanent (beat every name heuristic) and the picked
    * projects' campaigns import immediately — the pick IS the review. */
@@ -1045,28 +1076,6 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
-  /** Edit your own discussion post. Cara asked for this directly after
-   * posting into the wrong place — without it a misfire is permanent. */
-  const editAccountPost = useCallback(
-    (accountId: string, messageId: string, body: string) => {
-      const text = body.trim();
-      if (!text) return;
-      mutateAccount(accountId, (a) => ({
-        ...a,
-        thread: a.thread.map((m) => (m.id === messageId ? { ...m, body: text, editedAt: new Date().toISOString() } : m)),
-      }));
-    },
-    [mutateAccount],
-  );
-
-  /** Delete your own discussion post. */
-  const deleteAccountPost = useCallback(
-    (accountId: string, messageId: string) => {
-      mutateAccount(accountId, (a) => ({ ...a, thread: a.thread.filter((m) => m.id !== messageId) }));
-    },
-    [mutateAccount],
-  );
-
   const linkProjects = useCallback(
     async (id: string, projectIds: string[]) => {
       if (projectIds.length === 0) return;
@@ -1104,195 +1113,6 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
-  /** Review-gated Kantata task import — same contract as campaigns: the
-   * user picked these in the review panel; merge by title, never duplicate. */
-  const importTasks = useCallback(
-    (
-      id: string,
-      selected: {
-        title: string;
-        status: TaskStatus;
-        due?: string;
-        kantataStoryId?: string;
-        kantataProjectId?: string;
-        projectLabel?: string;
-        phaseLabel?: string;
-        phaseId?: string;
-        kantataMilestoneId?: string;
-        estimatedHours?: number;
-        startDate?: string;
-        assignees?: string[];
-      }[],
-    ) => {
-      if (selected.length === 0) return;
-      mutateAccount(id, (a) => {
-        const tasks = [...a.tasks];
-        let added = 0;
-        for (const t of selected) {
-          // Dedup by Kantata story id when we have it — identical phase names
-          // repeat across milestones, so a title-only check would silently
-          // drop real tasks. Fall back to title for id-less manual entries.
-          const dup = t.kantataStoryId
-            ? tasks.some((e) => e.kantataStoryId === t.kantataStoryId)
-            : tasks.some((e) => e.title.toLowerCase() === t.title.toLowerCase());
-          if (dup) continue;
-          tasks.push({
-            id: newId("task"),
-            title: t.title,
-            status: t.status,
-            ...(t.due ? { due: t.due } : {}),
-            label: "from Kantata",
-            source: "manual" as const,
-            createdAt: new Date().toISOString(),
-            // The story id makes this task writable back to Kantata. Imported
-            // tasks are already in sync at the moment they land.
-            ...(t.kantataStoryId ? { kantataStoryId: t.kantataStoryId, kantataSyncedAt: new Date().toISOString() } : {}),
-            ...(t.kantataProjectId ? { kantataProjectId: t.kantataProjectId } : {}),
-            ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
-            ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
-            ...(t.phaseId ? { phaseId: t.phaseId } : {}),
-            ...(t.kantataMilestoneId ? { kantataMilestoneId: t.kantataMilestoneId } : {}),
-            // Scheduled hours + start pulled from Kantata — resourcing shows
-            // them without re-entry; a PM edit overrides later.
-            ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-            ...(t.startDate ? { startDate: t.startDate } : {}),
-            // The team from Kantata's assignees — seeded so the task card shows
-            // everyone and per-person completion works out of the box. Single
-            // assignee stays as ownerName only (no split needed).
-            ...(t.assignees && t.assignees.length > 1
-              ? { assignments: reconcileAssignments([], t.assignees) }
-              : t.assignees && t.assignees.length === 1
-                ? { ownerName: t.assignees[0]! }
-                : {}),
-          });
-          added += 1;
-        }
-        if (added === 0) return a;
-        const summary = `${added} task${added === 1 ? "" : "s"} imported from Kantata — your selection.`;
-        return {
-          ...a,
-          tasks,
-          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
-          activity: [...a.activity, activityEvent(summary, "task")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Remove one campaign (e.g. a wrong import). */
-  const removeCampaign = useCallback(
-    (id: string, campaignId: string) => {
-      mutateAccount(id, (a) => {
-        const gone = a.campaigns.find((c) => c.id === campaignId);
-        return {
-          ...a,
-          campaigns: a.campaigns.filter((c) => c.id !== campaignId),
-          activity: [...a.activity, activityEvent(`Campaign removed — ${gone?.name ?? campaignId}`, "workspace")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Clear every campaign — the undo for a bad bulk import. */
-  const clearCampaigns = useCallback(
-    (id: string) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        campaigns: [],
-        activity: [...a.activity, activityEvent(`All campaigns removed (${a.campaigns.length}) — re-import from Review import`, "workspace")],
-      }));
-    },
-    [mutateAccount],
-  );
-
-  const addAccountTask = useCallback(
-    (id: string, title: string, ownerName?: string, due?: string, label?: string) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        tasks: [
-          ...a.tasks,
-          {
-            id: newId("task"),
-            title,
-            ...(ownerName ? { ownerName } : {}),
-            ...(due ? { due } : {}),
-            ...(label ? { label } : {}),
-            status: "todo" as const,
-            source: "manual" as const,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        activity: [...a.activity, activityEvent(`Task added — "${title}"`, "task")],
-      }));
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * Record that these tasks were successfully written to Kantata. Called only
-   * with the refs the write endpoint reported as APPLIED — a failed intent
-   * leaves its task un-stamped so it stays in the review queue.
-   *
-   * `createdId` arrives when the push CREATED the story; storing it turns a
-   * workspace-only task into one that can be updated by id from then on.
-   */
-  const markTasksSynced = useCallback(
-    (id: string, applied: { ref: string; createdId?: string }[]) => {
-      if (applied.length === 0) return;
-      const at = new Date().toISOString();
-      const byRef = new Map(applied.map((a) => [a.ref, a]));
-      mutateAccount(id, (a) => {
-        const touched = a.tasks.filter((t) => byRef.has(t.id));
-        if (touched.length === 0) return a;
-        return {
-          ...a,
-          tasks: a.tasks.map((t) => {
-            const hit = byRef.get(t.id);
-            if (!hit) return t;
-            return { ...t, kantataSyncedAt: at, ...(hit.createdId ? { kantataStoryId: hit.createdId } : {}) };
-          }),
-          activity: [
-            ...a.activity,
-            activityEvent(
-              `${touched.length} task${touched.length === 1 ? "" : "s"} sent to Kantata — ${touched
-                .map((t) => `"${t.title.slice(0, 40)}"`)
-                .join(", ")}`,
-              "task",
-            ),
-          ],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * Set the PM's hour estimate on a task — the one number resourcing derives
-   * from. This is a VALIDATION action (the account manager confirms the hours
-   * are right), never a leveling one; over-allocation is reconciled elsewhere,
-   * by design (Cara: PMs put in only the time the work needs). 0/blank clears.
-   */
-  const setAccountTaskHours = useCallback(
-    (id: string, taskId: string, hours: number | undefined) => {
-      mutateAccount(id, (a) => {
-        const task = a.tasks.find((t) => t.id === taskId);
-        if (!task) return a;
-        const clean = hours != null && Number.isFinite(hours) && hours > 0 ? Math.round(hours * 10) / 10 : undefined;
-        return {
-          ...a,
-          tasks: a.tasks.map((t) => {
-            if (t.id !== taskId) return t;
-            const { estimatedHours: _drop, ...rest } = t;
-            return clean != null ? { ...rest, estimatedHours: clean } : rest;
-          }),
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
   const setAccountTaskStatus = useCallback(
     (id: string, taskId: string, status: TaskStatus) => {
       mutateAccount(id, (a) => {
@@ -1323,127 +1143,6 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
-  // Set (or clear) the people on a task, preserving hours/done/primary edits
-  // for those who stay — the store side of Cara's task card.
-  const setAccountTaskAssignments = useCallback(
-    (id: string, taskId: string, names: readonly string[]) => {
-      mutateAccount(id, (a) => {
-        const task = a.tasks.find((t) => t.id === taskId);
-        if (!task) return a;
-        // Idempotent seed: if the task already carries exactly these people,
-        // don't churn state — this lets the task card seed on every open
-        // cheaply, persisting only the first time (legacy tasks).
-        const have = new Set((task.assignments ?? []).map((x) => x.name));
-        const want = new Set(names);
-        if (task.assignments && have.size === want.size && [...want].every((n) => have.has(n))) return a;
-        return {
-          ...a,
-          tasks: a.tasks.map((t) => {
-            if (t.id !== taskId) return t;
-            const next = reconcileAssignments(t.assignments ?? [], names);
-            const { assignments: _drop, ...rest } = t;
-            return next.length > 0 ? { ...rest, assignments: next } : rest;
-          }),
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  // Set one person's hour slice on a task (undefined = back to the even-split
-  // default). Only touches that person's row.
-  const setAccountAssignmentHours = useCallback(
-    (id: string, taskId: string, name: string, hours: number | undefined) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        tasks: a.tasks.map((t) => {
-          if (t.id !== taskId || !t.assignments) return t;
-          const clean = hours != null && Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 10) / 10 : undefined;
-          return {
-            ...t,
-            assignments: t.assignments.map((as) => {
-              if (as.name !== name) return as;
-              const { hours: _drop, ...rest } = as;
-              return clean != null ? { ...rest, hours: clean } : rest;
-            }),
-          };
-        }),
-      }));
-    },
-    [mutateAccount],
-  );
-
-  // Mark ONE person's part done (or not). The whole task completes only when
-  // everyone is done — Kellie's "one click shouldn't complete for everyone".
-  const toggleAccountAssignmentDone = useCallback(
-    (id: string, taskId: string, name: string, done: boolean) => {
-      mutateAccount(id, (a) => {
-        const task = a.tasks.find((t) => t.id === taskId);
-        if (!task || !task.assignments) return a;
-        const { assignments, status } = applyPersonDone(task, name, done);
-        const completed = status === "done" && task.status !== "done";
-        return {
-          ...a,
-          tasks: a.tasks.map((t) => {
-            if (t.id !== taskId) return t;
-            if (status === "done") return { ...t, assignments, status, completedAt: t.completedAt ?? new Date().toISOString() };
-            const { completedAt: _c, ...rest } = t;
-            return { ...rest, assignments, status };
-          }),
-          ...(completed
-            ? { activity: [...a.activity, activityEvent(`"${task.title}" → completed (everyone done)`, "task")] }
-            : {}),
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  // Name the single accountable owner — clears primary elsewhere on the task.
-  const setAccountAssignmentPrimary = useCallback(
-    (id: string, taskId: string, name: string) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        tasks: a.tasks.map((t) => {
-          if (t.id !== taskId || !t.assignments) return t;
-          return { ...t, assignments: t.assignments.map((as) => ({ ...as, primary: as.name === name })) as TaskAssignment[] };
-        }),
-      }));
-    },
-    [mutateAccount],
-  );
-
-  // Set which tasks this one waits on (Cara's dependencies). Ids are validated
-  // against the account's own tasks; a task never depends on itself.
-  const setAccountTaskDependencies = useCallback(
-    (id: string, taskId: string, dependsOn: string[]) => {
-      mutateAccount(id, (a) => {
-        const valid = new Set(a.tasks.map((t) => t.id));
-        const clean = [...new Set(dependsOn)].filter((d) => d !== taskId && valid.has(d));
-        return {
-          ...a,
-          tasks: a.tasks.map((t) => {
-            if (t.id !== taskId) return t;
-            const { dependsOn: _drop, ...rest } = t;
-            return clean.length > 0 ? { ...rest, dependsOn: clean } : rest;
-          }),
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  // Reorder the handoff sequence — the order the work passes through people.
-  const setAccountAssignmentOrder = useCallback(
-    (id: string, taskId: string, orderedNames: string[]) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        tasks: a.tasks.map((t) => (t.id === taskId && t.assignments ? { ...t, assignments: applyHandoffOrder(t.assignments, orderedNames) } : t)),
-      }));
-    },
-    [mutateAccount],
-  );
-
   const postAccountMessage = useCallback(
     (id: string, body: string, author = "You", topic?: string) => {
       mutateAccount(id, (a) => {
@@ -1469,42 +1168,6 @@ export function useWorkspace() {
                   },
                 ]
               : a.notifications,
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Apply a service-line template inside a workspace (Collab Hub Must:
-   * "apply a template for consistent set up") — a dated task skeleton from
-   * the chosen start date. Merge-by-title, so re-applying never duplicates. */
-  const applyTemplate = useCallback(
-    (id: string, templateKey: string, startDate: string) => {
-      const tpl = TEMPLATES.find((t) => t.key === templateKey);
-      if (!tpl) return;
-      mutateAccount(id, (a) => {
-        const tasks = [...a.tasks];
-        let added = 0;
-        for (const draft of instantiateTemplate(tpl, startDate)) {
-          if (tasks.some((e) => e.title.toLowerCase() === draft.title.toLowerCase())) continue;
-          tasks.push({
-            id: newId("task"),
-            title: draft.title,
-            due: draft.due,
-            label: tpl.name,
-            status: "todo" as const,
-            source: "manual" as const,
-            createdAt: new Date().toISOString(),
-          });
-          added += 1;
-        }
-        if (added === 0) return a;
-        const summary = `Template applied — ${tpl.name} (${added} dated task${added === 1 ? "" : "s"})`;
-        return {
-          ...a,
-          tasks,
-          notifications: [...a.notifications, { id: newId("n"), text: summary, at: new Date().toISOString() }],
-          activity: [...a.activity, activityEvent(summary, "task")],
         };
       });
     },
@@ -1542,208 +1205,6 @@ export function useWorkspace() {
     return n;
   }, []);
 
-  const addAccountLink = useCallback(
-    (id: string, name: string, kind: "file" | "doc", url?: string) => {
-      mutateAccount(id, (a) => {
-        const link: ClientFileLink = { id: newId("f"), name, kind, ...(url ? { url } : {}), addedAt: new Date().toISOString() };
-        return {
-          ...a,
-          files: kind === "file" ? [link, ...a.files] : a.files,
-          docs: kind === "doc" ? [...a.docs, link] : a.docs,
-          activity: [...a.activity, activityEvent(`${kind === "file" ? "File" : "Document"} linked — ${name}`, "workspace")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Attach (or replace) the SharePoint link on an existing file/doc — so the
-   * standard-template core docs stop being dead text and become real links. */
-  const setAccountLinkUrl = useCallback(
-    (id: string, linkId: string, url: string) => {
-      const clean = url.trim();
-      mutateAccount(id, (a) => {
-        const patch = (l: ClientFileLink): ClientFileLink =>
-          l.id === linkId ? { ...l, ...(clean ? { url: clean } : {}) } : l;
-        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
-        return {
-          ...a,
-          files: a.files.map(patch),
-          docs: a.docs.map(patch),
-          activity: target ? [...a.activity, activityEvent(`Link attached — ${target.name}`, "workspace")] : a.activity,
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Delete a file/doc from the workspace (link only — the file in SharePoint
-   * is untouched). Logs it so the audit trail shows who removed what. */
-  const removeAccountLink = useCallback(
-    (id: string, linkId: string) => {
-      mutateAccount(id, (a) => {
-        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
-        if (!target) return a;
-        return {
-          ...a,
-          files: a.files.filter((l) => l.id !== linkId),
-          docs: a.docs.filter((l) => l.id !== linkId),
-          activity: [...a.activity, activityEvent(`${target.kind === "file" ? "File" : "Document"} removed — ${target.name}`, "workspace")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  // ---- client-facing document sharing & approval (Cara's ask) ----
-
-  /**
-   * Share a document into the client space — to read ("fyi") or for a decision
-   * ("approval"). Re-sharing a previously decided doc starts a CLEAN request,
-   * because that's a new round of review, not a continuation of the old one.
-   */
-  const shareFileWithClient = useCallback(
-    (id: string, linkId: string, purpose: "fyi" | "approval", by = "You") => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
-        if (!target) return a;
-        const record = shareRecord(purpose, by, at);
-        const patch = (l: ClientFileLink): ClientFileLink => (l.id === linkId ? { ...l, clientShare: record } : l);
-        return {
-          ...a,
-          files: a.files.map(patch),
-          docs: a.docs.map(patch),
-          activity: [...a.activity, activityEvent(shareSummary(target.name, record), "workspace")],
-          notifications: [...a.notifications, { id: newId("n"), text: shareSummary(target.name, record), at }],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Stop sharing a document with the client. The file itself is untouched. */
-  const unshareFileFromClient = useCallback(
-    (id: string, linkId: string) => {
-      mutateAccount(id, (a) => {
-        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
-        if (!target?.clientShare) return a;
-        const strip = (l: ClientFileLink): ClientFileLink => {
-          if (l.id !== linkId) return l;
-          const { clientShare: _drop, ...rest } = l;
-          return rest;
-        };
-        return {
-          ...a,
-          files: a.files.map(strip),
-          docs: a.docs.map(strip),
-          activity: [...a.activity, activityEvent(`Stopped sharing with client — ${target.name}`, "workspace")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * Record the client's decision on a shared document — approve, or ask for
-   * changes with a note. Only meaningful on an approval share that's pending.
-   */
-  const recordClientDecision = useCallback(
-    (id: string, linkId: string, decision: "approved" | "changes", by = "Client", note?: string) => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const target = [...a.files, ...a.docs].find((l) => l.id === linkId);
-        if (!target?.clientShare) return a;
-        const updated = decide(target.clientShare, decision, by, at, note);
-        const patch = (l: ClientFileLink): ClientFileLink => (l.id === linkId ? { ...l, clientShare: updated } : l);
-        return {
-          ...a,
-          files: a.files.map(patch),
-          docs: a.docs.map(patch),
-          activity: [...a.activity, activityEvent(decisionSummary(target.name, updated), "workspace")],
-          notifications: [...a.notifications, { id: newId("n"), text: decisionSummary(target.name, updated), at }],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Flag a task as a client-facing deliverable (or hide it again). Only
-   * flagged tasks show on the client's dashboard — the "limited view" Kellie
-   * asked for, so clients see deliverables, not every internal step. */
-  const toggleAccountTaskClientVisible = useCallback(
-    (id: string, taskId: string) => {
-      mutateAccount(id, (a) => {
-        let note = "";
-        const tasks = a.tasks.map((t) => {
-          if (t.id !== taskId) return t;
-          const next = !t.clientVisible;
-          note = `“${t.title}” ${next ? "shown to the client" : "hidden from the client"}`;
-          return { ...t, clientVisible: next };
-        });
-        return { ...a, tasks, activity: note ? [...a.activity, activityEvent(`Client view — ${note}`, "task")] : a.activity };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Flag a task onto / off the CONTRACTOR-shared plan (spec 5.3/5.5). Mirrors
-   * the client toggle but a wholly separate axis — the contractor's scoped view
-   * shows only these, so they get "here are your due dates" without the full
-   * internal plan. */
-  const toggleAccountTaskContractorVisible = useCallback(
-    (id: string, taskId: string) => {
-      mutateAccount(id, (a) => {
-        let note = "";
-        const tasks = a.tasks.map((t) => {
-          if (t.id !== taskId) return t;
-          const next = !t.contractorVisible;
-          note = `“${t.title}” ${next ? "shared to the contractor plan" : "removed from the contractor plan"}`;
-          return { ...t, contractorVisible: next };
-        });
-        return { ...a, tasks, activity: note ? [...a.activity, activityEvent(`Contractor view — ${note}`, "task")] : a.activity };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Grant / revoke contractor access to a file or doc (spec 5.5 "My files").
-   * On/off read access here; upload-folder WRITE rights land with the Graph
-   * layer in Part B (the `contractorWritable` field is reserved for it). */
-  const toggleAccountFileContractorAccessible = useCallback(
-    (id: string, linkId: string) => {
-      mutateAccount(id, (a) => {
-        let note = "";
-        const flip = (l: ClientFileLink): ClientFileLink => {
-          if (l.id !== linkId) return l;
-          const next = !l.contractorAccessible;
-          note = `“${l.name}” ${next ? "shared to contractors" : "hidden from contractors"}`;
-          return { ...l, contractorAccessible: next, ...(next ? {} : { contractorWritable: false }) };
-        };
-        return {
-          ...a,
-          files: a.files.map(flip),
-          docs: a.docs.map(flip),
-          activity: note ? [...a.activity, activityEvent(`Contractor files — ${note}`, "workspace")] : a.activity,
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Flip a discussion message into / out of the contractor-visible slice
-   * (spec 5.4). The message never leaves the single internal thread — this is a
-   * projection, so history is preserved while contractors see only their part. */
-  const toggleAccountMessageContractorVisible = useCallback(
-    (id: string, messageId: string) => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        thread: a.thread.map((m) => (m.id === messageId ? { ...m, contractorVisible: !m.contractorVisible } : m)),
-      }));
-    },
-    [mutateAccount],
-  );
-
   /** Nudge the client about a deliverable — queues a reminder now. Auto-nudge
    * on "not opened yet" arrives with the M365 read-receipt layer; the manual
    * reminder works today (in-app; Teams/email once connected). */
@@ -1765,14 +1226,6 @@ export function useWorkspace() {
     [mutateAccount],
   );
 
-  /** Set how a person on the account prefers to be notified (Teams/email/both). */
-  const setNotifyPref = useCallback(
-    (id: string, personName: string, pref: "teams" | "email" | "both") => {
-      mutateAccount(id, (a) => ({ ...a, notifyPrefs: { ...(a.notifyPrefs ?? {}), [personName]: pref } }));
-    },
-    [mutateAccount],
-  );
-
   /** Add an AGP teammate to the account — collaborate from anywhere in the
    * client, not just the Contractor Access tab. Idempotent by person. */
   const addAccountMember = useCallback(
@@ -1789,222 +1242,6 @@ export function useWorkspace() {
       });
     },
     [mutateAccount, rosterById],
-  );
-
-  /** Add a teammate who ISN'T in the Kantata roster yet — by name + title.
-   * For contractors/new hires not synced from Kantata. Idempotent by name. */
-  const addAccountMemberNamed = useCallback(
-    (id: string, name: string, title: string) => {
-      const clean = name.trim();
-      if (!clean) return;
-      mutateAccount(id, (a) => {
-        if (a.members.some((m) => m.name.toLowerCase() === clean.toLowerCase())) return a;
-        const role = title.trim() || "Team member";
-        return {
-          ...a,
-          members: [...a.members, { personId: `x-${clean.replace(/\s+/g, "-").toLowerCase()}`, name: clean, title: role }],
-          activity: [...a.activity, activityEvent(`${clean} (${role}) added to the account team`, "team")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  const addExternal = useCallback(
-    (id: string, name: string, org: string, role: ExternalMember["role"], access: ExternalMember["access"], invitedBy = "You") => {
-      mutateAccount(id, (a) => ({
-        ...a,
-        externals: [...a.externals, { id: newId("ext"), name, org, role, access, invitedBy, addedAt: new Date().toISOString() }],
-        activity: [...a.activity, activityEvent(`${role === "client" ? "Client" : "Contractor"} access granted — ${name} (${org}, ${access}) by ${invitedBy}`, "team")],
-      }));
-    },
-    [mutateAccount],
-  );
-
-  // ---- handover: what an outside person was given, and what to revoke ----
-
-  /**
-   * Hand items to an outside person. Each becomes a Share stamped with the
-   * item's name AT SEND TIME, so the record still reads correctly after the
-   * file is renamed or deleted.
-   */
-  const shareWithPerson = useCallback(
-    (id: string, personName: string, items: ShareableItem[], sentBy = "You") => {
-      if (items.length === 0) return;
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => ({
-        ...a,
-        shares: [
-          ...(a.shares ?? []),
-          ...items.map((i) => ({
-            id: newId("share"),
-            personName,
-            itemKind: i.kind,
-            itemId: i.itemId,
-            itemName: i.itemName,
-            sentAt: at,
-            sentBy,
-          })),
-        ],
-        activity: [
-          ...a.activity,
-          activityEvent(
-            `${items.length} item${items.length === 1 ? "" : "s"} sent to ${personName} — ${items.map((i) => i.itemName).join(", ")}`,
-            "team",
-          ),
-        ],
-      }));
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * Record that a share was opened — the FIRST open only, since "when did they
-   * get to it" is the question, not how often they revisit.
-   *
-   * `source` is kept because it is the difference between something we watched
-   * happen and something Microsoft told us: an open we never observe must read
-   * as unknown, not as "didn't open".
-   */
-  const recordShareOpened = useCallback(
-    (id: string, shareId: string, source: "workspace" | "sharepoint" = "workspace") => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const hit = (a.shares ?? []).find((s) => s.id === shareId);
-        if (!hit || hit.openedAt || hit.revokedAt) return a;
-        return {
-          ...a,
-          shares: (a.shares ?? []).map((s) => (s.id === shareId ? { ...s, openedAt: at, openSource: source } : s)),
-          activity: [...a.activity, activityEvent(`${hit.personName} opened ${hit.itemName}`, "team")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * The open we can actually observe today: the person who was sent something
-   * opened it from inside this workspace. Called from the Files tab on a link
-   * click, with whoever is signed in — so it records nothing unless that
-   * person genuinely holds a live, unopened share for that item.
-   */
-  const recordItemOpened = useCallback(
-    (id: string, personName: string, itemKind: "file" | "doc" | "task", itemId: string) => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const hit = (a.shares ?? []).find(
-          (s) => s.itemKind === itemKind && s.itemId === itemId && !s.openedAt && !s.revokedAt && samePerson(s.personName, personName),
-        );
-        if (!hit) return a;
-        return {
-          ...a,
-          shares: (a.shares ?? []).map((s) => (s.id === hit.id ? { ...s, openedAt: at, openSource: "workspace" as const } : s)),
-          activity: [...a.activity, activityEvent(`${hit.personName} opened ${hit.itemName}`, "team")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /** Revoke one share. The row stays, stamped — the audit trail is the point. */
-  const revokeShare = useCallback(
-    (id: string, shareId: string, revokedBy = "You") => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const hit = (a.shares ?? []).find((s) => s.id === shareId);
-        if (!hit || hit.revokedAt) return a;
-        return {
-          ...a,
-          shares: (a.shares ?? []).map((s) => (s.id === shareId ? { ...s, revokedAt: at, revokedBy } : s)),
-          activity: [...a.activity, activityEvent(`Access revoked — ${hit.itemName} (${hit.personName}) by ${revokedBy}`, "team")],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * Revoke everything still live with one person — the "they're done" button.
-   * Their access record and their open tasks are untouched: reassigning work
-   * is a decision, not a side effect of withdrawing a file.
-   */
-  const revokeAllForPerson = useCallback(
-    (id: string, personName: string, revokedBy = "You") => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const live = (a.shares ?? []).filter((s) => samePerson(s.personName, personName) && !s.revokedAt);
-        if (live.length === 0) return a;
-        const ids = new Set(live.map((s) => s.id));
-        return {
-          ...a,
-          shares: (a.shares ?? []).map((s) => (ids.has(s.id) ? { ...s, revokedAt: at, revokedBy } : s)),
-          activity: [
-            ...a.activity,
-            activityEvent(
-              `All access revoked for ${personName} — ${live.length} item${live.length === 1 ? "" : "s"} (${live
-                .map((s) => s.itemName)
-                .join(", ")}) by ${revokedBy}`,
-              "team",
-            ),
-          ],
-        };
-      });
-    },
-    [mutateAccount],
-  );
-
-  /**
-   * One-click cross-workspace offboard (Layer 0.5): revoke a person from
-   * EVERY client workspace at once, each removal audit-logged. Entra removal
-   * rides on this when the identity layer lands.
-   */
-  const offboardEverywhere = useCallback((personName: string) => {
-    setState((s) => ({
-      ...s,
-      accounts: s.accounts.map((a) => {
-        const hits = a.externals.filter((e) => e.name === personName);
-        if (hits.length === 0) return a;
-        return {
-          ...a,
-          externals: a.externals.filter((e) => e.name !== personName),
-          ...(a.shares
-            ? {
-                shares: a.shares.map((sh) =>
-                  samePerson(sh.personName, personName) && !sh.revokedAt
-                    ? { ...sh, revokedAt: new Date().toISOString(), revokedBy: "cross-workspace offboard" }
-                    : sh,
-                ),
-              }
-            : {}),
-          activity: [...a.activity, activityEvent(`Access revoked immediately (cross-workspace offboard) — ${personName}`, "team")],
-        };
-      }),
-    }));
-  }, []);
-
-  /** Offboarding (Must): removal revokes access across the workspace immediately. */
-  const removeExternal = useCallback(
-    (id: string, externalId: string) => {
-      const at = new Date().toISOString();
-      mutateAccount(id, (a) => {
-        const ext = a.externals.find((e) => e.id === externalId);
-        // Removing the person revokes what they hold, but the handover record
-        // survives them: "what did we ever send this contractor" must still be
-        // answerable after they are off the account.
-        const shares = ext
-          ? (a.shares ?? []).map((sh) =>
-              samePerson(sh.personName, ext.name) && !sh.revokedAt ? { ...sh, revokedAt: at, revokedBy: "access removed" } : sh,
-            )
-          : (a.shares ?? []);
-        return {
-          ...a,
-          externals: a.externals.filter((e) => e.id !== externalId),
-          ...(a.shares ? { shares } : {}),
-          activity: [...a.activity, activityEvent(`Access revoked immediately — ${ext?.name ?? externalId} (${ext?.org ?? ""})`, "team")],
-        };
-      });
-    },
-    [mutateAccount],
   );
 
   // ---- zone pairing + shared plan (SPEC Layer 0.1 / 0.3) ----
@@ -2166,54 +1403,17 @@ export function useWorkspace() {
     accounts,
     createAccount,
     createAccountFromMirror,
-    importCampaigns,
-    importTasks,
-    markTasksSynced,
     importAllFromKantata,
     ensureAutoPopulated,
     ensureDeepened,
     renameAccount,
     linkProjects,
     setProjectScope,
-    editAccountPost,
-    deleteAccountPost,
-    removeCampaign,
-    clearCampaigns,
-    addAccountTask,
     addAccountMember,
-    addAccountMemberNamed,
-    setAccountTaskStatus,
-    setAccountTaskHours,
-    setAccountTaskAssignments,
-    setAccountAssignmentHours,
-    toggleAccountAssignmentDone,
-    setAccountAssignmentPrimary,
-    setAccountTaskDependencies,
-    setAccountAssignmentOrder,
     postAccountMessage,
     setAccountArchived,
     archiveAllAccounts,
-    applyTemplate,
-    addAccountLink,
-    shareFileWithClient,
-    unshareFileFromClient,
-    recordClientDecision,
-    setAccountLinkUrl,
-    removeAccountLink,
-    toggleAccountTaskClientVisible,
-    toggleAccountTaskContractorVisible,
-    toggleAccountFileContractorAccessible,
-    toggleAccountMessageContractorVisible,
     remindClientDeliverable,
-    setNotifyPref,
-    addExternal,
-    shareWithPerson,
-    recordShareOpened,
-    recordItemOpened,
-    revokeShare,
-    revokeAllForPerson,
-    removeExternal,
-    offboardEverywhere,
     setClientAccount,
     toggleTaskClientVisible,
     sharedTasksFor,

@@ -43,7 +43,6 @@ const external = (name: string): ExternalMember => ({
   name,
   org: "Freelance",
   role: "contractor",
-  access: "files-only",
   addedAt: "2026-08-01T00:00:00.000Z",
 });
 
