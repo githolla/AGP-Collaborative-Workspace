@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "build": "pnpm -r run build",
     "start": "tsx server.mts",
+    "health": "node scripts/health-check.mjs",
     "teams:package": "node apps/tab/teams/build-package.mjs"
   },
   "devDependencies": {
