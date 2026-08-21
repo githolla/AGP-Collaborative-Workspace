@@ -20,8 +20,18 @@ import { readFileSync } from "node:fs";
 // --- load .env (no dependency on dotenv being installed) -------------------
 function loadEnv() {
   const env = { ...process.env };
-  try {
-    const raw = readFileSync(new URL("../.env", import.meta.url), "utf8");
+  // Look for .env in the working directory first (repo root when run via
+  // `pnpm health`), then next to this script's repo root — so it works however
+  // it's invoked.
+  const candidates = [
+    new URL(`file://${process.cwd()}/.env`),
+    new URL("../.env", import.meta.url),
+  ];
+  let raw = null;
+  for (const c of candidates) {
+    try { raw = readFileSync(c, "utf8"); break; } catch { /* try next */ }
+  }
+  if (raw) {
     for (const line of raw.split("\n")) {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
       if (!m) continue;
@@ -32,8 +42,6 @@ function loadEnv() {
       }
       if (env[key] === undefined || env[key] === "") env[key] = val;
     }
-  } catch {
-    // No .env file next to the repo root — rely on the real environment.
   }
   return env;
 }
