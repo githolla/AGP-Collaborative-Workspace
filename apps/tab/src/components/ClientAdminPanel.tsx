@@ -1014,7 +1014,7 @@ function ExternalRow({
     const failures: string[] = [];
     for (const node of nodes) {
       try {
-        const r = await grantAccess(account.id, ext.userId ? { userId: ext.userId } : { externalLinkId: ext.id }, node.kantataId, node.level, ext.role === "client" ? "read" : "write", loginHintEmail);
+        const r = await grantAccess(account.id, ext.userId ? { userId: ext.userId } : { externalLinkId: ext.id }, node.kantataId, node.level, "write", loginHintEmail);
         okCount += 1;
         if (r.sharePoint !== "granted") failures.push(`${node.name}: SharePoint ${r.sharePoint} (${r.detail})`);
       } catch (e) {
@@ -1189,7 +1189,7 @@ function ExternalRow({
                 <Button size="sm" variant="secondary" disabled={granting || pickedNodes.size === 0} onClick={() => void grantPicked()}>
                   {granting
                     ? "Granting…"
-                    : `Grant ${ext.role === "client" ? "read" : "write"}${pickedNodes.size > 1 ? ` (${pickedNodes.size})` : ""}`}
+                    : `Grant read/write${pickedNodes.size > 1 ? ` (${pickedNodes.size})` : ""}`}
                 </Button>
               </div>
               {browsing && (

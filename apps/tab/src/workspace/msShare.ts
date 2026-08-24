@@ -42,9 +42,8 @@ export interface RevokeGrantResult {
 export type GrantTarget = { userId: string } | { externalLinkId: string };
 
 /** Grants (or re-grants/retries) one person one Kantata id, `read` or
- * `write`. A client's grant should always be `read` (B7's own "two
- * audiences" table) — enforced by the caller building this UI, not by this
- * function, which passes the role through as given. */
+ * `write`. Which role a given person gets is decided by the caller building
+ * this UI, not by this function, which passes the role through as given. */
 export async function grantAccess(
   accountId: string,
   target: GrantTarget,
