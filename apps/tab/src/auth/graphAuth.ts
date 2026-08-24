@@ -56,7 +56,13 @@ import {
  * alternatives (Team.ReadBasic.All, not Group.Read.All/Directory.Read.All,
  * which the doc already excludes for being tenant-wide-broader than this
  * app needs). */
-const GRAPH_SCOPES = ["Channel.Create", "TeamMember.ReadWrite.All", "User.ReadBasic.All", "Files.ReadWrite.All", "User.Invite.All", "Team.ReadBasic.All"];
+/** `ChannelMessage.Send` was added for the @mention → Teams notification
+ * (api/_lib/teamsNotify.ts): posting a Discussion message that @mentions a
+ * member mirrors it into the account's Team channel with a real mention, which
+ * is what makes Teams natively notify them. It's delegated (the post is sent as
+ * the author) and needs tenant admin consent; until that's granted the channel
+ * POST 403s and the notify is skipped — the in-app post still succeeds. */
+const GRAPH_SCOPES = ["Channel.Create", "ChannelMessage.Send", "TeamMember.ReadWrite.All", "User.ReadBasic.All", "Files.ReadWrite.All", "User.Invite.All", "Team.ReadBasic.All"];
 
 /** Same pattern as ssoAuth.ts's local `env()` — Vite bakes VITE_* at build
  * time, so this reads import.meta.env directly rather than process.env. */

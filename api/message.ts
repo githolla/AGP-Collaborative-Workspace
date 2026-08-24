@@ -42,6 +42,8 @@
 import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext } from "./_lib/db.js";
 import { toApiError } from "./_lib/apiError.js";
+import { graphTokenFrom } from "./_lib/graph.js";
+import { matchedMentions, notifyTeamsMentions } from "./_lib/teamsNotify.js";
 
 const KANTATA_LEVELS = new Set(["project", "milestone", "phase", "task"]);
 
@@ -85,6 +87,7 @@ async function handleCreate(
   body: unknown,
   userId: string,
   res: { status: (code: number) => { json: (body: unknown) => void } },
+  graphToken: string | null,
 ): Promise<void> {
   const b = body as {
     accountId?: unknown;
@@ -153,14 +156,63 @@ async function handleCreate(
                   client_visible, contractor_visible, kantata_id, kantata_level, created_at, updated_at
       `;
       if (!created) throw new Error("insert returned no row");
-      return { kind: "ok" as const, created };
+
+      // For the best-effort Teams notification (below): the account's Team id
+      // and the members we could @mention. Only queried when the client
+      // forwarded a Graph token AND the post contains an "@" — otherwise there
+      // is nothing to send and we skip the extra reads entirely.
+      let teamId: string | null = null;
+      let roster: { name: string; email: string }[] = [];
+      if (graphToken && messageBody.includes("@")) {
+        const [acct] = await tx<{ ms_team_id: string | null }[]>`
+          select ms_team_id from collab.client_account where id = ${accountId}
+        `;
+        teamId = acct?.ms_team_id ?? null;
+        if (teamId) {
+          const members = await tx<{ name: string; email: string | null }[]>`
+            select name, email from collab.account_member where account_id = ${accountId} and email is not null
+          `;
+          roster = members.filter((m): m is { name: string; email: string } => !!m.email);
+        }
+      }
+
+      return { kind: "ok" as const, created, teamId, roster };
     });
 
     if (result.kind === "validation_failed") {
       res.status(400).json({ error: { code: "validation_failed", message: result.message } });
       return;
     }
-    res.status(200).json({ data: toApi(result.created) });
+
+    // Best-effort Teams notification: mirror an @mention into the account's
+    // Team channel so Teams natively pings the person. Never blocks or fails
+    // the post — the message is already committed above. The result is returned
+    // as a non-fatal diagnostic (`teamsNotify`) so a pilot can SEE whether the
+    // ping fired and, if not, exactly why — a silent best-effort is untestable.
+    let teamsNotify: { sent: boolean; reason?: string; notified?: number };
+    if (!graphToken) teamsNotify = { sent: false, reason: "no Graph token — sign in with Microsoft" };
+    else if (!messageBody.includes("@")) teamsNotify = { sent: false, reason: "no @mention in the message" };
+    else if (!result.teamId) teamsNotify = { sent: false, reason: "this workspace has no Microsoft Team provisioned yet" };
+    else {
+      const mentions = matchedMentions(messageBody, result.roster);
+      if (mentions.length === 0) teamsNotify = { sent: false, reason: "no @mentioned member has a resolved email on this account" };
+      else {
+        try {
+          teamsNotify = await notifyTeamsMentions({
+            token: graphToken,
+            teamId: result.teamId,
+            authorName: result.created.author,
+            body: messageBody,
+            mentions,
+          });
+        } catch (e) {
+          // A Teams-send failure must never affect the saved post.
+          teamsNotify = { sent: false, reason: e instanceof Error ? e.message.slice(0, 120) : "teams send failed" };
+        }
+      }
+    }
+
+    res.status(200).json({ data: { ...toApi(result.created), teamsNotify } });
   } catch (err) {
     const { status, body: errBody } = toApiError(err);
     res.status(status).json(errBody);
@@ -283,7 +335,7 @@ export default async function handler(
     return;
   }
 
-  if (req.method === "POST") await handleCreate(req.body, auth.userId!, res);
+  if (req.method === "POST") await handleCreate(req.body, auth.userId!, res, graphTokenFrom(req.headers));
   else if (req.method === "PATCH") await handleUpdate(req.body, auth.userId!, res);
   else await handleDelete(req.body, auth.userId!, res);
 }

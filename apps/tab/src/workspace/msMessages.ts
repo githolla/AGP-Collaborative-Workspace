@@ -1,4 +1,4 @@
-import { msApiCallPlain } from "./msApiFetch.js";
+import { msApiCallPlain, msApiCallOptionalGraphToken } from "./msApiFetch.js";
 
 /**
  * Client-side actions for `collab.thread_message` (docs/api-spec-workspace-
@@ -22,10 +22,25 @@ export interface MessageResult {
   kantataLevel?: "project" | "milestone" | "phase" | "task";
   createdAt: string;
   updatedAt: string;
+  /** Non-fatal diagnostic: whether the @mention was delivered to the account's
+   * Teams channel, and if not, why. The post itself always succeeds. */
+  teamsNotify?: { sent: boolean; reason?: string; notified?: number };
 }
 
+/**
+ * Posting forwards the caller's Graph token (when available) so the server can,
+ * best-effort, mirror an @mention into the account's Teams channel and notify
+ * that person in Teams (api/_lib/teamsNotify.ts). Degrades cleanly to a plain
+ * DB write when there's no token/consent — the post always succeeds either way.
+ */
 export async function postMessage(accountId: string, body: string, topic?: string): Promise<MessageResult> {
-  return msApiCallPlain<MessageResult>("/api/message", { body: { accountId, body, ...(topic ? { topic } : {}) } });
+  const result = await msApiCallOptionalGraphToken<MessageResult>("/api/message", { body: { accountId, body, ...(topic ? { topic } : {}) } });
+  // Surface the Teams-delivery outcome during the pilot: if an @mention didn't
+  // reach Teams, the reason is logged rather than lost. The post still succeeded.
+  if (body.includes("@") && result.teamsNotify && !result.teamsNotify.sent) {
+    console.info(`[Teams notify] not delivered — ${result.teamsNotify.reason ?? "unknown"}`);
+  }
+  return result;
 }
 
 /** `expectedUpdatedAt` is the message's own current `updatedAt` — api/message.ts's
