@@ -167,11 +167,22 @@ export async function currentGraphTokenDetailed(loginHintEmail?: string): Promis
       const result = await instance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
       return { token: result.accessToken };
     } catch (err) {
-      // Falls through to ssoSilent/popup below only for the specific case
-      // MSAL defines for it — interaction is genuinely required (expired
-      // consent, revoked grant, etc.). Any other error (network, bad
-      // config) is a real failure, not a cue to pop an interactive window.
-      if (!(err instanceof InteractionRequiredAuthError)) return { token: null, reason: describeMsalError(err) };
+      // Falls through to the popup below for two cases, not just MSAL's own
+      // InteractionRequiredAuthError (interaction genuinely required —
+      // expired consent, revoked grant): also its own `timed_out` error code
+      // (BrowserAuthErrorCodes.timedOut). acquireTokenSilent can still fall
+      // back to a hidden-iframe renewal against Entra when the cached
+      // account's refresh token needs re-validation — the exact same class
+      // of failure this function already avoids `ssoSilent` for on the
+      // no-cached-account path below, just reachable here too. Confirmed
+      // live: "Sync Project folders" failing with exactly this code and no
+      // popup ever shown — a stalled iframe round-trip, not a real refusal,
+      // and the button click's gesture is still fresh here (we haven't
+      // burned it on a slow ssoSilent first), so popping up now works.
+      // Any OTHER error (network, bad config) still isn't a cue to prompt.
+      if (!(err instanceof InteractionRequiredAuthError) && !isMsalTimeout(err)) {
+        return { token: null, reason: describeMsalError(err) };
+      }
     }
   }
   // No `ssoSilent` attempt here, deliberately — it used to run before the
@@ -220,6 +231,15 @@ export async function currentGraphTokenDetailed(loginHintEmail?: string): Promis
 
 function isInteractionInProgress(err: unknown): boolean {
   return !!err && typeof err === "object" && (err as { errorCode?: string }).errorCode === "interaction_in_progress";
+}
+
+/** MSAL's `BrowserAuthErrorCodes.timedOut` ("timed_out") — a stalled hidden-
+ * iframe round-trip during `acquireTokenSilent`'s own background renewal,
+ * not a real refusal. Checked by raw errorCode, same as
+ * `isInteractionInProgress` above, rather than importing `BrowserAuthError`
+ * for one string comparison. */
+function isMsalTimeout(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { errorCode?: string }).errorCode === "timed_out";
 }
 
 const MSAL_INTERACTION_STATUS_KEY = "msal.interaction.status";
