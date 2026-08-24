@@ -53,10 +53,12 @@ organization:**
 | Scope | For |
 |---|---|
 | `Channel.Create` | Channels |
+| `Channel.ReadBasic.All` | List a Team's existing channels (`GET /teams/{id}/channels`) before creating missing ones — `Channel.Create` only authorizes the POST, not this read |
+| `ChannelMessage.Send` | Mirroring an @mention Discussion post into the account's Team channel with a real mention, so Teams natively notifies the person |
 | `TeamMember.ReadWrite.All` | Internal staff on and off the Team |
 | `User.ReadBasic.All` | Resolve a colleague's email to a user id. **No member can be added without it** |
 | `Files.ReadWrite.All` | Create the folder tree and upload, as the signed-in person. Bounded by that user — not tenant-wide |
-
+| `Sites.Read.All` | Resolve a Team's SharePoint site (`GET /groups/{id}/sites/root`) during "adopt Team" — this call's own permissions table doesn't accept `Files.ReadWrite.All`, unlike the next call (`/groups/{id}/drive`), which does |
 | `User.Invite.All` | Inviting a client or contractor as a guest |
 | `Team.ReadBasic.All` | Confirm an admin-supplied Team id is real (`GET /teams/{id}`) before adopting it. The narrowest read-only option Graph offers for this call — `Group.Read.All`/`Directory.Read.All` also work but are broader than one lookup needs |
 

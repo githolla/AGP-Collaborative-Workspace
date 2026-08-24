@@ -61,8 +61,26 @@ import {
  * member mirrors it into the account's Team channel with a real mention, which
  * is what makes Teams natively notify them. It's delegated (the post is sent as
  * the author) and needs tenant admin consent; until that's granted the channel
- * POST 403s and the notify is skipped — the in-app post still succeeds. */
-const GRAPH_SCOPES = ["Channel.Create", "ChannelMessage.Send", "TeamMember.ReadWrite.All", "User.ReadBasic.All", "Files.ReadWrite.All", "User.Invite.All", "Team.ReadBasic.All"];
+ * POST 403s and the notify is skipped — the in-app post still succeeds.
+ *
+ * `Sites.Read.All` and `Channel.ReadBasic.All` were both added after live
+ * 403s in the "adopt Team" flow (account-team.ts): `GET /groups/{id}/sites/
+ * root` isn't covered by Files.ReadWrite.All at all (unlike the very next
+ * call, `/groups/{id}/drive`, which does accept Files.*) — Sites.Read.All is
+ * the narrowest scope Graph's own permissions table lists for that read.
+ * `GET /teams/{id}/channels` (listing before creating missing ones) needs
+ * its own read scope too — Channel.Create only authorizes the POST. */
+const GRAPH_SCOPES = [
+  "Channel.Create",
+  "Channel.ReadBasic.All",
+  "ChannelMessage.Send",
+  "TeamMember.ReadWrite.All",
+  "User.ReadBasic.All",
+  "Files.ReadWrite.All",
+  "Sites.Read.All",
+  "User.Invite.All",
+  "Team.ReadBasic.All",
+];
 
 /** Same pattern as ssoAuth.ts's local `env()` — Vite bakes VITE_* at build
  * time, so this reads import.meta.env directly rather than process.env. */
