@@ -186,25 +186,33 @@ async function handleCreate(
 
     // Best-effort Teams notification: mirror an @mention into the account's
     // Team channel so Teams natively pings the person. Never blocks or fails
-    // the post — the message is already committed above.
-    if (graphToken && result.teamId && result.roster.length > 0) {
+    // the post — the message is already committed above. The result is returned
+    // as a non-fatal diagnostic (`teamsNotify`) so a pilot can SEE whether the
+    // ping fired and, if not, exactly why — a silent best-effort is untestable.
+    let teamsNotify: { sent: boolean; reason?: string; notified?: number };
+    if (!graphToken) teamsNotify = { sent: false, reason: "no Graph token — sign in with Microsoft" };
+    else if (!messageBody.includes("@")) teamsNotify = { sent: false, reason: "no @mention in the message" };
+    else if (!result.teamId) teamsNotify = { sent: false, reason: "this workspace has no Microsoft Team provisioned yet" };
+    else {
       const mentions = matchedMentions(messageBody, result.roster);
-      if (mentions.length > 0) {
+      if (mentions.length === 0) teamsNotify = { sent: false, reason: "no @mentioned member has a resolved email on this account" };
+      else {
         try {
-          await notifyTeamsMentions({
+          teamsNotify = await notifyTeamsMentions({
             token: graphToken,
             teamId: result.teamId,
             authorName: result.created.author,
             body: messageBody,
             mentions,
           });
-        } catch {
+        } catch (e) {
           // A Teams-send failure must never affect the saved post.
+          teamsNotify = { sent: false, reason: e instanceof Error ? e.message.slice(0, 120) : "teams send failed" };
         }
       }
     }
 
-    res.status(200).json({ data: toApi(result.created) });
+    res.status(200).json({ data: { ...toApi(result.created), teamsNotify } });
   } catch (err) {
     const { status, body: errBody } = toApiError(err);
     res.status(status).json(errBody);
