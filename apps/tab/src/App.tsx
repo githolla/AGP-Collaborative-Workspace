@@ -276,6 +276,149 @@ const TOUR_STEPS: TourStep[] = [
   },
 ];
 
+/**
+ * The team test walkthrough — a guided acceptance pass. Same spotlight engine
+ * as the tour, but every step is "do this → you should see that → did it work?"
+ * so a whole team can verify the build end to end without a written script, and
+ * the yes/partly/no answers roll up per person in #admin/feedback (CSV export).
+ * Centered cards (no DOM target) so a step never breaks if a tester is in a
+ * different workspace than expected — the instruction carries the step.
+ */
+const TEST_STEPS: TourStep[] = [
+  {
+    key: "test-intro",
+    route: "",
+    title: "Let's test it together",
+    body: "This is a guided test pass — about 5 minutes. For each step: do what it says in the real app, then mark whether it worked. Your answers are saved per person, so we can see exactly what passed and what didn't. → or Enter to begin, Esc to stop any time.",
+    question: {
+      prompt: "Ready to run through it?",
+      options: [
+        { key: "a", label: "Yes — let's go" },
+        { key: "b", label: "I'll skim it" },
+      ],
+      placeholder: "Anything you want to watch for? (optional)",
+    },
+  },
+  {
+    key: "test-live-data",
+    route: "",
+    title: "1 · Is the live data connected?",
+    body: "Look at this client list. It should be YOUR real AGP clients pulled from Kantata — not demo names. If a red “Live data unavailable — showing demo data” banner is showing, the connection isn't up.",
+    question: {
+      prompt: "Do you see your real clients (no demo banner)?",
+      options: [
+        { key: "a", label: "Yes — real clients, no banner" },
+        { key: "b", label: "Some, but something looks off" },
+        { key: "c", label: "No — demo data or a banner" },
+      ],
+      placeholder: "What did you see? (optional)",
+    },
+  },
+  {
+    key: "test-open-workspace",
+    route: "",
+    title: "2 · Open one of your clients",
+    body: "Click into one of your own clients. It should open a workspace already filled with that client's real campaigns, tasks, and people — not an empty shell.",
+    question: {
+      prompt: "Did it populate with real work?",
+      options: [
+        { key: "a", label: "Yes — campaigns, tasks, people are there" },
+        { key: "b", label: "Partly — some of it" },
+        { key: "c", label: "No — empty or wrong data" },
+      ],
+      placeholder: "Which client, and what was missing? (optional)",
+    },
+  },
+  {
+    key: "test-working-picture",
+    title: "3 · The people list — the working picture",
+    body: "Top-right, click the People button. Instead of one long list of ~45 people, you should see an OWNER badge, a “Working on this now” group, and a collapsed “Also on the contract”. Try the × to hide someone, and “Make owner” to move the owner.",
+    quote: { text: "It's just showing a whole list of people on the client's fiscal year, which doesn't mean anything to the team members working on it.", from: "Kellie — pilot feedback (now fixed)" },
+    question: {
+      prompt: "Does the people list show the working picture, not the full roster?",
+      options: [
+        { key: "a", label: "Yes — owner + who's actually working" },
+        { key: "b", label: "Partly — but confusing" },
+        { key: "c", label: "No — still the full list / broken" },
+      ],
+      placeholder: "Did hide (×) and Make owner work? (optional)",
+    },
+  },
+  {
+    key: "test-scope",
+    title: "4 · Scope the workspace to one project",
+    body: "On the Home tab, find the line “This workspace covers…”. Click Change, tick only one or two projects, and Apply. The workspace should narrow to just that work — not every project under the client.",
+    quote: { text: "The workspace would align to one client project… comingling them is not ideal.", from: "Cara — pilot feedback (now supported)" },
+    question: {
+      prompt: "Could you scope it to selected projects?",
+      options: [
+        { key: "a", label: "Yes — it narrowed correctly" },
+        { key: "b", label: "Partly — clunky" },
+        { key: "c", label: "No — didn't work" },
+      ],
+      placeholder: "What happened? (optional)",
+    },
+  },
+  {
+    key: "test-contractor-access",
+    title: "5 · Grant contractor access + Entra guest",
+    body: "Go to the Contractor Access tab. In “Grant access”, add a test contractor WITH an email and pick Contractor. On their card, a “Teams / SharePoint access” bar should appear — move it from invite sent → active.",
+    quote: { text: "The most valuable piece is sharing files with the contractor in a secure way… add the contractor to the Teams chat.", from: "Cara — pilot feedback" },
+    question: {
+      prompt: "Did the contractor + Entra guest status work?",
+      options: [
+        { key: "a", label: "Yes — card + access bar, status moves" },
+        { key: "b", label: "Partly — one part missing" },
+        { key: "c", label: "No — broke or no bar" },
+      ],
+      placeholder: "What did you see on the card? (optional)",
+    },
+  },
+  {
+    key: "test-contractor-reply",
+    title: "6 · Contractor posts a reply",
+    body: "Still on Contractor Access, scroll to the Contractor View → “Relevant discussions”. Share a message to the contractor first if none show, then use “Reply as <contractor>” to post. The reply should appear in the thread.",
+    quote: { text: "The contractor should participate in the discussions and manage tasks assigned to them.", from: "Cara — pilot feedback (now built)" },
+    question: {
+      prompt: "Could the contractor post a reply?",
+      options: [
+        { key: "a", label: "Yes — reply posted" },
+        { key: "b", label: "Partly — confusing" },
+        { key: "c", label: "No — couldn't post" },
+      ],
+      placeholder: "Anything off about the flow? (optional)",
+    },
+  },
+  {
+    key: "test-persistence",
+    title: "7 · Does your work save?",
+    body: "Refresh the whole page (Cmd/Ctrl-R). Your changes — the owner, a hidden person, the contractor — should still be there. At the bottom of the page the footer should read “shared · last saved …”, which means it saved to the shared backend, not just your browser.",
+    question: {
+      prompt: "Did your work persist after a refresh?",
+      options: [
+        { key: "a", label: "Yes — everything stuck, footer says shared" },
+        { key: "b", label: "Partly — some lost" },
+        { key: "c", label: "No — work gone / local-only" },
+      ],
+      placeholder: "What did the footer say? (optional)",
+    },
+  },
+  {
+    key: "test-done",
+    title: "That's the test",
+    body: "Thanks — your answers are saved. Josh can see everyone's results, with every comment, at #admin/feedback (and export them to a spreadsheet). Re-run this any time with “Test walkthrough”.",
+    question: {
+      prompt: "Overall — is this working well enough to put in front of clients?",
+      options: [
+        { key: "a", label: "Yes — ready" },
+        { key: "b", label: "Close — a few fixes first" },
+        { key: "c", label: "Not yet" },
+      ],
+      placeholder: "The one thing to fix before launch? (optional)",
+    },
+  },
+];
+
 function PageIntro({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -336,6 +479,11 @@ function Workspace() {
       return null;
     }
   });
+  // Which walkthrough is running: the intro tour or the team test pass. They
+  // share one spotlight engine and one feedback roll-up (distinct step keys).
+  const [tourKind, setTourKind] = useState<"intro" | "test">("intro");
+  const activeSteps = tourKind === "test" ? TEST_STEPS : TOUR_STEPS;
+  const startTour = (kind: "intro" | "test") => { setTourKind(kind); setTourStep(0); };
   const closeTour = () => {
     setTourStep(null);
     try {
@@ -851,8 +999,11 @@ function Workspace() {
               My Tasks{myTasksTotal > 0 ? ` (${myTasksTotal})` : ""}
             </button>
           </span>
-          <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
+          <button type="button" className="nav-pill" onClick={() => startTour("intro")} title="Spotlight walkthrough of the workspace">
             ✦ Take the tour
+          </button>
+          <button type="button" className="nav-pill" onClick={() => startTour("test")} title="Guided test pass — verify the new features work, results roll up per person">
+            🧪 Test walkthrough
           </button>
           {!ssoConfigured && (
             <button type="button" className="nav-pill" onClick={() => setTeamOpen(true)} title="Add team members and set sign-in passwords">
@@ -1200,13 +1351,13 @@ function Workspace() {
 
       {tourStep !== null && (
         <Tour
-          steps={TOUR_STEPS}
+          steps={activeSteps}
           step={tourStep}
           onStep={setTourStep}
           onClose={closeTour}
           answers={myAnswers}
           onAnswer={(stepKey, answer) => {
-            const s = TOUR_STEPS.find((t) => t.key === stepKey);
+            const s = activeSteps.find((t) => t.key === stepKey);
             if (!s?.question) return;
             ws.recordFeedback({
               stepKey,
