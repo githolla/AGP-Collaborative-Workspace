@@ -59,6 +59,8 @@ import filesUploadSessionHandler from "./api/files-upload-session.js";
 import filesApprovalHandler from "./api/files-approval.js";
 import filesApprovalDecisionHandler from "./api/files-approval-decision.js";
 import accountMembersResolveEmailsHandler from "./api/account-members-resolve-emails.js";
+import teamsWebhookHandler from "./api/teams-webhook.js";
+import teamsSubscribeHandler from "./api/teams-subscribe.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -141,6 +143,10 @@ app.all("/api/files-upload-session", guard(filesUploadSessionHandler));
 app.all("/api/files-approval", guard(filesApprovalHandler));
 app.all("/api/files-approval-decision", guard(filesApprovalDecisionHandler));
 app.all("/api/account-members-resolve-emails", guard(accountMembersResolveEmailsHandler));
+// Two-way Teams sync: the webhook is intentionally unauthenticated (Graph has
+// no session — it self-validates via clientState); subscribe is member-gated.
+app.all("/api/teams-webhook", guard(teamsWebhookHandler));
+app.all("/api/teams-subscribe", guard(teamsSubscribeHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.

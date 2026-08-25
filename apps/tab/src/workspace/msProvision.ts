@@ -1,4 +1,4 @@
-import { msApiCall } from "./msApiFetch.js";
+import { msApiCall, msApiCallPlain } from "./msApiFetch.js";
 
 /**
  * Client-side provisioning actions (teams-provisioning-plan.md B3
@@ -35,7 +35,20 @@ export interface AdoptTeamResult {
 /** B3 steps 1-3: adopt the admin-created Team, resolve its site/drive, and
  * create any of `channelNames` that don't already exist by that name. */
 export async function adoptTeam(accountId: string, teamUrlOrId: string, channelNames: string[] = [], loginHintEmail?: string | undefined): Promise<AdoptTeamResult> {
-  return msApiCall<AdoptTeamResult>("/api/account-team", { body: { accountId, teamUrlOrId, channelNames }, loginHintEmail });
+  const result = await msApiCall<AdoptTeamResult>("/api/account-team", { body: { accountId, teamUrlOrId, channelNames }, loginHintEmail });
+  // Best-effort: connecting a Team also turns on two-way sync (a reply typed in
+  // the Teams channel flows back into the Discussion). No-ops when the server
+  // isn't configured for it (GRAPH_APP_* / TEAMS_WEBHOOK_URL unset); never fails
+  // the connect. Re-connecting refreshes the subscription (also the renewal path).
+  try { await subscribeTeamsSync(accountId); } catch { /* two-way sync unavailable — fine */ }
+  return result;
+}
+
+/** Enable (or renew) two-way Teams sync for an account — creates the Graph
+ * change-notification subscription server-side. Member-gated; no Graph token
+ * needed from the client (the server uses its application credential). */
+export async function subscribeTeamsSync(accountId: string): Promise<void> {
+  await msApiCallPlain<{ data: { subscribed: boolean; expiresAt: string } }>("/api/teams-subscribe", { body: { accountId } });
 }
 
 export interface FolderSyncResult {

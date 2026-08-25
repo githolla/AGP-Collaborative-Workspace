@@ -18,6 +18,14 @@
 
 import { graphFetch } from "./graph.js";
 
+/**
+ * Signature embedded in every message this app posts INTO Teams. The inbound
+ * webhook (two-way sync) skips any channel message carrying it, so the app's
+ * own outbound notifications never echo back into the Discussion as if a person
+ * had typed them in Teams.
+ */
+export const WORKSPACE_POST_MARKER = "in the workspace Discussion:";
+
 const ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPE[c] ?? c);
@@ -76,7 +84,7 @@ export async function notifyTeamsMentions(opts: {
     // Real Teams mention entities — the <at id="n"> tags in the body must line
     // up with the mentions array by id for Teams to render + notify them.
     const atTags = resolved.map((r, i) => `<at id="${i}">${escapeHtml(r.name)}</at>`).join(" ");
-    const content = `${atTags} — <b>${escapeHtml(authorName)}</b> in the workspace Discussion: ${escapeHtml(body)}`;
+    const content = `${atTags} — <b>${escapeHtml(authorName)}</b> ${WORKSPACE_POST_MARKER} ${escapeHtml(body)}`;
     const graphMentions = resolved.map((r, i) => ({
       id: i,
       mentionText: r.name,
