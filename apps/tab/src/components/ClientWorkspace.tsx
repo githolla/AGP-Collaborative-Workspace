@@ -2948,6 +2948,7 @@ export function ClientWorkspace({
   initialTab,
   focusTaskId,
   showResourcing = true,
+  canManage = false,
 }: {
   account: ClientAccount;
   /**
@@ -2956,6 +2957,9 @@ export function ClientWorkspace({
    * to. Gated on the AGP email domain upstream.
    */
   showResourcing?: boolean;
+  /** The signed-in user can manage this workspace (app admin or workspace
+   * admin / PM). Gates the Kantata task write-back — Kellie's pilot ask. */
+  canManage?: boolean;
   /** Deep-link target: open on this tab (Teams/email drives people here). */
   initialTab?: ClientTab;
   /** Deep-link target: highlight this task and focus its hours field. */
@@ -3411,7 +3415,11 @@ export function ClientWorkspace({
         />
       )}
 
-      {pendingKantataWrites.length > 0 && onPushToKantata && (
+      {/* "Send these changes to Kantata" — PM-only per Kellie's pilot feedback
+          (2026-08-19): PMs maintain tasks in Kantata, so pushing task/timeline
+          changes back is theirs alone; the rest of the team never sees it.
+          (Resourcing's separate write-back stays available to everyone.) */}
+      {pendingKantataWrites.length > 0 && onPushToKantata && canManage && (
         <KantataPush writes={pendingKantataWrites} onPush={onPushToKantata} />
       )}
 

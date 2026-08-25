@@ -1507,6 +1507,7 @@ function Workspace() {
             {...(route.view === "account" && route.tab ? { initialTab: route.tab } : {})}
             {...(route.view === "account" && route.focus ? { focusTaskId: route.focus } : {})}
             showResourcing={viewerIsInternal}
+            canManage={amIAppAdmin}
             onBack={() => setRoute({ view: "clients" })}
             collabAccountId={collabAccountId}
             collabData={collabData}
