@@ -127,7 +127,7 @@ async function provisionSubscription(accountId: string, teamId: string, webhookU
     let message: string;
     if (err instanceof GraphAppError) {
       const hint = err.status === 403
-        ? " — the app is missing ChannelMessage.Read.All application permission (admin consent), or the notification URL failed Graph's validation call."
+        ? " — grant the app BOTH 'Channel.ReadBasic.All' (to read the team's channel) and 'ChannelMessage.Read.All' (to read messages) as APPLICATION permissions in the Entra app registration, then click Grant admin consent."
         : err.status === 400
           ? " — Graph could not validate the notification URL."
           : "";
