@@ -18,7 +18,7 @@
 import { randomBytes } from "node:crypto";
 import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext, withServiceContext } from "./_lib/db.js";
-import { graphAppFetch, GraphAppError } from "./_lib/graphApp.js";
+import { graphAppFetch, graphAppMissing, GraphAppError } from "./_lib/graphApp.js";
 import { toApiError } from "./_lib/apiError.js";
 
 const SUBSCRIPTION_MINUTES = 55;
@@ -51,12 +51,7 @@ export default async function handler(
   // Server-config diagnostics — spell out EXACTLY what's missing, so a pilot can
   // tell "app credential not set" from "webhook url not set" without logs.
   const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
-  const missing = [
-    !process.env.GRAPH_APP_CLIENT_ID && "GRAPH_APP_CLIENT_ID",
-    !process.env.GRAPH_APP_CLIENT_SECRET && "GRAPH_APP_CLIENT_SECRET",
-    !process.env.GRAPH_APP_TENANT_ID && "GRAPH_APP_TENANT_ID",
-    !webhookUrl && "TEAMS_WEBHOOK_URL",
-  ].filter(Boolean);
+  const missing = [...graphAppMissing(), ...(!webhookUrl ? ["TEAMS_WEBHOOK_URL"] : [])];
 
   // GET = status only: report config + whether a live subscription exists.
   if (req.method === "GET") {

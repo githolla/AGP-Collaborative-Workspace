@@ -73,6 +73,17 @@ RUN VITE_SUPABASE_URL=${VITE_SUPABASE_URL} \
 FROM node:22-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
+# The app-credential Graph flow (two-way Teams sync, api/_lib/graphApp.ts) reads
+# the SAME Entra app registration as delegated sign-in, so it reuses the existing
+# VITE_GRAPH_CLIENT_ID / VITE_GRAPH_TENANT_ID rather than duplicate GRAPH_APP_*
+# vars. Those VITE_ names are build-time only (baked into the frontend bundle),
+# so promote them to RUNTIME env here — otherwise server.mts / process.env never
+# see them and graphAppConfigured() is always false. Only GRAPH_APP_CLIENT_SECRET
+# is genuinely app-only (a runtime secret, never a build ARG, never a VITE_ var).
+ARG VITE_GRAPH_CLIENT_ID
+ARG VITE_GRAPH_TENANT_ID
+ENV VITE_GRAPH_CLIENT_ID=${VITE_GRAPH_CLIENT_ID}
+ENV VITE_GRAPH_TENANT_ID=${VITE_GRAPH_TENANT_ID}
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/package.json ./package.json
 COPY --from=base /app/api ./api

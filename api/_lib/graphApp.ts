@@ -17,8 +17,30 @@
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
+/**
+ * The app-credential flow uses the SAME Entra app registration as the delegated
+ * sign-in, so the client id and tenant id are identical to the `VITE_GRAPH_*`
+ * values already configured — no need for Ren to set duplicates. We read the
+ * `VITE_GRAPH_*` names first (promoted to runtime env in the Dockerfile's prod
+ * stage), falling back to `GRAPH_APP_*` if someone set those instead. Only the
+ * SECRET is genuinely new and app-only — it must never be a VITE_ (public) var.
+ */
+const appClientId = (): string => process.env.VITE_GRAPH_CLIENT_ID || process.env.GRAPH_APP_CLIENT_ID || "";
+const appTenantId = (): string => process.env.VITE_GRAPH_TENANT_ID || process.env.GRAPH_APP_TENANT_ID || "";
+const appClientSecret = (): string => process.env.GRAPH_APP_CLIENT_SECRET || "";
+
+/** Which credentials are still missing (accounting for the VITE_ reuse). Empty
+ * array = fully configured. Drives the two-way-sync diagnostic. */
+export function graphAppMissing(): string[] {
+  const out: string[] = [];
+  if (!appClientId()) out.push("GRAPH_APP_CLIENT_ID (or VITE_GRAPH_CLIENT_ID)");
+  if (!appTenantId()) out.push("GRAPH_APP_TENANT_ID (or VITE_GRAPH_TENANT_ID)");
+  if (!appClientSecret()) out.push("GRAPH_APP_CLIENT_SECRET");
+  return out;
+}
+
 export function graphAppConfigured(): boolean {
-  return !!(process.env.GRAPH_APP_CLIENT_ID && process.env.GRAPH_APP_CLIENT_SECRET && process.env.GRAPH_APP_TENANT_ID);
+  return graphAppMissing().length === 0;
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -27,10 +49,10 @@ let cachedToken: { value: string; expiresAt: number } | null = null;
 async function appToken(): Promise<string> {
   const now = Date.now();
   if (cachedToken && cachedToken.expiresAt - 60_000 > now) return cachedToken.value;
-  const tenant = process.env.GRAPH_APP_TENANT_ID!;
+  const tenant = appTenantId();
   const params = new URLSearchParams({
-    client_id: process.env.GRAPH_APP_CLIENT_ID!,
-    client_secret: process.env.GRAPH_APP_CLIENT_SECRET!,
+    client_id: appClientId(),
+    client_secret: appClientSecret(),
     grant_type: "client_credentials",
     scope: "https://graph.microsoft.com/.default",
   });
