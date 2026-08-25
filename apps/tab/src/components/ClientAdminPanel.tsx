@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { T } from "../theme.js";
 import { Button, Card } from "./ui.js";
 import {
@@ -466,11 +466,44 @@ function TeamsSyncPanel({ account }: { account: MsAccountData }) {
   const [note, setNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const connected = !!account.msTeam.teamId;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const load = () => {
-    teamsSyncStatus(account.id).then(setStatus).catch((e) => setErr(describeMsApiError(e, "couldn't read sync status")));
+    teamsSyncStatus(account.id).then((s) => { if (mounted.current) setStatus(s); }).catch((e) => { if (mounted.current) setErr(describeMsApiError(e, "couldn't read sync status")); });
   };
   useEffect(() => { if (connected) load(); }, [account.id, connected]);
+
+  // The subscription is created in a background job (a ~30s Microsoft
+  // round-trip). subscribeTeamsSync returns immediately with state 'creating';
+  // poll GET until it settles to 'active' or 'error' and surface the outcome.
+  const pollUntilSettled = async () => {
+    const deadline = Date.now() + 75_000;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (!mounted.current) return;
+      let s: TeamsSyncStatus;
+      try { s = await teamsSyncStatus(account.id); } catch { if (Date.now() > deadline) return; continue; }
+      if (!mounted.current) return;
+      setStatus(s);
+      if (s.status?.state === "active") { setNote("Two-way sync is on — replies in the Teams channel now flow into the Discussion."); return; }
+      if (s.status?.state === "error") { setErr(s.status.lastError || "Enabling two-way sync failed."); return; }
+      if (Date.now() > deadline) { setErr("Still creating the subscription — taking longer than expected. Click Refresh to check again."); return; }
+    }
+  };
+
+  const onEnable = () => {
+    setBusy(true); setErr(null); setNote(null);
+    subscribeTeamsSync(account.id)
+      .then(() => {
+        setStatus((prev) => prev ? { ...prev, status: { state: "creating", lastError: null, lastAttemptAt: new Date().toISOString() } } : prev);
+        return pollUntilSettled();
+      })
+      .catch((e) => { if (mounted.current) setErr(describeMsApiError(e, "couldn't start two-way sync")); })
+      .finally(() => { if (mounted.current) setBusy(false); });
+  };
+
+  const state = status?.status?.state;
 
   return (
     <Card title="Two-way Teams sync">
@@ -492,18 +525,14 @@ function TeamsSyncPanel({ account }: { account: MsAccountData }) {
                       ? <b style={{ color: T.status.good }}>active until {new Date(status.subscription.expiresAt).toLocaleString()}</b>
                       : <b style={{ color: T.status.warning }}>expired {new Date(status.subscription.expiresAt).toLocaleString()} — click Enable to renew</b>)
                   : <b style={{ color: T.status.critical }}>none registered</b>}</div>
+              {state === "creating" && <div><b style={{ color: T.status.warning }}>creating subscription… (contacting Microsoft)</b></div>}
+              {state === "error" && status.status?.lastError && !err && <div style={{ color: T.status.critical }}>Last attempt failed: {status.status.lastError}</div>}
             </div>
           )}
           <Button
             size="sm"
             disabled={busy}
-            onClick={() => {
-              setBusy(true); setErr(null); setNote(null);
-              subscribeTeamsSync(account.id)
-                .then((r) => { setNote(`Enabled — active until ${new Date(r.expiresAt).toLocaleString()}.`); load(); })
-                .catch((e) => setErr(describeMsApiError(e, "couldn't enable two-way sync")))
-                .finally(() => setBusy(false));
-            }}
+            onClick={onEnable}
           >
             {busy ? "Enabling…" : status?.subscription?.active ? "Refresh subscription" : "Enable two-way sync"}
           </Button>

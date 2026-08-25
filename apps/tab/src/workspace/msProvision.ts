@@ -44,13 +44,15 @@ export async function adoptTeam(accountId: string, teamUrlOrId: string, channelN
   return result;
 }
 
-/** Enable (or renew) two-way Teams sync for an account — creates the Graph
- * change-notification subscription server-side. Member-gated; no Graph token
- * needed from the client (the server uses its application credential). Throws
- * MsApiError with the real Graph reason on failure (403 = consent missing,
- * validation error = webhook unreachable). */
-export async function subscribeTeamsSync(accountId: string): Promise<{ subscribed: boolean; expiresAt: string }> {
-  return msApiCallPlain<{ subscribed: boolean; expiresAt: string }>("/api/teams-subscribe", { body: { accountId } });
+/** Kick off (or renew) two-way Teams sync for an account. Member-gated; no
+ * Graph token needed from the client (the server uses its application
+ * credential). Returns as soon as the attempt is accepted — the actual Graph
+ * subscription is created in the background (it makes a ~30s Microsoft
+ * round-trip that would otherwise outlive the origin's connection cap behind
+ * Cloudflare). Poll `teamsSyncStatus` for the outcome: `status.state` becomes
+ * 'active' on success or 'error' (with `status.lastError`) on failure. */
+export async function subscribeTeamsSync(accountId: string): Promise<{ status: "creating" }> {
+  return msApiCallPlain<{ status: "creating" }>("/api/teams-subscribe", { body: { accountId } });
 }
 
 export interface TeamsSyncStatus {
@@ -58,6 +60,8 @@ export interface TeamsSyncStatus {
   missingEnv: string[];
   webhookUrl: string | null;
   subscription: { active: boolean; expiresAt: string } | null;
+  /** The last background provisioning attempt (null if never attempted). */
+  status: { state: "creating" | "active" | "error"; lastError: string | null; lastAttemptAt: string } | null;
 }
 
 /** Read-only two-way-sync diagnostics for a workspace: server config state +

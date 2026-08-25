@@ -11,6 +11,21 @@
  * public https URL of the webhook). Returns a clear error when either is
  * missing, or when the workspace has no Team connected yet.
  *
+ * BACKGROUND MODEL: creating a subscription makes three outbound Microsoft
+ * calls (app token, resolve channel, create subscription — the last of which
+ * has Graph call our webhook back to validate it). Behind Cloudflare that
+ * round-trip can outlive the origin's ~30s connection cap and the browser gets
+ * an opaque gateway 502. So POST does the FAST checks synchronously (auth,
+ * config, membership, Team connected), returns 202 immediately, and runs the
+ * Graph work in the background, recording the outcome — success OR the real
+ * Graph error — in collab.teams_subscription_status. The client polls GET for
+ * that outcome instead of holding a connection open the whole time. This relies
+ * on the long-lived server process (server.mts on the container), where a
+ * detached promise runs to completion after the response is sent.
+ *
+ * GET /api/teams-subscribe?accountId=… — status only: server config, the live
+ * subscription (if any), and the last background attempt's state/error.
+ *
  * Renewal: Graph subscriptions expire (~1h). A scheduled job should re-POST
  * this per active account before expiry; calling it again simply refreshes.
  */
@@ -19,9 +34,113 @@ import { randomBytes } from "node:crypto";
 import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext, withServiceContext } from "./_lib/db.js";
 import { graphAppFetch, graphAppMissing, GraphAppError } from "./_lib/graphApp.js";
-import { toApiError } from "./_lib/apiError.js";
 
 const SUBSCRIPTION_MINUTES = 55;
+
+/** Record the background attempt's terminal state so GET can report it. Never
+ * throws — this is the last write in a detached task and a rejection here would
+ * otherwise become an unhandled rejection. */
+async function recordStatus(accountId: string, state: "active" | "error", lastError: string | null): Promise<void> {
+  try {
+    await withServiceContext(async (tx) => {
+      await tx`
+        insert into collab.teams_subscription_status (account_id, state, last_error, last_attempt_at, updated_at)
+        values (${accountId}, ${state}, ${lastError}, now(), now())
+        on conflict (account_id) do update set
+          state = excluded.state, last_error = excluded.last_error, updated_at = now()
+      `;
+    });
+  } catch (err) {
+    console.error(`[teams-subscribe] account=${accountId} failed to record status ${state}:`, err);
+  }
+}
+
+/** The actual Graph provisioning, run detached from the HTTP request. Resolves
+ * the channel, replaces any existing subscription, creates the new one, and
+ * stores it. On ANY failure it records a readable reason to the status table.
+ * Returns nothing and never rejects — the caller fire-and-forgets it. */
+async function provisionSubscription(accountId: string, teamId: string, webhookUrl: string): Promise<void> {
+  try {
+    console.log(`[teams-subscribe] account=${accountId} team=${teamId} resolving primary channel`);
+    const channel = (await graphAppFetch(`/teams/${teamId}/primaryChannel?$select=id`)) as { id?: string };
+    if (!channel?.id) {
+      await recordStatus(accountId, "error", "Could not resolve the team's primary channel from Microsoft Graph.");
+      return;
+    }
+    const channelId = channel.id;
+
+    // Replace any existing subscription for this account (best-effort delete).
+    const [existing] = await withServiceContext(async (tx) => {
+      return await tx<{ subscription_id: string }[]>`select subscription_id from collab.teams_subscription where account_id = ${accountId}`;
+    });
+    if (existing) {
+      try { await graphAppFetch(`/subscriptions/${existing.subscription_id}`, { method: "DELETE" }); } catch { /* stale — ignore */ }
+    }
+
+    const clientState = randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + SUBSCRIPTION_MINUTES * 60_000).toISOString();
+    const resource = `teams/${teamId}/channels/${channelId}/messages`;
+
+    // Graph validates the notificationUrl synchronously here: it POSTs
+    // ?validationToken=… to webhookUrl and needs the echo within 10s. If that
+    // round-trip fails (webhook unreachable) OR the app lacks
+    // ChannelMessage.Read.All consent, THIS call throws — logged below.
+    console.log(`[teams-subscribe] account=${accountId} creating subscription resource=${resource} notificationUrl=${webhookUrl}`);
+    const created = (await graphAppFetch("/subscriptions", {
+      method: "POST",
+      body: {
+        changeType: "created",
+        notificationUrl: webhookUrl,
+        resource,
+        expirationDateTime: expiresAt,
+        clientState,
+        latestSupportedTlsVersion: "v1_2",
+      },
+    })) as { id?: string; expirationDateTime?: string };
+    if (!created?.id) {
+      await recordStatus(accountId, "error", "Microsoft Graph did not return a subscription id.");
+      return;
+    }
+
+    const subscriptionId = created.id;
+    const storedExpiry = created.expirationDateTime ?? expiresAt;
+    await withServiceContext(async (tx) => {
+      await tx`
+        insert into collab.teams_subscription (account_id, subscription_id, resource, team_id, channel_id, client_state, expires_at, updated_at)
+        values (${accountId}, ${subscriptionId}, ${resource}, ${teamId}, ${channelId}, ${clientState}, ${storedExpiry}, now())
+        on conflict (account_id) do update set
+          subscription_id = excluded.subscription_id,
+          resource = excluded.resource,
+          team_id = excluded.team_id,
+          channel_id = excluded.channel_id,
+          client_state = excluded.client_state,
+          expires_at = excluded.expires_at,
+          updated_at = now()
+      `;
+    });
+    console.log(`[teams-subscribe] account=${accountId} subscription active id=${subscriptionId} expires=${storedExpiry}`);
+    await recordStatus(accountId, "active", null);
+  } catch (err) {
+    // Turn the real Graph reason into a readable status. 403 = missing
+    // ChannelMessage.Read.All consent (or the webhook failed validation); 400 =
+    // Graph couldn't validate the notification URL.
+    let message: string;
+    if (err instanceof GraphAppError) {
+      const hint = err.status === 403
+        ? " — the app is missing ChannelMessage.Read.All application permission (admin consent), or the notification URL failed Graph's validation call."
+        : err.status === 400
+          ? " — Graph could not validate the notification URL."
+          : "";
+      message = `Graph rejected the subscription (${err.status}): ${err.message}${hint}`;
+    } else if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      message = "Microsoft Graph did not respond in time creating the subscription (the outbound call timed out).";
+    } else {
+      message = err instanceof Error ? err.message : "unexpected error creating the subscription";
+    }
+    console.error(`[teams-subscribe] account=${accountId} provisioning failed: ${message}`);
+    await recordStatus(accountId, "error", message);
+  }
+}
 
 export default async function handler(
   req: { method?: string; body?: unknown; query?: Record<string, unknown>; headers?: Record<string, string | string[] | undefined> },
@@ -53,12 +172,17 @@ export default async function handler(
   const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
   const missing = [...graphAppMissing(), ...(!webhookUrl ? ["TEAMS_WEBHOOK_URL"] : [])];
 
-  // GET = status only: report config + whether a live subscription exists.
+  // GET = status only: server config, the live subscription, and how the last
+  // background attempt went (state + real error reason).
   if (req.method === "GET") {
-    const [sub] = await withServiceContext(async (tx) => {
-      return await tx<{ subscription_id: string; expires_at: string }[]>`
+    const [[sub], [status]] = await withServiceContext(async (tx) => {
+      const subRows = await tx<{ subscription_id: string; expires_at: string }[]>`
         select subscription_id, expires_at from collab.teams_subscription where account_id = ${accountId}
       `;
+      const statusRows = await tx<{ state: string; last_error: string | null; last_attempt_at: string }[]>`
+        select state, last_error, last_attempt_at from collab.teams_subscription_status where account_id = ${accountId}
+      `;
+      return [subRows, statusRows] as const;
     });
     res.status(200).json({
       data: {
@@ -66,6 +190,7 @@ export default async function handler(
         missingEnv: missing,
         webhookUrl: webhookUrl ?? null,
         subscription: sub ? { active: sub.expires_at > new Date().toISOString(), expiresAt: sub.expires_at } : null,
+        status: status ? { state: status.state, lastError: status.last_error, lastAttemptAt: status.last_attempt_at } : null,
       },
     });
     return;
@@ -78,106 +203,38 @@ export default async function handler(
     return;
   }
 
-  try {
-    // Membership + Team check under the caller's RLS: they see this account's
-    // ms_team_id only if they belong to it.
-    const [acct] = await withUserContext(auth.userId!, async (tx) => {
-      return await tx<{ ms_team_id: string | null }[]>`select ms_team_id from collab.client_account where id = ${accountId}`;
-    });
-    if (!acct) {
-      res.status(404).json({ error: { code: "not_found", message: "workspace not found or you're not a member" } });
-      return;
-    }
-    if (!acct.ms_team_id) {
-      res.status(400).json({ error: { code: "team_not_connected", message: "Connect a Microsoft Team to this workspace first (Admin tab)." } });
-      return;
-    }
-    const teamId = acct.ms_team_id;
-
-    // Resolve the primary channel with the app token.
-    console.log(`[teams-subscribe] account=${accountId} team=${teamId} resolving primary channel`);
-    const channel = (await graphAppFetch(`/teams/${teamId}/primaryChannel?$select=id`)) as { id?: string };
-    if (!channel?.id) {
-      res.status(502).json({ error: { code: "graph_failed", message: "could not resolve the team's primary channel" } });
-      return;
-    }
-    const channelId = channel.id;
-
-    // Replace any existing subscription for this account (best-effort delete).
-    const [existing] = await withServiceContext(async (tx) => {
-      return await tx<{ subscription_id: string }[]>`select subscription_id from collab.teams_subscription where account_id = ${accountId}`;
-    });
-    if (existing) {
-      try { await graphAppFetch(`/subscriptions/${existing.subscription_id}`, { method: "DELETE" }); } catch { /* stale — ignore */ }
-    }
-
-    const clientState = randomBytes(24).toString("hex");
-    const expiresAt = new Date(Date.now() + SUBSCRIPTION_MINUTES * 60_000).toISOString();
-    const resource = `teams/${teamId}/channels/${channelId}/messages`;
-
-    // Graph validates the notificationUrl synchronously here: it POSTs
-    // ?validationToken=… to webhookUrl and needs the echo within 10s. If that
-    // round-trip fails (webhook unreachable/misrouted) OR the app lacks
-    // ChannelMessage.Read.All consent, THIS call is what throws — logged below
-    // so the Container App logs show the exact Graph reason.
-    console.log(`[teams-subscribe] account=${accountId} creating subscription resource=${resource} notificationUrl=${webhookUrl}`);
-    const created = (await graphAppFetch("/subscriptions", {
-      method: "POST",
-      body: {
-        changeType: "created",
-        notificationUrl: webhookUrl,
-        resource,
-        expirationDateTime: expiresAt,
-        clientState,
-        latestSupportedTlsVersion: "v1_2",
-      },
-    })) as { id?: string; expirationDateTime?: string };
-    if (!created?.id) {
-      res.status(502).json({ error: { code: "graph_failed", message: "subscription was not created" } });
-      return;
-    }
-
-    const subscriptionId = created.id;
-    const storedExpiry = created.expirationDateTime ?? expiresAt;
-    await withServiceContext(async (tx) => {
-      await tx`
-        insert into collab.teams_subscription (account_id, subscription_id, resource, team_id, channel_id, client_state, expires_at, updated_at)
-        values (${accountId}, ${subscriptionId}, ${resource}, ${teamId}, ${channelId}, ${clientState}, ${storedExpiry}, now())
-        on conflict (account_id) do update set
-          subscription_id = excluded.subscription_id,
-          resource = excluded.resource,
-          team_id = excluded.team_id,
-          channel_id = excluded.channel_id,
-          client_state = excluded.client_state,
-          expires_at = excluded.expires_at,
-          updated_at = now()
-      `;
-    });
-
-    res.status(200).json({ data: { subscribed: true, expiresAt: created.expirationDateTime ?? expiresAt } });
-  } catch (err) {
-    // Surface the REAL Graph reason — this is where the two answers we need show
-    // up: a 403 = ChannelMessage.Read.All consent missing; a validation error =
-    // Graph couldn't reach/verify TEAMS_WEBHOOK_URL. Both were invisible before.
-    if (err instanceof GraphAppError) {
-      console.error(`[teams-subscribe] account=${accountId} Graph rejected subscription: ${err.status} ${err.message}`);
-      const hint = err.status === 403
-        ? " — the app is missing ChannelMessage.Read.All application permission (admin consent), OR the notification URL failed Graph's validation call."
-        : err.status === 400
-          ? " — Graph could not validate the notification URL (is /api/teams-webhook publicly reachable and echoing the token?)."
-          : "";
-      res.status(502).json({ error: { code: "graph_failed", message: `Graph rejected the subscription (${err.status}): ${err.message}${hint}` } });
-      return;
-    }
-    // A timed-out Graph round-trip (AbortSignal) or network error would
-    // otherwise surface as an opaque gateway 502 — name it instead.
-    const isAbort = err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError");
-    console.error(`[teams-subscribe] account=${accountId} unexpected error:`, err);
-    if (isAbort) {
-      res.status(504).json({ error: { code: "graph_timeout", message: "Graph did not respond in time creating the subscription — usually the /api/teams-webhook validation call timing out. Confirm the webhook URL is publicly reachable." } });
-      return;
-    }
-    const { status, body } = toApiError(err);
-    res.status(status).json(body);
+  // Membership + Team check under the caller's RLS: they see this account's
+  // ms_team_id only if they belong to it. This is the fast authorization gate;
+  // everything slow (the Graph round-trip) happens in the background AFTER it.
+  const [acct] = await withUserContext(auth.userId!, async (tx) => {
+    return await tx<{ ms_team_id: string | null }[]>`select ms_team_id from collab.client_account where id = ${accountId}`;
+  });
+  if (!acct) {
+    res.status(404).json({ error: { code: "not_found", message: "workspace not found or you're not a member" } });
+    return;
   }
+  if (!acct.ms_team_id) {
+    res.status(400).json({ error: { code: "team_not_connected", message: "Connect a Microsoft Team to this workspace first (Admin tab)." } });
+    return;
+  }
+  const teamId = acct.ms_team_id;
+
+  // Mark the attempt 'creating' so a concurrent GET shows progress immediately.
+  await withServiceContext(async (tx) => {
+    await tx`
+      insert into collab.teams_subscription_status (account_id, state, last_error, last_attempt_at, updated_at)
+      values (${accountId}, 'creating', null, now(), now())
+      on conflict (account_id) do update set state = 'creating', last_error = null, last_attempt_at = now(), updated_at = now()
+    `;
+  });
+
+  // Detach the Graph work. provisionSubscription never rejects (it records its
+  // own failures), but keep a final .catch as a hard guarantee against an
+  // unhandled rejection taking down the long-lived server process.
+  void provisionSubscription(accountId, teamId, webhookUrl!).catch((err) => {
+    console.error(`[teams-subscribe] account=${accountId} background task escaped:`, err);
+  });
+
+  // 202 Accepted: the client polls GET for 'active' or 'error'.
+  res.status(202).json({ data: { status: "creating" } });
 }
