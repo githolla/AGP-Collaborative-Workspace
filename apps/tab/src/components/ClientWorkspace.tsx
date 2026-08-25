@@ -10,7 +10,6 @@ import { AS_OF_TODAY } from "../workspace/format.js";
 import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
-import { TEMPLATES, instantiateTemplate } from "../workspace/templates.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
 import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
 /** Where a shared file stands, in one word — the client-facing states this
@@ -62,10 +61,9 @@ const TABS: { key: ClientTab; label: string }[] = [
   { key: "dashboard", label: "Client Dashboard" },
   { key: "files", label: "Files" },
   { key: "discussions", label: "Discussions" },
-  // The Sandbox lives INSIDE each client — ideas are tied to the client
-  // they're for. Content is composed by App (internal-only modules never
-  // enter this file's import graph — clientSafety.test.ts).
-  { key: "sandbox", label: "Sandbox" },
+  // Sandbox tab removed per Kellie's pilot feedback (2026-08-19): "We don't need
+  // this page." The type + render path stay (harmless when no tab points here)
+  // so nothing else that references "sandbox" breaks.
   // Key stays "access" — deep links (#c/<id>/access), pageContext.ts's
   // ACCOUNT record, and SetupChecklist/CollaborateHub's goTo("access")
   // calls all already target this key. Only the label and rendered
@@ -342,11 +340,6 @@ function SetupChecklistShell({
 // account intelligence is labeled as such.
 // ---------------------------------------------------------------------------
 
-/** "health_services" → "Health services". */
-const prettyValue = (v: string) => {
-  const s = v.replace(/_/g, " ").toLowerCase().trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
-};
 
 /**
  * Project Finder — the fix that always works: search EVERY live Kantata
@@ -466,219 +459,6 @@ function LinkDoctor({
   );
 }
 
-/**
- * Kantata-first (2026-07-20 internal review, ADR 0008): HubSpot is
- * pre-acquisition CRM — its account intelligence came OFF this delivery
- * surface. This card shows what Kantata knows about the client's delivery;
- * HubSpot remains only the client directory behind workspace creation.
- */
-function LiveSystemsCard({ context, live, clientName }: { context: AccountLiveContext; live: boolean; clientName: string }) {
-  const today = AS_OF_TODAY();
-  const hasAny = context.projects.length > 0;
-  // Demo data with nothing to show: stay quiet rather than render an empty shell.
-  if (!hasAny && !live) return null;
-
-  const upcoming = (p: AccountLiveContext["projects"][number]) =>
-    p.milestones.filter((m) => m.state !== "completed" && m.dueDate >= today);
-
-  return (
-    <div style={card} data-tour="live-systems">
-      <SectionTitle
-        right={
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: live ? "#116a43" : T.inkMuted, background: live ? "#e3f4ec" : "#f0efec", borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>
-            {live ? "● live" : "demo data"}
-          </span>
-        }
-      >
-        Delivery — live from Kantata
-      </SectionTitle>
-
-      <div>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-            {context.projects.length} project{context.projects.length === 1 ? "" : "s"} in flight
-          </div>
-          {context.projects.length === 0 ? (
-            <div style={{ fontSize: 12, color: T.inkMuted, padding: "4px 0 10px" }}>
-              No Kantata project matched “{clientName}” — matching uses the workspace group, the
-              client abbreviation as a title prefix, or the client name in the project title.
-            </div>
-          ) : (
-            context.projects.slice(0, 5).map((p) => {
-              const next = upcoming(p);
-              const openTasks = p.tasks.filter((t) => t.state !== "completed").length;
-              const hrs30 = p.minutes30d != null ? Math.round(p.minutes30d / 60) : null;
-              return (
-                <div key={p.title} style={{ padding: "6px 0", borderBottom: `1px solid ${T.grid}` }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{p.title}</span>
-                    {p.status && <TagChip>{prettyValue(p.status)}</TagChip>}
-                    {p.dueDate && <span style={{ fontSize: 11, color: T.inkSecondary }}>due {fmtDay(p.dueDate)}</span>}
-                  </div>
-                  {/* Delivery pulse: hours logged + who's on it — from time entries & participations. */}
-                  {(hrs30 != null || openTasks > 0) && (
-                    <div style={{ fontSize: 11, color: hrs30 === 0 ? "#8a6d1a" : T.inkSecondary, padding: "2px 0 0 12px" }}>
-                      {hrs30 != null
-                        ? hrs30 > 0
-                          ? `⏱ ${hrs30} hrs logged in the last 30 days${p.people30d ? ` by ${p.people30d} ${p.people30d === 1 ? "person" : "people"}` : ""}`
-                          : `⏱ no time logged in 30+ days${p.lastEntryDate ? ` (last: ${fmtDay(p.lastEntryDate)})` : ""}`
-                        : ""}
-                      {hrs30 != null && openTasks > 0 ? " · " : ""}
-                      {openTasks > 0 ? `${openTasks} open task${openTasks === 1 ? "" : "s"} in Kantata` : ""}
-                    </div>
-                  )}
-                  {p.team && p.team.length > 0 && (
-                    <div style={{ fontSize: 11, color: T.inkSecondary, padding: "2px 0 0 12px" }}>
-                      👥 {p.team.slice(0, 5).join(", ")}
-                      {p.team.length > 5 ? ` +${p.team.length - 5} more` : ""}
-                    </div>
-                  )}
-                  {next.slice(0, 3).map((m) => (
-                    <div key={`${m.title}-${m.dueDate}`} style={{ fontSize: 11.5, color: T.inkSecondary, padding: "2px 0 0 12px" }}>
-                      ◦ {m.title} — {fmtDay(m.dueDate)}
-                      {m.hard ? <span style={{ color: "#8a6d1a", fontWeight: 700 }}> · hard date</span> : ""}
-                    </div>
-                  ))}
-                  {next.length > 3 && (
-                    <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "2px 0 0 12px" }}>+{next.length - 3} more milestones</div>
-                  )}
-                </div>
-              );
-            })
-          )}
-          {deliveryQuiet(context.projects) && (
-            <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", border: "1px solid #e7c66f", borderRadius: 8, padding: "8px 12px", marginTop: 8, lineHeight: 1.5 }}>
-              <strong>Delivery quiet.</strong> Projects exist but nobody logged time in 30 days —
-              worth checking whether the work is actually moving.
-            </div>
-          )}
-          {context.projects.length > 5 && (
-            <div style={{ fontSize: 10.5, color: T.inkMuted, padding: "4px 0" }}>+{context.projects.length - 5} more projects matched</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Template picker (Collab Hub Must: "apply a template for consistent set
- * up"): AGP's service-line playbooks as dated task skeletons. Pick, set a
- * start date, see the shape, apply — re-applying never duplicates.
- */
-const templateWeeks = (t: (typeof TEMPLATES)[number]) => Math.max(1, Math.round((t.tasks[t.tasks.length - 1]?.offsetDays ?? 0) / 7));
-
-function TemplatePicker({ onApply, startCollapsed = false }: { onApply: (templateKey: string, startDate: string) => void; startCollapsed?: boolean }) {
-  const [key, setKey] = useState(TEMPLATES[0]?.key ?? "");
-  const [start, setStart] = useState(AS_OF_TODAY());
-  const [applied, setApplied] = useState(false);
-  // On a plan that already has tasks, don't dominate the page with a fresh
-  // "kickoff" playbook — collapse to a quiet bar the AM opens on purpose.
-  const [open, setOpen] = useState(!startCollapsed);
-  const tpl = TEMPLATES.find((t) => t.key === key);
-  if (!tpl) return null;
-  const preview = instantiateTemplate(tpl, start);
-  const weeks = templateWeeks(tpl);
-
-  if (!open) {
-    return (
-      <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "12px 16px" }}>
-        <span style={{ fontSize: 12, color: T.inkSecondary }}>
-          <b style={{ color: T.roi.navy }}>Add a service-line playbook</b> — a dated task skeleton for how AGP runs Direct Mail, Digital Fundraising, GivingDNA, or a Mid-Major sprint.
-        </span>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
-          ＋ Choose a template
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={card}>
-      <SectionTitle
-        right={
-          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 10.5, color: T.inkMuted }}>the same playbook every time — consistent set up</span>
-            {startCollapsed && (
-              <button type="button" className="btn-link" style={{ fontSize: 11 }} onClick={() => setOpen(false)}>
-                Close
-              </button>
-            )}
-          </span>
-        }
-      >
-        Start from a template
-      </SectionTitle>
-
-      {/* Pick a playbook — tiles, not a dropdown, so the choice is visual. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-        {TEMPLATES.map((t) => {
-          const on = t.key === key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => { setKey(t.key); setApplied(false); }}
-              aria-pressed={on}
-              style={{
-                textAlign: "left",
-                cursor: "pointer",
-                borderRadius: 10,
-                padding: "10px 12px",
-                background: on ? "#eef2fb" : "#fff",
-                border: `1.5px solid ${on ? T.roi.navy : T.grid}`,
-                display: "flex",
-                flexDirection: "column",
-                gap: 3,
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span aria-hidden style={{ width: 13, height: 13, borderRadius: "50%", flexShrink: 0, border: `2px solid ${on ? T.roi.navy : T.border}`, background: on ? T.roi.navy : "transparent", boxShadow: on ? "inset 0 0 0 2px #fff" : "none" }} />
-                <span style={{ fontSize: 13, fontWeight: 800, color: T.roi.navy }}>{t.name}</span>
-              </span>
-              <span style={{ fontSize: 10.5, color: T.inkMuted }}>{t.tasks.length} tasks · ~{templateWeeks(t)} weeks · {t.serviceLine}</span>
-              <span style={{ fontSize: 11, color: T.inkSecondary, lineHeight: 1.4 }}>{t.description}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Start date + a mini timeline preview of what will land. */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
-        <label style={{ fontSize: 11.5, color: T.inkSecondary, display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
-          Start date
-          <input type="date" className="input" value={start} onChange={(e) => { setStart(e.target.value); setApplied(false); }} style={{ padding: "7px 10px", fontSize: 12 }} />
-        </label>
-        <span style={{ fontSize: 11, color: T.inkMuted }}>
-          {tpl.tasks.length} dated tasks over ~{weeks} weeks · ends {fmtDay(preview[preview.length - 1]?.due ?? start)}
-        </span>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-        {preview.slice(0, 5).map((t, i) => (
-          <span key={i} style={{ display: "inline-flex", alignItems: "baseline", gap: 5, fontSize: 10.5, background: "#f4f6fa", borderRadius: 6, padding: "3px 8px", color: T.ink }}>
-            <span style={{ fontWeight: 700, color: T.roi.navy, fontVariantNumeric: "tabular-nums" }}>{fmtDay(t.due).split(",")[0]}</span>
-            <span style={{ color: T.inkSecondary }}>{t.title}</span>
-          </span>
-        ))}
-        {preview.length > 5 && <span style={{ fontSize: 10.5, color: T.inkMuted, alignSelf: "center" }}>+{preview.length - 5} more</span>}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => { onApply(tpl.key, start); setApplied(true); }}
-        >
-          Apply “{tpl.name}” — add {tpl.tasks.length} tasks →
-        </button>
-        {applied && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#116a43" }}>✓ Added below — set owners and dates in the task list</span>}
-      </div>
-      <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 8 }}>
-        Tasks land labeled “{tpl.name}”. Owners are added as the team firms up; already-existing titles are never duplicated, so you can apply more than one playbook safely.
-      </div>
-    </div>
-  );
-}
 
 /** Activity feed (Collab Hub Must): the workspace's "what's new" — imports,
  * tasks, access changes, files — newest first. Reads `collab.activity`
@@ -704,7 +484,7 @@ function WhatsNew({ activity }: { activity: MsAccountActivity[] }) {
 // Home — the wireframe, zone for zone
 // ---------------------------------------------------------------------------
 
-function Home({ account, tasks, fileApprovals, externals, activity, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; fileApprovals: MsAccountFileApproval[]; externals: WorkspaceAccountPayload["externals"]; activity: MsAccountActivity[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
+function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenTask }: { account: ClientAccount; tasks: Task[]; fileApprovals: MsAccountFileApproval[]; activity: MsAccountActivity[]; userName: string; goTo: (t: ClientTab) => void; onOpenTask: (task: Task) => void }) {
   const today = AS_OF_TODAY();
   const weekOut = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   // MY tasks: the ones I actually carry hours on (or own) — the mechanism that
@@ -751,24 +531,9 @@ function Home({ account, tasks, fileApprovals, externals, activity, userName, go
         </div>
       </div>
 
+      {/* Account Overview removed per Kellie's pilot feedback (2026-08-19) — the
+          Tasks sections span wider without it, which is easier to read. */}
       <div className="home-row-1">
-        {/* Account overview */}
-        <div style={card}>
-          <SectionTitle>Account Overview</SectionTitle>
-          {(
-            [
-              { label: "Active Campaigns", value: account.campaigns.filter((c) => c.status === "active").length, tab: "dashboard" as ClientTab, hint: "Open Client Dashboard" },
-              { label: "Upcoming Tasks", value: open.length, tab: "plan" as ClientTab, hint: "Open Project Plan" },
-              { label: "Client Contacts", value: externals.filter((e) => e.role === "client").length, tab: "access" as ClientTab, hint: "Open Admin" },
-            ]
-          ).map((row) => (
-            <RowButton key={row.label} onClick={() => goTo(row.tab)} title={row.hint} style={{ padding: "8px 4px" }}>
-              <span style={{ flex: 1, fontSize: 12.5, color: T.inkSecondary }}>{row.label}:</span>
-              <span style={{ fontSize: 20, fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums" }}>{row.value}</span>
-            </RowButton>
-          ))}
-        </div>
-
         {/* Your tasks — mini board, scoped to the tasks you actually own hours on */}
         <div style={{ ...card, display: "flex", flexDirection: "column" }}>
           <SectionTitle
@@ -3162,7 +2927,6 @@ export function ClientWorkspace({
   onRelink,
   onLinkProjects,
   onArchive,
-  onApplyTemplate,
   sandboxContent,
   sandboxCount = 0,
   people = [],
@@ -3257,8 +3021,6 @@ export function ClientWorkspace({
   onLinkProjects?: (ids: string[]) => void;
   /** Archive: hide from the list, keep all history (auditability). */
   onArchive?: () => void;
-  /** Apply a service-line template: dated task skeleton from a start date. */
-  onApplyTemplate?: (templateKey: string, startDate: string) => void;
   /** This client's Sandbox tab, composed by App — keeps internal-only
    * modules (ROI, copilot) out of this file's import graph. Absent = tab
    * hidden (e.g. a guest build passes nothing). */
@@ -3692,17 +3454,17 @@ export function ClientWorkspace({
               />
             </div>
           )}
-          <Home account={accountWithLiveData} tasks={tasks} fileApprovals={collabData?.fileApprovals ?? []} externals={collabData?.externals ?? []} activity={collabData?.activity ?? []} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
-          {/* Below the wireframe: our additions side by side, not stacked. */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 14, alignItems: "start" }}>
-            {liveContext && <LiveSystemsCard context={liveContext} live={liveDataOn} clientName={account.clientName} />}
-            <WhatsNew activity={collabData?.activity ?? []} />
-          </div>
+          <Home account={accountWithLiveData} tasks={tasks} fileApprovals={collabData?.fileApprovals ?? []} activity={collabData?.activity ?? []} userName={userName} goTo={setTab} onOpenTask={setOpenTask} />
+          {/* "Delivery — live from Kantata" (LiveSystemsCard) removed from Home per
+              Kellie's pilot feedback (2026-08-19). */}
+          <WhatsNew activity={collabData?.activity ?? []} />
         </div>
       )}
       {tab === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {onApplyTemplate && <TemplatePicker onApply={onApplyTemplate} startCollapsed={tasks.length > 0} />}
+          {/* "Add a service-line playbook" removed per Kellie's pilot feedback
+              (2026-08-19): timeline/template building stays in Kantata for
+              consistency, not in this tool. */}
           <TasksCard tasks={tasks} owners={owners} onAdd={onAddTask} onStatus={onTaskStatus} onOpenTask={setOpenTask} onToggleClientVisible={onToggleClientVisible} {...(onToggleContractorVisible ? { onToggleContractorVisible } : {})} onDiscuss={startDiscussion} {...(onSetTaskAssignments ? { onSetTaskAssignments } : {})} {...(onSetAssignmentHours ? { onSetAssignmentHours } : {})} {...(onToggleAssignmentDone ? { onToggleAssignmentDone } : {})} {...(onSetAssignmentPrimary ? { onSetAssignmentPrimary } : {})} {...(onSetAssignmentOrder ? { onSetAssignmentOrder } : {})} {...(focusTaskId && tab === "plan" ? { focusTaskId } : {})} />
           {onSetTaskHours && showResourcing && (
             <RowButton onClick={() => setTab("resourcing")} title="Open Resourcing" style={{ padding: "10px 12px", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, background: "#eef8fc" }}>

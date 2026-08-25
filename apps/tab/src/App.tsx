@@ -39,7 +39,6 @@ import {
   setTaskAssignments,
   patchAssignment,
   setAssignmentOrder,
-  applyTemplate as applyTemplateCollab,
   markTasksSynced as markTasksSyncedCollab,
   importFromKantata,
   removeCampaign as removeCampaignCollab,
@@ -1047,10 +1046,6 @@ function Workspace() {
     if (!findCollabTask(taskId)) return;
     await runCollabMutation(() => setAssignmentOrder(taskId, orderedNames));
   }
-  async function handleApplyTemplate(templateKey: string, startDate: string) {
-    if (!collabAccountId) return;
-    await runCollabMutation(() => applyTemplateCollab(collabAccountId, templateKey, startDate));
-  }
   // POST /api/account-import hard-requires collab.client_account.
   // kantata_project_ids to be populated (it refuses to fuzzy-match the wider
   // tenant, by design) — but nothing keeps that column synced with the OLD
@@ -1565,7 +1560,6 @@ function Workspace() {
             onRelink={(name) => void handleRelink(name)}
             onLinkProjects={(ids) => void handleLinkProjects(ids)}
             onArchive={() => void handleArchive()}
-            onApplyTemplate={(templateKey, startDate) => void handleApplyTemplate(templateKey, startDate)}
             people={ws.availablePeople.map((p) => ({ id: p.id, name: p.name, title: p.title }))}
             onAddMember={(personId) => void handleAddAccountMember(personId)}
             onAddNewMember={(name, title) => void handleAddNewAccountMember(name, title)}

@@ -189,24 +189,6 @@ export function Thread({
     setDraft("");
   };
 
-  const chip = (labelText: string, value: string, count?: number) => {
-    const on = filter === value;
-    return (
-      <button
-        key={value || "all"}
-        type="button"
-        onClick={() => { setFilter(value); setPostTopic(value); }}
-        style={{
-          fontSize: 10.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, cursor: "pointer",
-          border: `1px solid ${on ? T.roi.navy : T.border}`,
-          background: on ? T.roi.navy : "transparent",
-          color: on ? "#fff" : T.inkSecondary, whiteSpace: "nowrap", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis",
-        }}
-      >
-        {labelText}{count != null ? ` · ${count}` : ""}
-      </button>
-    );
-  };
 
   return (
     <div style={card}>
@@ -240,14 +222,9 @@ export function Thread({
       </div>
       )}
 
-      {/* Topic filter — one thread per project keeps many projects legible. */}
-      {canScope && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          {chip("All", "", messages.length)}
-          {topicCounts.has(GENERAL) && chip(GENERAL, GENERAL, topicCounts.get(GENERAL))}
-          {allTopics.map((t) => chip(t, t, topicCounts.get(t)))}
-        </div>
-      )}
+      {/* The topic-chip "button view" was removed per Kellie's pilot feedback
+          (2026-08-19): the project drop-down below suffices and is easier to
+          read. Topic scoping still happens through that drop-down. */}
 
       {/* By project — the primary way to see one project's correspondence
           (Kellie). Selecting a project gathers its task replies too. */}
