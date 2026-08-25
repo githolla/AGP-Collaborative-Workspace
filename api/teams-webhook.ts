@@ -83,7 +83,7 @@ export default async function handler(req: WebhookReq, res: WebhookRes): Promise
 
   for (const raw of notifications) {
     try {
-      const n = raw as { subscriptionId?: string; clientState?: string; resourceData?: { id?: string } };
+      const n = raw as { subscriptionId?: string; clientState?: string; resource?: string; resourceData?: { id?: string } };
       const subscriptionId = n.subscriptionId;
       const messageId = n.resourceData?.id;
       if (!subscriptionId || !messageId) continue;
@@ -98,10 +98,12 @@ export default async function handler(req: WebhookReq, res: WebhookRes): Promise
       });
       if (!sub || !n.clientState || n.clientState !== sub.client_state) continue;
 
-      // Read the actual message with the application token.
-      const msg = (await graphAppFetch(
-        `/teams/${sub.team_id}/channels/${sub.channel_id}/messages/${messageId}`,
-      )) as GraphMessage;
+      // Read the actual message. Prefer the `resource` path Graph hands us — it
+      // is correct for BOTH a root channel message AND a threaded reply (which
+      // lives at messages/{rootId}/replies/{replyId}, not messages/{replyId}).
+      // Only fall back to the constructed root path when resource is absent.
+      const resourcePath = n.resource ? `/${n.resource}` : `/teams/${sub.team_id}/channels/${sub.channel_id}/messages/${messageId}`;
+      const msg = (await graphAppFetch(resourcePath)) as GraphMessage;
 
       if (!msg?.id || (msg.messageType && msg.messageType !== "message")) continue;
       const content = msg.body?.content ?? "";

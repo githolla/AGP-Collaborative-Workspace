@@ -9,7 +9,7 @@ import {
   type WorkspaceAccountPayload,
   type ProvisioningPlanNode,
 } from "../workspace/msAccountData.js";
-import { adoptTeam, syncProjectFolders, createMilestoneFolders, syncTeamMembers } from "../workspace/msProvision.js";
+import { adoptTeam, syncProjectFolders, createMilestoneFolders, syncTeamMembers, subscribeTeamsSync, teamsSyncStatus, type TeamsSyncStatus } from "../workspace/msProvision.js";
 import { grantAccess, revokeGrant, revokeAllForPerson } from "../workspace/msShare.js";
 import { addMember, setMemberEmail, resolveMemberEmails, addExternal, removeExternal, resolveExternalIdentity, linkKantataProjects, fetchAllExternals, type AdminExternalRow } from "../workspace/msPeople.js";
 import { listFolder, uploadFile, type FileListing } from "../workspace/msFiles.js";
@@ -330,6 +330,7 @@ export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged }: 
     <>
       <KantataProjectsPanel account={myAccount} onChanged={() => { onAccountChanged(); void reload(); }} />
       <ProvisioningPanel account={myAccount} loginHintEmail={loginHintEmail} onChanged={() => { onAccountChanged(); void reload(); }} />
+      <TeamsSyncPanel account={myAccount} />
       <FolderSyncPanel account={myAccount} plan={plan} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
       <FilesPanel account={myAccount} loginHintEmail={loginHintEmail} />
       <MembershipPanel account={myAccount} members={data.members} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
@@ -451,6 +452,65 @@ function ProvisioningPanel({ account, loginHintEmail, onChanged }: { account: Ms
       </div>
       {result && <div style={{ fontSize: 12, color: T.status.good, marginTop: 8 }}>{result}</div>}
       {err && <div style={{ fontSize: 12, color: T.status.critical, marginTop: 8 }}>{err}</div>}
+    </Card>
+  );
+}
+
+/** Two-way Teams sync diagnostics + control. Surfaces exactly why inbound
+ * (Teams reply → Discussion) is or isn't working — server config, webhook URL,
+ * and whether a live Graph subscription is registered — plus an Enable/renew
+ * button that shows the real Graph error (403 = consent missing, etc.). */
+function TeamsSyncPanel({ account }: { account: MsAccountData }) {
+  const [status, setStatus] = useState<TeamsSyncStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const connected = !!account.msTeam.teamId;
+
+  const load = () => {
+    teamsSyncStatus(account.id).then(setStatus).catch((e) => setErr(describeMsApiError(e, "couldn't read sync status")));
+  };
+  useEffect(() => { if (connected) load(); }, [account.id, connected]);
+
+  return (
+    <Card title="Two-way Teams sync">
+      <p style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 8 }}>
+        Replies typed in the Team channel flow back into Discussions. Needs the app credential (<code>GRAPH_APP_*</code>) + <code>ChannelMessage.Read.All</code> admin consent.
+      </p>
+      {!connected ? (
+        <div style={{ fontSize: 13, color: T.inkMuted }}>Connect a Team above first — two-way sync attaches to its channel.</div>
+      ) : (
+        <>
+          {status && (
+            <div style={{ fontSize: 12.5, marginBottom: 10, lineHeight: 1.8 }}>
+              <div>Server configured:{" "}
+                {status.configured ? <b style={{ color: T.status.good }}>yes</b> : <b style={{ color: T.status.critical }}>no — missing {status.missingEnv.join(", ")}</b>}</div>
+              <div>Webhook URL: {status.webhookUrl ? <code>{status.webhookUrl}</code> : <b style={{ color: T.status.critical }}>not set</b>}</div>
+              <div>Subscription:{" "}
+                {status.subscription
+                  ? (status.subscription.active
+                      ? <b style={{ color: T.status.good }}>active until {new Date(status.subscription.expiresAt).toLocaleString()}</b>
+                      : <b style={{ color: T.status.warning }}>expired {new Date(status.subscription.expiresAt).toLocaleString()} — click Enable to renew</b>)
+                  : <b style={{ color: T.status.critical }}>none registered</b>}</div>
+            </div>
+          )}
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true); setErr(null); setNote(null);
+              subscribeTeamsSync(account.id)
+                .then((r) => { setNote(`Enabled — active until ${new Date(r.expiresAt).toLocaleString()}.`); load(); })
+                .catch((e) => setErr(describeMsApiError(e, "couldn't enable two-way sync")))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? "Enabling…" : status?.subscription?.active ? "Refresh subscription" : "Enable two-way sync"}
+          </Button>
+          {note && <div style={{ fontSize: 12, color: T.status.good, marginTop: 8 }}>{note}</div>}
+          {err && <div style={{ fontSize: 12, color: T.status.critical, marginTop: 8 }}>{err}</div>}
+        </>
+      )}
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import { msApiCall, msApiCallPlain } from "./msApiFetch.js";
+import { msApiCall, msApiCallPlain, msApiGetPlain } from "./msApiFetch.js";
 
 /**
  * Client-side provisioning actions (teams-provisioning-plan.md B3
@@ -46,9 +46,25 @@ export async function adoptTeam(accountId: string, teamUrlOrId: string, channelN
 
 /** Enable (or renew) two-way Teams sync for an account — creates the Graph
  * change-notification subscription server-side. Member-gated; no Graph token
- * needed from the client (the server uses its application credential). */
-export async function subscribeTeamsSync(accountId: string): Promise<void> {
-  await msApiCallPlain<{ data: { subscribed: boolean; expiresAt: string } }>("/api/teams-subscribe", { body: { accountId } });
+ * needed from the client (the server uses its application credential). Throws
+ * MsApiError with the real Graph reason on failure (403 = consent missing,
+ * validation error = webhook unreachable). */
+export async function subscribeTeamsSync(accountId: string): Promise<{ subscribed: boolean; expiresAt: string }> {
+  return msApiCallPlain<{ subscribed: boolean; expiresAt: string }>("/api/teams-subscribe", { body: { accountId } });
+}
+
+export interface TeamsSyncStatus {
+  configured: boolean;
+  missingEnv: string[];
+  webhookUrl: string | null;
+  subscription: { active: boolean; expiresAt: string } | null;
+}
+
+/** Read-only two-way-sync diagnostics for a workspace: server config state +
+ * whether a live subscription exists. The one call that answers "why isn't it
+ * working" without server logs. */
+export async function teamsSyncStatus(accountId: string): Promise<TeamsSyncStatus> {
+  return msApiGetPlain<TeamsSyncStatus>(`/api/teams-subscribe?accountId=${encodeURIComponent(accountId)}`);
 }
 
 export interface FolderSyncResult {

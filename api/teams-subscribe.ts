@@ -18,18 +18,18 @@
 import { randomBytes } from "node:crypto";
 import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext, withServiceContext } from "./_lib/db.js";
-import { graphAppConfigured, graphAppFetch } from "./_lib/graphApp.js";
+import { graphAppFetch, GraphAppError } from "./_lib/graphApp.js";
 import { toApiError } from "./_lib/apiError.js";
 
 const SUBSCRIPTION_MINUTES = 55;
 
 export default async function handler(
-  req: { method?: string; body?: unknown; headers?: Record<string, string | string[] | undefined> },
+  req: { method?: string; body?: unknown; query?: Record<string, unknown>; headers?: Record<string, string | string[] | undefined> },
   res: { status: (code: number) => { json: (body: unknown) => void }; setHeader: (k: string, v: string) => void },
 ): Promise<void> {
   res.setHeader("Cache-Control", "no-store");
-  if (req.method !== "POST") {
-    res.status(405).json({ error: { code: "validation_failed", message: "POST only" } });
+  if (req.method !== "POST" && req.method !== "GET") {
+    res.status(405).json({ error: { code: "validation_failed", message: "GET (status) or POST (enable)" } });
     return;
   }
 
@@ -39,19 +39,46 @@ export default async function handler(
     return;
   }
 
-  const accountId = typeof (req.body as { accountId?: unknown })?.accountId === "string" ? (req.body as { accountId: string }).accountId : "";
+  const rawAccountId = req.method === "POST"
+    ? (req.body as { accountId?: unknown })?.accountId
+    : (req.query as { accountId?: unknown } | undefined)?.accountId;
+  const accountId = typeof rawAccountId === "string" ? rawAccountId : "";
   if (!accountId) {
     res.status(400).json({ error: { code: "validation_failed", message: "accountId is required" } });
     return;
   }
 
+  // Server-config diagnostics — spell out EXACTLY what's missing, so a pilot can
+  // tell "app credential not set" from "webhook url not set" without logs.
   const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
-  if (!graphAppConfigured() || !webhookUrl) {
-    res.status(400).json({
-      error: {
-        code: "teams_sync_not_configured",
-        message: "Two-way Teams sync needs the app credential (GRAPH_APP_*) and TEAMS_WEBHOOK_URL set on the server.",
+  const missing = [
+    !process.env.GRAPH_APP_CLIENT_ID && "GRAPH_APP_CLIENT_ID",
+    !process.env.GRAPH_APP_CLIENT_SECRET && "GRAPH_APP_CLIENT_SECRET",
+    !process.env.GRAPH_APP_TENANT_ID && "GRAPH_APP_TENANT_ID",
+    !webhookUrl && "TEAMS_WEBHOOK_URL",
+  ].filter(Boolean);
+
+  // GET = status only: report config + whether a live subscription exists.
+  if (req.method === "GET") {
+    const [sub] = await withServiceContext(async (tx) => {
+      return await tx<{ subscription_id: string; expires_at: string }[]>`
+        select subscription_id, expires_at from collab.teams_subscription where account_id = ${accountId}
+      `;
+    });
+    res.status(200).json({
+      data: {
+        configured: missing.length === 0,
+        missingEnv: missing,
+        webhookUrl: webhookUrl ?? null,
+        subscription: sub ? { active: sub.expires_at > new Date().toISOString(), expiresAt: sub.expires_at } : null,
       },
+    });
+    return;
+  }
+
+  if (missing.length > 0) {
+    res.status(400).json({
+      error: { code: "teams_sync_not_configured", message: `Two-way Teams sync needs these set on the server: ${missing.join(", ")}.` },
     });
     return;
   }
@@ -127,6 +154,13 @@ export default async function handler(
 
     res.status(200).json({ data: { subscribed: true, expiresAt: created.expirationDateTime ?? expiresAt } });
   } catch (err) {
+    // Surface the REAL Graph reason — this is where the two answers we need show
+    // up: a 403 = ChannelMessage.Read.All consent missing; a validation error =
+    // Graph couldn't reach/verify TEAMS_WEBHOOK_URL. Both were invisible before.
+    if (err instanceof GraphAppError) {
+      res.status(502).json({ error: { code: "graph_failed", message: `Graph rejected the subscription (${err.status}): ${err.message}` } });
+      return;
+    }
     const { status, body } = toApiError(err);
     res.status(status).json(body);
   }
