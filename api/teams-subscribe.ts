@@ -95,6 +95,7 @@ export default async function handler(
     const teamId = acct.ms_team_id;
 
     // Resolve the primary channel with the app token.
+    console.log(`[teams-subscribe] account=${accountId} team=${teamId} resolving primary channel`);
     const channel = (await graphAppFetch(`/teams/${teamId}/primaryChannel?$select=id`)) as { id?: string };
     if (!channel?.id) {
       res.status(502).json({ error: { code: "graph_failed", message: "could not resolve the team's primary channel" } });
@@ -114,6 +115,12 @@ export default async function handler(
     const expiresAt = new Date(Date.now() + SUBSCRIPTION_MINUTES * 60_000).toISOString();
     const resource = `teams/${teamId}/channels/${channelId}/messages`;
 
+    // Graph validates the notificationUrl synchronously here: it POSTs
+    // ?validationToken=… to webhookUrl and needs the echo within 10s. If that
+    // round-trip fails (webhook unreachable/misrouted) OR the app lacks
+    // ChannelMessage.Read.All consent, THIS call is what throws — logged below
+    // so the Container App logs show the exact Graph reason.
+    console.log(`[teams-subscribe] account=${accountId} creating subscription resource=${resource} notificationUrl=${webhookUrl}`);
     const created = (await graphAppFetch("/subscriptions", {
       method: "POST",
       body: {
@@ -153,7 +160,21 @@ export default async function handler(
     // up: a 403 = ChannelMessage.Read.All consent missing; a validation error =
     // Graph couldn't reach/verify TEAMS_WEBHOOK_URL. Both were invisible before.
     if (err instanceof GraphAppError) {
-      res.status(502).json({ error: { code: "graph_failed", message: `Graph rejected the subscription (${err.status}): ${err.message}` } });
+      console.error(`[teams-subscribe] account=${accountId} Graph rejected subscription: ${err.status} ${err.message}`);
+      const hint = err.status === 403
+        ? " — the app is missing ChannelMessage.Read.All application permission (admin consent), OR the notification URL failed Graph's validation call."
+        : err.status === 400
+          ? " — Graph could not validate the notification URL (is /api/teams-webhook publicly reachable and echoing the token?)."
+          : "";
+      res.status(502).json({ error: { code: "graph_failed", message: `Graph rejected the subscription (${err.status}): ${err.message}${hint}` } });
+      return;
+    }
+    // A timed-out Graph round-trip (AbortSignal) or network error would
+    // otherwise surface as an opaque gateway 502 — name it instead.
+    const isAbort = err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError");
+    console.error(`[teams-subscribe] account=${accountId} unexpected error:`, err);
+    if (isAbort) {
+      res.status(504).json({ error: { code: "graph_timeout", message: "Graph did not respond in time creating the subscription — usually the /api/teams-webhook validation call timing out. Confirm the webhook URL is publicly reachable." } });
       return;
     }
     const { status, body } = toApiError(err);

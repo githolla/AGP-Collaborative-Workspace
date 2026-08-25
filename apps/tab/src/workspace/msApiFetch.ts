@@ -36,6 +36,35 @@ export class MsApiError extends Error {
   }
 }
 
+/**
+ * Turn a fetch Response into the handler's `data`, or throw an MsApiError that
+ * carries whatever the server actually said. The important case is a NON-JSON
+ * error body: an app-level failure comes back as our `{error:{code,message}}`
+ * envelope, but a gateway/ingress failure (Azure Container Apps 502, a proxy
+ * timeout, a crashed container) returns HTML or plain text. Discarding that
+ * body — as the old `res.json().catch(()=>null)` did — collapsed both into an
+ * indistinguishable "request failed (502)". Here we read the body as text once,
+ * try to parse our envelope, and on failure attach a trimmed snippet as
+ * `detail` so the UI can show "this is an infra 502, not a Graph rejection."
+ */
+async function parseApiResponse<T>(res: Response): Promise<T> {
+  const text = await res.text().catch(() => "");
+  let json: { data?: T; error?: ApiError } | null = null;
+  if (text) {
+    try { json = JSON.parse(text) as { data?: T; error?: ApiError }; } catch { json = null; }
+  }
+  if (!res.ok || !json || json.error) {
+    if (json?.error) throw new MsApiError(json.error);
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 300);
+    throw new MsApiError({
+      code: res.ok ? "bad_response" : "gateway_error",
+      message: `request failed (${res.status})`,
+      ...(snippet ? { detail: `non-JSON response from server/gateway: ${snippet}` } : {}),
+    });
+  }
+  return json.data as T;
+}
+
 async function withGraphToken(loginHintEmail: string | undefined, headers: Headers): Promise<void> {
   const { token, reason } = await currentGraphTokenDetailed(loginHintEmail);
   if (!token) {
@@ -112,11 +141,7 @@ export async function msApiCallPlain<T>(path: string, opts: { method?: string; b
     headers: { "Content-Type": "application/json" },
     ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
   });
-  const json = (await res.json().catch(() => null)) as { data?: T; error?: ApiError } | null;
-  if (!res.ok || !json || json.error) {
-    throw new MsApiError(json?.error ?? { code: "internal_error", message: `request failed (${res.status})` });
-  }
-  return json.data as T;
+  return parseApiResponse<T>(res);
 }
 
 /** GET with no Graph token — plain Postgres reads (api/workspace.ts) never
@@ -125,9 +150,5 @@ export async function msApiCallPlain<T>(path: string, opts: { method?: string; b
  * because Graph consent hasn't landed yet. */
 export async function msApiGetPlain<T>(path: string): Promise<T> {
   const res = await apiFetch(path);
-  const json = (await res.json().catch(() => null)) as { data?: T; error?: ApiError } | null;
-  if (!res.ok || !json || json.error) {
-    throw new MsApiError(json?.error ?? { code: "internal_error", message: `request failed (${res.status})` });
-  }
-  return json.data as T;
+  return parseApiResponse<T>(res);
 }
