@@ -245,9 +245,15 @@ export async function pullKantata(token: string): Promise<KantataPull> {
     // spends the whole cap on ancient history. If the between-filter is
     // rejected by the tenant, fall back to future-first (still beats asc).
     pullKantataPaged<KantataStory>(
-      `https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc&due_date_between=${new Date(Date.now() - 180 * 86_400_000).toISOString().slice(0, 10)}:${new Date(Date.now() + 540 * 86_400_000).toISOString().slice(0, 10)}`,
+      // Window widened to +900d (was +540d) and cap raised to 2500 (was 1200):
+      // a client's FY27 milestones can fall well beyond 18 months out, and when
+      // BOTH a FY26 and FY27 contract are linked, FY26's near-due milestones
+      // filled the earliest slots of a due_date:asc cap and pushed FY27's later
+      // ones past it — so nesting silently degraded only when both were linked
+      // (Kellie's FY26+FY27 report). More headroom keeps both fully in-slice.
+      `https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=due_date:asc&due_date_between=${new Date(Date.now() - 180 * 86_400_000).toISOString().slice(0, 10)}:${new Date(Date.now() + 900 * 86_400_000).toISOString().slice(0, 10)}`,
       "stories",
-      1200,
+      2500,
     ).catch(() =>
       // Filter rejected by the tenant — fall back to recently-TOUCHED
       // milestones (updated_at), not due_date:desc, which would fill the cap
@@ -255,7 +261,7 @@ export async function pullKantata(token: string): Promise<KantataPull> {
       pullKantataPaged<KantataStory>(
         "https://api.mavenlink.com/api/v1/stories?story_type=milestone&per_page=200&order=updated_at:desc",
         "stories",
-        1200,
+        2500,
       ),
     ),
     // NOT story_type=task: tenants that file work as "deliverable" (or sub-
@@ -613,9 +619,14 @@ export async function pullWorkspaceStories(token: string, workspaceIds: string[]
   const userNames = new Map<string, string>();
 
   const pullOne = async (wsId: string): Promise<void> => {
-    // 200/page, up to 4 pages = 800 stories per workspace — beyond any real
-    // single project. All story types come back; we bucket what we map.
-    for (let page = 1; page <= 4; page += 1) {
+    // 200/page, up to 15 pages = 3000 stories per workspace. A busy fiscal-year
+    // contract (e.g. a client's FY27 with monthly-reporting milestones × many
+    // campaigns × sub-tasks) can exceed the old 800 cap — and when it did, the
+    // cut dropped some parent MILESTONES, so their sub-tasks resolved to no
+    // project and rendered as their own top-level items instead of nesting
+    // (Kellie's "tasks moved out of the milestone" report). The early-exit on a
+    // short page keeps normal projects cheap; only genuinely large ones page deep.
+    for (let page = 1; page <= 15; page += 1) {
       const res = await timedFetch(
         `https://api.mavenlink.com/api/v1/stories?workspace_id=${wsId}&per_page=200&page=${page}&include=assignees`,
         headers,

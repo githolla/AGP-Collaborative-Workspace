@@ -540,6 +540,22 @@ describe("projectPhaseResolver — parent job → phase → task nesting", () =>
   it("no loop on a malformed cycle", () => {
     expect(projectPhaseResolver(milestones, [{ id: "a", parentId: "b" }, { id: "b", parentId: "a" }])("a")).toEqual({});
   });
+
+  it("ANTI-ORPHAN: a task whose parent milestone wasn't fetched nests under the sole job, not the top level", () => {
+    // "ph1" is referenced as the task's parent but is NOT in the milestone set
+    // (it was dropped by a fetch cap). With one root milestone ("job"), the
+    // task must attach to it — Kellie's "tasks moved out of the milestone".
+    const soleJob = [{ id: "job", title: "44061.03 - Fall Program Analysis" }];
+    const orphan = [{ id: "t1", parentId: "ph1" }];
+    expect(projectPhaseResolver(soleJob, orphan)("t1").project).toEqual({ id: "job", title: "44061.03 - Fall Program Analysis" });
+  });
+
+  it("ANTI-ORPHAN: with MULTIPLE root milestones we don't guess — an unresolvable task stays unlabelled", () => {
+    // Two jobs → ambiguous, so the fallback must NOT fire (no wrong nesting).
+    const twoJobs = [{ id: "jobA", title: "Job A" }, { id: "jobB", title: "Job B" }];
+    const orphan = [{ id: "t1", parentId: "ghost" }];
+    expect(projectPhaseResolver(twoJobs, orphan)("t1").project).toBeUndefined();
+  });
 });
 
 describe("accountLiveContext — tasks carry their project label", () => {

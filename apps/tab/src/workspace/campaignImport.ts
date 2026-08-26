@@ -353,6 +353,12 @@ export function projectPhaseResolver(
   const parentOf = new Map<string, string | undefined>();
   for (const m of milestones) { titleById.set(m.id, m.title); parentOf.set(m.id, m.parentId); }
   for (const t of tasks) { if (t.title) titleById.set(t.id, t.title); parentOf.set(t.id, t.parentId); }
+  // Anti-orphan fallback (mirrors api/_lib/kantataHierarchy.ts): a task whose
+  // parent milestone wasn't fetched resolves to no project and floats to the
+  // top level. When the workspace has exactly one root milestone (its single
+  // "job"), attach the task there instead. Multiple roots → leave untouched.
+  const rootMilestones = milestones.filter((m) => !m.parentId || !milestoneIds.has(m.parentId));
+  const soleRootId = rootMilestones.length === 1 ? rootMilestones[0]!.id : undefined;
 
   const cache = new Map<string, { project?: { id: string; title: string }; phase?: { id: string; title: string } }>();
   return (taskId: string) => {
@@ -372,7 +378,7 @@ export function projectPhaseResolver(
     // Project = top-most milestone (the job); phase = nearest milestone if it's
     // a deeper, different one. No milestones at all → top-most ancestor is the
     // project so the task still groups somewhere sensible.
-    const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : topMostAny;
+    const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : (topMostAny ?? soleRootId);
     const phaseId = milestoneChain.length > 1 ? milestoneChain[0] : undefined;
     const result = { ...(node(projectId) ? { project: node(projectId)! } : {}), ...(phaseId && phaseId !== projectId && node(phaseId) ? { phase: node(phaseId)! } : {}) };
     cache.set(taskId, result);

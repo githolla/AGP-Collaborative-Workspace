@@ -62,6 +62,13 @@ export function projectPhaseResolver(
     titleById.set(m.id, m.title);
     parentOf.set(m.id, m.parentId);
   }
+  // Anti-orphan fallback: a task whose parent milestone wasn't in the fetched
+  // set resolves to no project and renders as its own top-level item. When the
+  // workspace has exactly ONE root milestone (its single "job"), that is the
+  // unambiguous home for such a task — attach it there rather than orphaning
+  // it. With multiple root milestones we can't guess, so we leave it untouched.
+  const rootMilestones = milestones.filter((m) => !m.parentId || !milestoneIds.has(m.parentId));
+  const soleRootId = rootMilestones.length === 1 ? rootMilestones[0]!.id : undefined;
   // Tasks inserted AFTER milestones — a real title wins if an id somehow
   // collides in both buckets.
   for (const t of tasks) {
@@ -88,7 +95,7 @@ export function projectPhaseResolver(
     const node = (id: string | undefined): HierarchyNode | undefined =>
       id && titleById.has(id) ? { id, title: titleById.get(id)! } : undefined;
 
-    const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : topMostAny;
+    const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : (topMostAny ?? soleRootId);
     const phaseId = milestoneChain.length > 1 ? milestoneChain[0] : undefined;
     const project = node(projectId);
     const phase = phaseId && phaseId !== projectId ? node(phaseId) : undefined;
