@@ -66,3 +66,48 @@ export function roleFor(account: Pick<ClientAccount, "members"> | undefined, ema
   if (isWorkspaceAdmin(account, email)) return "workspace_admin";
   return "member";
 }
+
+/**
+ * Role-based VIEW TIERS (Kellie/Cara/Suuchi pilot call). Orthogonal to the
+ * admin roles above: those gate "can you manage the workspace"; a tier gates
+ * "which tabs do you see." Two tiers to start (Cara: grow into it):
+ *
+ *  - **account** — Client Experience (strategists + PMs): sees every tab,
+ *    including the Client Dashboard and Admin.
+ *  - **delivery** — everyone else contributing: sees only Home, Project Plan,
+ *    Discussions and Files. No client dashboard, no admin, no resourcing.
+ *
+ * Config is a per-account blob (`ClientAccount.viewConfig`, persisted in
+ * `collab.client_account.view_config`, migration 0026), edited by a super-admin.
+ * Unconfigured (`{}`) → everyone is "account" tier, i.e. today's behavior; the
+ * tiers are strictly opt-in. Presentation-layer only for now, same honest
+ * limitation as the rest of this module.
+ */
+export type ViewTier = "account" | "delivery";
+
+export interface ViewConfig {
+  defaultTier?: ViewTier;
+  /** Per-person override, keyed by lowercased email. */
+  memberTiers?: Record<string, ViewTier>;
+}
+
+/** Tab keys a "delivery" tier member sees (match ClientWorkspace's ClientTab).
+ * "account" tier and app admins see everything, so only this curated set needs
+ * listing. */
+export const DELIVERY_TABS: readonly string[] = ["home", "plan", "discussions", "files"];
+
+/** Which view tier applies to this signed-in person on this account. App
+ * admins (the super-admins who configure tiers) always get the full "account"
+ * tier so they can never lock themselves out. */
+export function viewTierFor(viewConfig: ViewConfig | undefined, email: string | undefined, isAppAdminFlag: boolean): ViewTier {
+  if (isAppAdminFlag) return "account";
+  const e = norm(email);
+  const assigned = e ? viewConfig?.memberTiers?.[e] : undefined;
+  return assigned ?? viewConfig?.defaultTier ?? "account";
+}
+
+/** Is a given tab visible to this tier? "account" sees all; "delivery" sees
+ * the curated DELIVERY_TABS set. */
+export function tabVisibleForTier(tier: ViewTier, tabKey: string): boolean {
+  return tier === "account" || DELIVERY_TABS.includes(tabKey);
+}

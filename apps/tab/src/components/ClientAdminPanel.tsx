@@ -5,10 +5,13 @@ import {
   fetchAccountCollabData,
   fetchProvisioningPlan,
   toOldTask,
+  setViewConfig,
   type MsAccountData,
+  type MsAccountMember,
   type WorkspaceAccountPayload,
   type ProvisioningPlanNode,
 } from "../workspace/msAccountData.js";
+import { DELIVERY_TABS, type ViewConfig, type ViewTier } from "../workspace/roles.js";
 import { adoptTeam, syncProjectFolders, createMilestoneFolders, syncTeamMembers, subscribeTeamsSync, teamsSyncStatus, type TeamsSyncStatus } from "../workspace/msProvision.js";
 import { grantAccess, revokeGrant, revokeAllForPerson } from "../workspace/msShare.js";
 import { addMember, setMemberEmail, resolveMemberEmails, addExternal, removeExternal, resolveExternalIdentity, linkKantataProjects, fetchAllExternals, type AdminExternalRow } from "../workspace/msPeople.js";
@@ -301,7 +304,7 @@ function FolderTreeLevel({
  * same pattern as `store.ts`'s `bridgeKantataProjectIds`) — there is still
  * no shared id between them.
  */
-export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged }: { account: MsAccountData; loginHintEmail?: string | undefined; onAccountChanged: () => void }) {
+export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged, canManage = false }: { account: MsAccountData; loginHintEmail?: string | undefined; onAccountChanged: () => void; canManage?: boolean }) {
   const [data, setData] = useState<WorkspaceAccountPayload | null>(null);
   const [plan, setPlan] = useState<ProvisioningPlanNode[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -334,9 +337,97 @@ export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged }: 
       <FolderSyncPanel account={myAccount} plan={plan} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
       <FilesPanel account={myAccount} loginHintEmail={loginHintEmail} />
       <MembershipPanel account={myAccount} members={data.members} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
+      {canManage && <ViewTiersPanel account={myAccount} members={data.members} onChanged={() => { onAccountChanged(); void reload(); }} />}
       <GrantPanel account={myAccount} externals={data.externals} grants={data.grants} msFolders={data.msFolders} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
       {/* HandoverPanel hidden per request — component/logic left in place below, just not mounted. */}
     </>
+  );
+}
+
+/**
+ * Role-based View Tiers (Kellie/Cara/Suuchi pilot). Super-admin-only card that
+ * assigns internal people to a view tier: "account" (Client Experience —
+ * strategists + PMs) sees every tab; "delivery" sees only Home, Project Plan,
+ * Discussions and Files — no Client Dashboard, no Admin. Stored per account in
+ * view_config; a person's tier applies on their next load. Presentation-layer
+ * only for now (same honest limitation as roles.ts) — it curates the UI, it is
+ * not yet a security boundary.
+ */
+function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountData; members: MsAccountMember[]; onChanged: () => void }) {
+  const [defaultTier, setDefaultTier] = useState<ViewTier>(account.viewConfig?.defaultTier ?? "account");
+  const [memberTiers, setMemberTiers] = useState<Record<string, ViewTier>>({ ...(account.viewConfig?.memberTiers ?? {}) });
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Re-seed from the saved config after a reload replaces the account object.
+  useEffect(() => {
+    setDefaultTier(account.viewConfig?.defaultTier ?? "account");
+    setMemberTiers({ ...(account.viewConfig?.memberTiers ?? {}) });
+  }, [account.id, account.viewConfig]);
+
+  const setFor = (email: string, tier: ViewTier | "default") => {
+    setMemberTiers((prev) => {
+      const next = { ...prev };
+      if (tier === "default") delete next[email];
+      else next[email] = tier;
+      return next;
+    });
+  };
+
+  const save = () => {
+    setBusy(true); setErr(null); setNote(null);
+    const config: ViewConfig = { defaultTier, memberTiers };
+    setViewConfig(account.id, config)
+      .then(() => { setNote("Saved. Each person's view applies on their next load."); onChanged(); })
+      .catch((e) => setErr(describeMsApiError(e, "couldn't save view tiers")))
+      .finally(() => setBusy(false));
+  };
+
+  const withEmail = members.filter((m) => m.email);
+  const noEmailCount = members.length - withEmail.length;
+  const selStyle: React.CSSProperties = { fontSize: 12.5, padding: "2px 6px", borderRadius: 6, border: `1px solid ${T.grid}` };
+
+  return (
+    <Card title="Role-based views">
+      <p style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 8 }}>
+        What each person sees. <b>Account</b> tier (Client Experience — strategists + PMs) sees every tab; <b>Delivery</b> tier sees only {DELIVERY_TABS.map((t) => (t === "plan" ? "Project Plan" : t[0]!.toUpperCase() + t.slice(1))).join(", ")} — no Client Dashboard or Admin. App admins always see everything.
+      </p>
+      <div style={{ fontSize: 12.5, marginBottom: 10 }}>
+        <label>Default for anyone not set below:{" "}
+          <select value={defaultTier} onChange={(e) => setDefaultTier(e.target.value as ViewTier)} style={selStyle}>
+            <option value="account">Account (full)</option>
+            <option value="delivery">Delivery (limited)</option>
+          </select>
+        </label>
+      </div>
+      {withEmail.length > 0 && (
+        <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+          {withEmail.map((m) => {
+            const key = m.email!.toLowerCase();
+            const cur: ViewTier | "default" = memberTiers[key] ?? "default";
+            return (
+              <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 12.5 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}{m.title ? ` · ${m.title}` : ""}</span>
+                <select value={cur} onChange={(e) => setFor(key, e.target.value as ViewTier | "default")} style={selStyle}>
+                  <option value="default">Default ({defaultTier})</option>
+                  <option value="account">Account</option>
+                  <option value="delivery">Delivery</option>
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {noEmailCount > 0 && (
+        <div style={{ fontSize: 11.5, color: T.inkMuted, marginBottom: 8 }}>
+          {noEmailCount} member{noEmailCount > 1 ? "s have" : " has"} no email yet — set one in Internal membership above to assign a tier; until then they follow the default.
+        </div>
+      )}
+      <Button size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save views"}</Button>
+      {note && <div style={{ fontSize: 12, color: T.status.good, marginTop: 8 }}>{note}</div>}
+      {err && <div style={{ fontSize: 12, color: T.status.critical, marginTop: 8 }}>{err}</div>}
+    </Card>
   );
 }
 

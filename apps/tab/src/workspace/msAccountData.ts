@@ -1,5 +1,6 @@
-import { msApiGetPlain } from "./msApiFetch.js";
+import { msApiGetPlain, msApiCallPlain } from "./msApiFetch.js";
 import type { Task, TaskAssignment, Campaign } from "./types.js";
+import type { ViewConfig } from "./roles.js";
 
 /**
  * Reads the B3-B7 (teams-provisioning-plan.md) collab-schema data for one
@@ -180,6 +181,8 @@ export interface MsAccountData {
   msTeam: MsAccountMsTeam;
   kantataProjectIds: string[];
   scopedToProjects: boolean;
+  /** Role-based view tiers (0026). Absent/`{}` = everyone sees every tab. */
+  viewConfig?: ViewConfig;
 }
 
 /** `collab.activity` — the internal "what's new" feed (Home's WhatsNew
@@ -213,6 +216,12 @@ export async function fetchAccountCollabData(accountId: string): Promise<Workspa
 
 export async function fetchAllAccounts(): Promise<{ accounts: MsAccountData[] }> {
   return msApiGetPlain<{ accounts: MsAccountData[] }>("/api/workspace");
+}
+
+/** Save the role-based view-tier config for an account (super-admin only in the
+ * UI). Replaces the whole blob; server sanitizes to valid tiers. */
+export async function setViewConfig(accountId: string, config: ViewConfig): Promise<{ accountId: string; viewConfig: ViewConfig }> {
+  return msApiCallPlain<{ accountId: string; viewConfig: ViewConfig }>("/api/account-view-config", { body: { accountId, config } });
 }
 
 /** Bridges the OLD single-JSON-document account model to this NEW

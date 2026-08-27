@@ -61,6 +61,7 @@ import filesApprovalDecisionHandler from "./api/files-approval-decision.js";
 import accountMembersResolveEmailsHandler from "./api/account-members-resolve-emails.js";
 import teamsWebhookHandler from "./api/teams-webhook.js";
 import teamsSubscribeHandler from "./api/teams-subscribe.js";
+import accountViewConfigHandler from "./api/account-view-config.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -147,6 +148,7 @@ app.all("/api/account-members-resolve-emails", guard(accountMembersResolveEmails
 // no session — it self-validates via clientState); subscribe is member-gated.
 app.all("/api/teams-webhook", guard(teamsWebhookHandler));
 app.all("/api/teams-subscribe", guard(teamsSubscribeHandler));
+app.all("/api/account-view-config", guard(accountViewConfigHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.

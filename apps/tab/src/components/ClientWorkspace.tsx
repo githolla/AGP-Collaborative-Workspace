@@ -23,6 +23,7 @@ import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from
 import { TeamHoursEditor } from "./TeamHours.js";
 import { fetchAllAccounts, fetchAccountCollabData, toOldTask, toOldCampaign, type MsAccountData, type MsAccountFileApproval, type MsAccountActivity, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
 import { createAccount } from "../workspace/msPeople.js";
+import { tabVisibleForTier, type ViewTier } from "../workspace/roles.js";
 import { postMessage, editMessage, deleteMessage, setMessageVisibility } from "../workspace/msMessages.js";
 import { listFolder, uploadFile, type FileListing, type FileListItem } from "../workspace/msFiles.js";
 import { type FolderTreeNode } from "../workspace/msFolderTree.js";
@@ -2751,9 +2752,12 @@ function ClientAdminTab({
   collabDataError,
   onReloadCollabData,
   onAccountCreated,
+  canManage,
 }: {
   clientName: string;
   loginHintEmail?: string | undefined;
+  /** Super-admin (app admin) — gates the role-based View Tiers config card. */
+  canManage: boolean;
   /** The enclosing ClientWorkspace already resolved this client's collab
    * account (same clientName bridge this tab used to redo independently)
    * and fetched its data — reused here instead of a second `fetchAllAccounts()`
@@ -2844,7 +2848,7 @@ function ClientAdminTab({
 
   const fromParent = collabAccountId ? collabData?.accounts.find((a) => a.id === collabAccountId) : undefined;
   if (fromParent) {
-    return <ClientAdminPanel account={fromParent} loginHintEmail={loginHintEmail} onAccountChanged={onReloadCollabData} />;
+    return <ClientAdminPanel account={fromParent} loginHintEmail={loginHintEmail} onAccountChanged={onReloadCollabData} canManage={canManage} />;
   }
 
   if (state.kind === "loading") return <div style={{ fontSize: 13, color: T.inkMuted }}>Loading…</div>;
@@ -2857,7 +2861,7 @@ function ClientAdminTab({
     );
   }
   if (state.kind === "found") {
-    return <ClientAdminPanel account={state.account} loginHintEmail={loginHintEmail} onAccountChanged={() => void resolve()} />;
+    return <ClientAdminPanel account={state.account} loginHintEmail={loginHintEmail} onAccountChanged={() => void resolve()} canManage={canManage} />;
   }
 
   // state.kind === "none"
@@ -2949,6 +2953,7 @@ export function ClientWorkspace({
   focusTaskId,
   showResourcing = true,
   canManage = false,
+  viewTier = "account",
 }: {
   account: ClientAccount;
   /**
@@ -2960,6 +2965,11 @@ export function ClientWorkspace({
   /** The signed-in user can manage this workspace (app admin or workspace
    * admin / PM). Gates the Kantata task write-back — Kellie's pilot ask. */
   canManage?: boolean;
+  /** Role-based view tier (Kellie/Cara pilot). "account" (default) sees every
+   * tab; "delivery" sees only Home, Project Plan, Discussions and Files — no
+   * Client Dashboard or Admin. Resolved in App.tsx from the account's
+   * viewConfig; app admins are always "account". */
+  viewTier?: ViewTier;
   /** Deep-link target: open on this tab (Teams/email drives people here). */
   initialTab?: ClientTab;
   /** Deep-link target: highlight this task and focus its hours field. */
@@ -3084,6 +3094,12 @@ export function ClientWorkspace({
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab, focusTaskId]);
+  // Never leave a hidden tab active for this view tier — a delivery-tier person
+  // who deep-links to (or was on) the Client Dashboard / Admin falls back to
+  // Home, so the content can't render behind a hidden tab button.
+  useEffect(() => {
+    if (!tabVisibleForTier(viewTier, tab)) setTab("home");
+  }, [viewTier, tab]);
   useEffect(() => {
     onTabChange?.(tab);
   }, [tab, onTabChange]);
@@ -3286,7 +3302,7 @@ export function ClientWorkspace({
             {account.clientName}
           </h1>
           <div role="tablist" aria-label="Client workspace" data-tour="client-tabs" style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap", alignItems: "stretch" }}>
-            {TABS.filter((t) => (t.key !== "sandbox" || sandboxContent) && (t.key !== "resourcing" || showResourcing)).map((t) => {
+            {TABS.filter((t) => (t.key !== "sandbox" || sandboxContent) && (t.key !== "resourcing" || showResourcing) && tabVisibleForTier(viewTier, t.key)).map((t) => {
               const active = t.key === tab;
               return (
                 <button
@@ -3585,6 +3601,7 @@ export function ClientWorkspace({
           collabDataError={collabDataError}
           onReloadCollabData={onReloadCollabData}
           onAccountCreated={onAccountCreated}
+          canManage={canManage}
         />
       )}
       {openTask && (

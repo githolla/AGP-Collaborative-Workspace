@@ -64,6 +64,7 @@ interface AccountRow {
   ms_provisioned_at: string | null;
   kantata_project_ids: string[];
   scoped_to_projects: boolean;
+  view_config: Record<string, unknown>;
 }
 
 interface MsFolderRow {
@@ -232,7 +233,7 @@ export default async function handler(
       }
 
       const rows = await sql<AccountRow[]>`
-        select id, client_name, archived, created_at, ms_team_id, ms_team_name, ms_group_id, ms_site_id, ms_drive_id, ms_web_url, ms_provisioned_at, kantata_project_ids, scoped_to_projects
+        select id, client_name, archived, created_at, ms_team_id, ms_team_name, ms_group_id, ms_site_id, ms_drive_id, ms_web_url, ms_provisioned_at, kantata_project_ids, scoped_to_projects, view_config
         from collab.client_account
         where id = ${accountId}
       `;
@@ -302,6 +303,7 @@ export default async function handler(
                 },
                 kantataProjectIds: a.kantata_project_ids,
                 scopedToProjects: a.scoped_to_projects,
+                viewConfig: a.view_config ?? {},
               }
             : {}),
         })),

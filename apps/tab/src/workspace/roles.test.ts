@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canManageWorkspace, isAppAdmin, isWorkspaceAdmin, parseAdminAllowlist, roleFor } from "./roles.js";
+import { canManageWorkspace, isAppAdmin, isWorkspaceAdmin, parseAdminAllowlist, roleFor, viewTierFor, tabVisibleForTier } from "./roles.js";
 import type { ClientAccount } from "./types.js";
 
 function account(members: ClientAccount["members"]): Pick<ClientAccount, "members"> {
@@ -90,5 +90,45 @@ describe("roleFor", () => {
     ]);
     expect(roleFor(acct, "alice@agency.com", [])).toBe("workspace_admin");
     expect(roleFor(acct, "bob@agency.com", [])).toBe("member");
+  });
+});
+
+describe("viewTierFor", () => {
+  it("unconfigured → everyone is account tier (today's behavior preserved)", () => {
+    expect(viewTierFor(undefined, "anyone@agency.com", false)).toBe("account");
+    expect(viewTierFor({}, "anyone@agency.com", false)).toBe("account");
+  });
+
+  it("app admins are always account tier, even under a delivery default", () => {
+    expect(viewTierFor({ defaultTier: "delivery" }, "boss@agency.com", true)).toBe("account");
+  });
+
+  it("falls back to the configured default when a person has no override", () => {
+    expect(viewTierFor({ defaultTier: "delivery" }, "nobody@agency.com", false)).toBe("delivery");
+  });
+
+  it("a per-person override wins over the default (case-insensitive email)", () => {
+    const cfg = { defaultTier: "delivery" as const, memberTiers: { "alice@agency.com": "account" as const } };
+    expect(viewTierFor(cfg, "Alice@Agency.com", false)).toBe("account");
+    expect(viewTierFor(cfg, "bob@agency.com", false)).toBe("delivery");
+  });
+});
+
+describe("tabVisibleForTier", () => {
+  it("account tier sees every tab", () => {
+    for (const t of ["home", "plan", "resourcing", "dashboard", "files", "discussions", "access"]) {
+      expect(tabVisibleForTier("account", t)).toBe(true);
+    }
+  });
+
+  it("delivery tier sees only Home, Project Plan, Discussions and Files", () => {
+    expect(tabVisibleForTier("delivery", "home")).toBe(true);
+    expect(tabVisibleForTier("delivery", "plan")).toBe(true);
+    expect(tabVisibleForTier("delivery", "discussions")).toBe(true);
+    expect(tabVisibleForTier("delivery", "files")).toBe(true);
+    // Hidden for delivery: the client-facing and internal-admin surfaces.
+    expect(tabVisibleForTier("delivery", "dashboard")).toBe(false);
+    expect(tabVisibleForTier("delivery", "access")).toBe(false);
+    expect(tabVisibleForTier("delivery", "resourcing")).toBe(false);
   });
 });

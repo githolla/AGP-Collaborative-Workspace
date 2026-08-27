@@ -29,7 +29,7 @@ import { allocationIntent, pendingWrites, pushIntents, resolveStaffId } from "./
 import { weeklyAllocations } from "./workspace/resourcing.js";
 import { effectiveHours, reconcileAssignments } from "./workspace/taskAssignments.js";
 import { AS_OF_TODAY } from "./workspace/format.js";
-import { isAppAdmin, parseAdminAllowlist } from "./workspace/roles.js";
+import { isAppAdmin, parseAdminAllowlist, viewTierFor } from "./workspace/roles.js";
 import type { ClientAccount } from "./workspace/types.js";
 import { fetchAccountCollabData, resolveAccountIdByName, toOldTask, type WorkspaceAccountPayload } from "./workspace/msAccountData.js";
 import { linkKantataProjects, updateAccount, addMember, addExternal } from "./workspace/msPeople.js";
@@ -1508,6 +1508,7 @@ function Workspace() {
             {...(route.view === "account" && route.focus ? { focusTaskId: route.focus } : {})}
             showResourcing={viewerIsInternal}
             canManage={amIAppAdmin}
+            viewTier={viewTierFor(collabData?.accounts.find((a) => a.id === collabAccountId)?.viewConfig, email ?? undefined, amIAppAdmin)}
             onBack={() => setRoute({ view: "clients" })}
             collabAccountId={collabAccountId}
             collabData={collabData}
