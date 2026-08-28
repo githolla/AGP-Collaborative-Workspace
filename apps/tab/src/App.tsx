@@ -34,7 +34,7 @@ import { AS_OF_TODAY } from "./workspace/format.js";
 import { isAppAdmin, parseAdminAllowlist, viewTierFor } from "./workspace/roles.js";
 import type { ClientAccount } from "./workspace/types.js";
 import { fetchAccountCollabData, resolveAccountIdByName, toOldTask, type WorkspaceAccountPayload } from "./workspace/msAccountData.js";
-import { linkKantataProjects, updateAccount, addMember, addExternal } from "./workspace/msPeople.js";
+import { linkKantataProjects, updateAccount, addMember, addExternal, createAccount } from "./workspace/msPeople.js";
 import {
   createTask,
   updateTask,
@@ -636,17 +636,28 @@ function Workspace() {
     setCollabData(null);
     setCollabDataError(false);
     if (!selectedAccount) return;
-    resolveAccountIdByName(selectedAccount.clientName)
-      .then((id) => {
-        if (cancelled || !id) return;
-        setCollabAccountId(id);
-        return fetchAccountCollabData(id).then((data) => {
-          if (!cancelled) setCollabData(data);
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setCollabDataError(true);
-      });
+    const acct = selectedAccount;
+    (async () => {
+      let id = await resolveAccountIdByName(acct.clientName);
+      // Zero-setup: a workspace that has Kantata work but no Client Admin record
+      // yet gets one created automatically on open — so nobody has to click
+      // "Create Client Admin record" before anything works, and auto-import can
+      // then fill it. Best-effort: if creation fails, the Admin tab still offers
+      // the manual button. Only for workspaces with linked Kantata projects, so
+      // we don't mint empty records for demo/placeholder names.
+      if (!id && (acct.kantataProjectIds?.length ?? 0) > 0) {
+        try {
+          await createAccount(acct.clientName);
+          id = await resolveAccountIdByName(acct.clientName);
+        } catch { /* leave id null — manual "Create Client Admin record" remains */ }
+      }
+      if (cancelled || !id) return;
+      setCollabAccountId(id);
+      const data = await fetchAccountCollabData(id);
+      if (!cancelled) setCollabData(data);
+    })().catch(() => {
+      if (!cancelled) setCollabDataError(true);
+    });
     return () => {
       cancelled = true;
     };
