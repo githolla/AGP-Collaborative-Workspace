@@ -881,6 +881,25 @@ function Workspace() {
       )
     : [];
 
+  // Auto-import — a workspace should never open empty (Kellie: "there was
+  // nothing this morning"). When a workspace that HAS a Client Admin record and
+  // linked Kantata work shows zero imported tasks, pull everything in
+  // automatically instead of making someone click "Review import." Fires once
+  // per account per session (the ref guards re-entry across the async gap and
+  // re-renders); the moment tasks land, the empty-guard stops it, so it never
+  // loops or re-imports a populated workspace. Review import stays for
+  // selective top-ups.
+  const autoImportedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const id = collabAccountId;
+    if (!id || !collabData) return;
+    if (collabData.tasks.length > 0) return; // already populated — leave it alone
+    if (autoImportedRef.current.has(id)) return; // already auto-imported this session
+    if (selectedTaskCandidates.length === 0) return; // nothing to pull (or mirror still loading)
+    autoImportedRef.current.add(id);
+    void handleImportAll();
+  }, [collabAccountId, collabData, selectedTaskCandidates]);
+
   // Backfill the project (milestone) label onto tasks that were imported before
   // the label existed, so existing workspaces group by project without anyone
   // re-importing. Two ways to match a stored task to its live Kantata story:
