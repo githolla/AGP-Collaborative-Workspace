@@ -1,4 +1,4 @@
-import { msApiCall, msApiGet } from "./msApiFetch.js";
+import { msApiCall, msApiGet, msApiCallPlain } from "./msApiFetch.js";
 
 /**
  * Client-side file actions (teams-provisioning-plan.md B5a "Files in the
@@ -32,6 +32,22 @@ export interface FileListing {
 
 export async function listFolder(accountId: string, kantataId: string, loginHintEmail?: string | undefined): Promise<FileListing> {
   return msApiGet<FileListing>(`/api/files?accountId=${encodeURIComponent(accountId)}&kantataId=${encodeURIComponent(kantataId)}`, { loginHintEmail });
+}
+
+/** Best-effort "the recipient opened this file" stamp — feeds the Client
+ * activity history (who opened what, when). First-open-only + idempotent
+ * server-side; a file with no matching share/approval row is a harmless no-op.
+ * Never throws to the caller: opening the file must never be blocked by the
+ * tracking write failing. Pass `shareId` for a handover share, otherwise
+ * (accountId, msItemId) stamps the file-approval row. */
+export async function markFileOpened(accountId: string, msItemId?: string, shareId?: string): Promise<void> {
+  try {
+    await msApiCallPlain("/api/files-opened", {
+      body: { accountId, ...(msItemId ? { msItemId } : {}), ...(shareId ? { shareId } : {}) },
+    });
+  } catch {
+    /* tracking is best-effort — swallow (no matching row, offline, etc.) */
+  }
 }
 
 // Graph's own recommended chunk size (a multiple of 320 KiB).

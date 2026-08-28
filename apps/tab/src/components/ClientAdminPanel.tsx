@@ -339,6 +339,7 @@ export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged, ca
       <MembershipPanel account={myAccount} members={data.members} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
       {canManage && <ViewTiersPanel account={myAccount} members={data.members} onChanged={() => { onAccountChanged(); void reload(); }} />}
       <GrantPanel account={myAccount} externals={data.externals} grants={data.grants} msFolders={data.msFolders} loginHintEmail={loginHintEmail} onChanged={() => void reload()} />
+      <ClientActivityPanel shares={data.shares} approvals={data.fileApprovals} />
       {/* HandoverPanel hidden per request — component/logic left in place below, just not mounted. */}
     </>
   );
@@ -429,6 +430,60 @@ function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountDat
       <Button size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save views"}</Button>
       {note && <div style={{ fontSize: 12, color: T.status.good, marginTop: 8 }}>{note}</div>}
       {err && <div style={{ fontSize: 12, color: T.status.critical, marginTop: 8 }}>{err}</div>}
+    </Card>
+  );
+}
+
+/**
+ * Client & contractor activity history (AGP-facing). Answers "what did the
+ * client/contractor do, and when" at a glance — opened the file we shared,
+ * approved or requested changes, got access, lost access — merged into one
+ * reverse-chronological timeline from the share (handover) and file-approval
+ * audit records AGP already loads. External actions (opened / decided) are
+ * emphasized; grants and sends are lighter context. Populated by the recipient
+ * marking items opened through the workspace (api/files-opened); direct
+ * SharePoint opens are not captured here yet (that needs the Graph activity poll).
+ */
+interface ActivityEvent { at: string; who: string; verb: string; item: string; detail?: string; strong: boolean }
+
+function fmtWhen(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function ClientActivityPanel({ shares, approvals }: { shares: WorkspaceAccountPayload["shares"]; approvals: WorkspaceAccountPayload["fileApprovals"] }) {
+  const events: ActivityEvent[] = [];
+  for (const s of shares) {
+    events.push({ at: s.sentAt, who: s.sentBy, verb: "shared", item: s.itemName, detail: `with ${s.personName}`, strong: false });
+    if (s.openedAt) events.push({ at: s.openedAt, who: s.personName, verb: "opened", item: s.itemName, ...(s.openSource === "sharepoint" ? { detail: "in SharePoint" } : { detail: "in the workspace" }), strong: true });
+    if (s.revokedAt) events.push({ at: s.revokedAt, who: s.revokedBy ?? "AGP", verb: "revoked access to", item: s.itemName, detail: `for ${s.personName}`, strong: false });
+  }
+  for (const a of approvals) {
+    events.push({ at: a.sharedAt, who: a.sharedBy, verb: a.purpose === "approval" ? "sent for approval" : "shared (FYI)", item: a.name, strong: false });
+    if (a.openedAt) events.push({ at: a.openedAt, who: "Recipient", verb: "opened", item: a.name, strong: true });
+    if (a.decidedAt) events.push({ at: a.decidedAt, who: a.decidedBy ?? "Client", verb: a.decision === "approved" ? "approved" : "requested changes on", item: a.name, ...(a.note ? { detail: `“${a.note}”` } : {}), strong: true });
+  }
+  events.sort((x, y) => y.at.localeCompare(x.at));
+
+  return (
+    <Card title="Client & contractor activity">
+      <p style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 8 }}>
+        What clients and contractors did, most recent first — opens, approvals, and access changes. Opens are captured when they open through the workspace.
+      </p>
+      {events.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.inkMuted }}>No activity yet — nothing has been shared or opened.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {events.slice(0, 40).map((e, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "6px 2px", borderTop: i === 0 ? "none" : `1px solid ${T.grid}` }}>
+              <span style={{ fontSize: 12.5, flex: 1, minWidth: 0, color: e.strong ? T.ink : T.inkSecondary, fontWeight: e.strong ? 600 : 400 }}>
+                <b>{e.who}</b> {e.verb} <span style={{ color: T.roi.navy }}>{e.item}</span>{e.detail ? <span style={{ color: T.inkMuted }}> {e.detail}</span> : null}
+              </span>
+              <span style={{ fontSize: 11, color: T.inkMuted, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtWhen(e.at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }

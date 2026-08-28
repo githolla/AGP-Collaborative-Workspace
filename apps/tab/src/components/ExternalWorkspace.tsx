@@ -10,7 +10,7 @@ import {
   type ExternalWorkspacePayload,
   type ExternalMessage,
 } from "../workspace/externalWorkspaceApi.js";
-import { listFolder, uploadFile, type FileListing } from "../workspace/msFiles.js";
+import { listFolder, uploadFile, markFileOpened, type FileListing } from "../workspace/msFiles.js";
 import { MsApiError } from "../workspace/msApiFetch.js";
 
 /** `MsApiError.message` is a generic per-code bucket (e.g. "Microsoft Graph
@@ -565,7 +565,9 @@ function ExternalFiles({ accountId, data, loginHintEmail }: { accountId: string;
           {listing.items.length === 0 && <li style={{ color: T.inkMuted, listStyle: "none", marginLeft: -18 }}>Empty.</li>}
           {listing.items.map((item) => (
             <li key={item.id}>
-              {item.isFolder ? "📁" : "📄"} {item.webUrl ? <a href={item.webUrl} target="_blank" rel="noreferrer">{item.name}</a> : item.name}
+              {item.isFolder ? "📁" : "📄"} {item.webUrl
+                ? <a href={item.webUrl} target="_blank" rel="noreferrer" onClick={() => { if (!item.isFolder) void markFileOpened(accountId, item.id); }}>{item.name}</a>
+                : item.name}
             </li>
           ))}
         </ul>

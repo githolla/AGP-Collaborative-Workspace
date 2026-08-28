@@ -63,6 +63,7 @@ import teamsWebhookHandler from "./api/teams-webhook.js";
 import teamsSubscribeHandler from "./api/teams-subscribe.js";
 import accountViewConfigHandler from "./api/account-view-config.js";
 import myTasksHandler from "./api/my-tasks.js";
+import filesOpenedHandler from "./api/files-opened.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -151,6 +152,9 @@ app.all("/api/teams-webhook", guard(teamsWebhookHandler));
 app.all("/api/teams-subscribe", guard(teamsSubscribeHandler));
 app.all("/api/account-view-config", guard(accountViewConfigHandler));
 app.all("/api/my-tasks", guard(myTasksHandler));
+// Recipient marks a shared file/approval opened — stamps opened_at so AGP sees
+// who opened what, when (Client activity history). Was defined but unrouted.
+app.all("/api/files-opened", guard(filesOpenedHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.
