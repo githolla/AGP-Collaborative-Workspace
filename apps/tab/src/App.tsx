@@ -6,7 +6,8 @@ import { SandboxWorkspace } from "./components/SandboxWorkspace.js";
 import { SearchBox } from "./components/SearchBox.js";
 import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
-import { MyTasks, myTaskCount } from "./components/MyTasks.js";
+import { myTaskCount } from "./components/MyTasks.js";
+import { MyWork } from "./components/MyWork.js";
 import { ClientWorkspace, type ClientTab, type ImportCandidate, type TaskCandidate } from "./components/ClientWorkspace.js";
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
@@ -1325,7 +1326,7 @@ function Workspace() {
               title="Your open tasks across every account — the ones you actually carry hours on."
               onClick={() => { setLandingTab("mytasks"); setRoute({ view: "clients" }); }}
             >
-              My Tasks{myTasksTotal > 0 ? ` (${myTasksTotal})` : ""}
+              My Work{myTasksTotal > 0 ? ` (${myTasksTotal})` : ""}
             </button>
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
@@ -1353,9 +1354,7 @@ function Workspace() {
 
       <div className="fade-in" key={hashOf(route)} style={{ maxWidth: 1240, margin: "0 auto", padding: 18 }}>
         {route.view === "clients" && landingTab === "mytasks" && (
-          <MyTasks
-            accounts={ws.accounts}
-            userName={userName}
+          <MyWork
             onOpen={(id, taskId) => setRoute({ view: "account", id, tab: "plan", focus: taskId })}
           />
         )}

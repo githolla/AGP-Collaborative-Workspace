@@ -224,6 +224,29 @@ export async function setViewConfig(accountId: string, config: ViewConfig): Prom
   return msApiCallPlain<{ accountId: string; viewConfig: ViewConfig }>("/api/account-view-config", { body: { accountId, config } });
 }
 
+/** One open task the signed-in person carries, tagged with which client it's
+ * on — for the cross-client "My Work" view. Structurally a Task subset (so
+ * isOnPersonList/hoursForPerson work) plus accountId + clientName. */
+export interface MyWorkTask {
+  id: string;
+  accountId: string;
+  clientName: string;
+  title: string;
+  ownerName?: string;
+  assignments?: TaskAssignment[];
+  due?: string;
+  status: "todo" | "doing" | "done";
+  projectLabel?: string;
+  phaseLabel?: string;
+  estimatedHours?: number;
+}
+
+/** The signed-in person's open tasks across EVERY client workspace they're on,
+ * name-matched and RLS-scoped server-side (GET /api/my-tasks). */
+export async function fetchMyTasks(): Promise<{ userName: string; tasks: MyWorkTask[] }> {
+  return msApiGetPlain<{ userName: string; tasks: MyWorkTask[] }>("/api/my-tasks");
+}
+
 /** Bridges the OLD single-JSON-document account model to this NEW
  * `collab.client_account` one, by matching `clientName` case-insensitively —
  * the only usable join, since the two account universes have entirely

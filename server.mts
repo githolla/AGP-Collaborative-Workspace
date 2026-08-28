@@ -62,6 +62,7 @@ import accountMembersResolveEmailsHandler from "./api/account-members-resolve-em
 import teamsWebhookHandler from "./api/teams-webhook.js";
 import teamsSubscribeHandler from "./api/teams-subscribe.js";
 import accountViewConfigHandler from "./api/account-view-config.js";
+import myTasksHandler from "./api/my-tasks.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -149,6 +150,7 @@ app.all("/api/account-members-resolve-emails", guard(accountMembersResolveEmails
 app.all("/api/teams-webhook", guard(teamsWebhookHandler));
 app.all("/api/teams-subscribe", guard(teamsSubscribeHandler));
 app.all("/api/account-view-config", guard(accountViewConfigHandler));
+app.all("/api/my-tasks", guard(myTasksHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.
