@@ -247,6 +247,34 @@ export async function fetchMyTasks(): Promise<{ userName: string; tasks: MyWorkT
   return msApiGetPlain<{ userName: string; tasks: MyWorkTask[] }>("/api/my-tasks");
 }
 
+/** One person's cross-client weekly workload vs capacity (the Team Load view). */
+export interface PersonLoad {
+  name: string;
+  capacity: number;
+  /** hours keyed by Monday ISO, only for weeks in the window. */
+  weekly: Record<string, number>;
+  total: number;
+  peak: number;
+  overWeeks: number;
+}
+
+export interface TeamLoadData {
+  weeks: string[];
+  defaultCapacity: number;
+  people: PersonLoad[];
+}
+
+/** Cross-client resourcing: everyone's weekly load vs capacity, next 12 weeks,
+ * across every account the caller can see (GET /api/team-load). */
+export async function fetchTeamLoad(): Promise<TeamLoadData> {
+  return msApiGetPlain<TeamLoadData>("/api/team-load");
+}
+
+/** Set a person's weekly capacity (hours). App-admin only, enforced server-side. */
+export async function setPersonCapacity(name: string, weeklyHours: number): Promise<{ name: string; weeklyHours: number }> {
+  return msApiCallPlain<{ name: string; weeklyHours: number }>("/api/person-capacity", { body: { name, weeklyHours } });
+}
+
 /** Bridges the OLD single-JSON-document account model to this NEW
  * `collab.client_account` one, by matching `clientName` case-insensitively —
  * the only usable join, since the two account universes have entirely

@@ -64,6 +64,8 @@ import teamsSubscribeHandler from "./api/teams-subscribe.js";
 import accountViewConfigHandler from "./api/account-view-config.js";
 import myTasksHandler from "./api/my-tasks.js";
 import filesOpenedHandler from "./api/files-opened.js";
+import teamLoadHandler from "./api/team-load.js";
+import personCapacityHandler from "./api/person-capacity.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -155,6 +157,9 @@ app.all("/api/my-tasks", guard(myTasksHandler));
 // Recipient marks a shared file/approval opened — stamps opened_at so AGP sees
 // who opened what, when (Client activity history). Was defined but unrouted.
 app.all("/api/files-opened", guard(filesOpenedHandler));
+// Cross-client resourcing: each person's weekly load vs capacity, portfolio-wide.
+app.all("/api/team-load", guard(teamLoadHandler));
+app.all("/api/person-capacity", guard(personCapacityHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.

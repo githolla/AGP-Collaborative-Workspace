@@ -8,6 +8,7 @@ import { ClientList } from "./components/ClientList.js";
 import { DataInspector } from "./components/DataInspector.js";
 import { myTaskCount } from "./components/MyTasks.js";
 import { MyWork } from "./components/MyWork.js";
+import { TeamLoad } from "./components/TeamLoad.js";
 import { ClientWorkspace, type ClientTab, type ImportCandidate, type TaskCandidate } from "./components/ClientWorkspace.js";
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
@@ -677,7 +678,7 @@ function Workspace() {
 
   // Landing sub-view: the client directory, or the personal cross-client task
   // list (the spec's "My Tasks" home). Local — not a deep-linked route.
-  const [landingTab, setLandingTab] = useState<"workspaces" | "mytasks">("workspaces");
+  const [landingTab, setLandingTab] = useState<"workspaces" | "mytasks" | "teamload">("workspaces");
   const myTasksTotal = useMemo(() => myTaskCount(ws.accounts, userName), [ws.accounts, userName]);
 
   // Per-workspace live pulse for the Clients page: how many Kantata matches
@@ -1328,6 +1329,14 @@ function Workspace() {
             >
               My Work{myTasksTotal > 0 ? ` (${myTasksTotal})` : ""}
             </button>
+            <button
+              type="button"
+              className={`nav-pill${route.view === "clients" && landingTab === "teamload" ? " active" : ""}`}
+              title="Everyone's weekly workload vs capacity across every client — who's overloaded, who's free."
+              onClick={() => { setLandingTab("teamload"); setRoute({ view: "clients" }); }}
+            >
+              Team Load
+            </button>
           </span>
           <button type="button" className="nav-pill" onClick={() => setTourStep(0)} title="Spotlight walkthrough of the workspace">
             ✦ Take the tour
@@ -1357,6 +1366,9 @@ function Workspace() {
           <MyWork
             onOpen={(id, taskId) => setRoute({ view: "account", id, tab: "plan", focus: taskId })}
           />
+        )}
+        {route.view === "clients" && landingTab === "teamload" && (
+          <TeamLoad canManage={amIAppAdmin} />
         )}
         {route.view === "clients" && landingTab === "workspaces" && (
           <>
