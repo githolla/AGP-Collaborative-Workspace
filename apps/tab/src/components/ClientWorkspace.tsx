@@ -2953,7 +2953,7 @@ export function ClientWorkspace({
   focusTaskId,
   showResourcing = true,
   canManage = false,
-  viewTier = "account",
+  viewTier = "project_manager",
 }: {
   account: ClientAccount;
   /**

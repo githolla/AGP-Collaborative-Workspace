@@ -17,7 +17,7 @@ import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext } from "./_lib/db.js";
 import { toApiError } from "./_lib/apiError.js";
 
-const TIERS = new Set(["account", "delivery"]);
+const TIERS = new Set(["account_manager", "project_manager", "delivery"]);
 
 /** Keep only well-formed tier data — a bad value must never persist. */
 function sanitize(raw: unknown): { defaultTier?: string; memberTiers: Record<string, string> } {

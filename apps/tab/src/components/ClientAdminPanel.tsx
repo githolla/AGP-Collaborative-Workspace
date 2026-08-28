@@ -11,7 +11,7 @@ import {
   type WorkspaceAccountPayload,
   type ProvisioningPlanNode,
 } from "../workspace/msAccountData.js";
-import { DELIVERY_TABS, type ViewConfig, type ViewTier } from "../workspace/roles.js";
+import { TIER_LABELS, type ViewConfig, type ViewTier } from "../workspace/roles.js";
 import { adoptTeam, syncProjectFolders, createMilestoneFolders, syncTeamMembers, subscribeTeamsSync, teamsSyncStatus, type TeamsSyncStatus } from "../workspace/msProvision.js";
 import { grantAccess, revokeGrant, revokeAllForPerson } from "../workspace/msShare.js";
 import { addMember, setMemberEmail, resolveMemberEmails, addExternal, removeExternal, resolveExternalIdentity, linkKantataProjects, fetchAllExternals, type AdminExternalRow } from "../workspace/msPeople.js";
@@ -354,7 +354,7 @@ export function ClientAdminPanel({ account, loginHintEmail, onAccountChanged, ca
  * not yet a security boundary.
  */
 function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountData; members: MsAccountMember[]; onChanged: () => void }) {
-  const [defaultTier, setDefaultTier] = useState<ViewTier>(account.viewConfig?.defaultTier ?? "account");
+  const [defaultTier, setDefaultTier] = useState<ViewTier>(account.viewConfig?.defaultTier ?? "project_manager");
   const [memberTiers, setMemberTiers] = useState<Record<string, ViewTier>>({ ...(account.viewConfig?.memberTiers ?? {}) });
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -362,7 +362,7 @@ function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountDat
 
   // Re-seed from the saved config after a reload replaces the account object.
   useEffect(() => {
-    setDefaultTier(account.viewConfig?.defaultTier ?? "account");
+    setDefaultTier(account.viewConfig?.defaultTier ?? "project_manager");
     setMemberTiers({ ...(account.viewConfig?.memberTiers ?? {}) });
   }, [account.id, account.viewConfig]);
 
@@ -391,13 +391,14 @@ function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountDat
   return (
     <Card title="Role-based views">
       <p style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 8 }}>
-        What each person sees. <b>Account</b> tier (Client Experience — strategists + PMs) sees every tab; <b>Delivery</b> tier sees only {DELIVERY_TABS.map((t) => (t === "plan" ? "Project Plan" : t[0]!.toUpperCase() + t.slice(1))).join(", ")} — no Client Dashboard or Admin. App admins always see everything.
+        What each person sees. <b>Account Manager</b>: client-facing — Home, Project Plan, Client Dashboard, Files, Discussions, Admin (no Resourcing). <b>Project Manager</b>: the full view — everything, including Resourcing. <b>Delivery</b>: Home, Project Plan, Discussions, Files only — no Client Dashboard, Resourcing or Admin. App admins always see everything.
       </p>
       <div style={{ fontSize: 12.5, marginBottom: 10 }}>
         <label>Default for anyone not set below:{" "}
           <select value={defaultTier} onChange={(e) => setDefaultTier(e.target.value as ViewTier)} style={selStyle}>
-            <option value="account">Account (full)</option>
-            <option value="delivery">Delivery (limited)</option>
+            {(Object.keys(TIER_LABELS) as ViewTier[]).map((t) => (
+              <option key={t} value={t}>{TIER_LABELS[t]}</option>
+            ))}
           </select>
         </label>
       </div>
@@ -410,9 +411,10 @@ function ViewTiersPanel({ account, members, onChanged }: { account: MsAccountDat
               <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 12.5 }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}{m.title ? ` · ${m.title}` : ""}</span>
                 <select value={cur} onChange={(e) => setFor(key, e.target.value as ViewTier | "default")} style={selStyle}>
-                  <option value="default">Default ({defaultTier})</option>
-                  <option value="account">Account</option>
-                  <option value="delivery">Delivery</option>
+                  <option value="default">Default ({TIER_LABELS[defaultTier]})</option>
+                  {(Object.keys(TIER_LABELS) as ViewTier[]).map((t) => (
+                    <option key={t} value={t}>{TIER_LABELS[t]}</option>
+                  ))}
                 </select>
               </div>
             );

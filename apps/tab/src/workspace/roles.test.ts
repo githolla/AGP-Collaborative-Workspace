@@ -94,31 +94,40 @@ describe("roleFor", () => {
 });
 
 describe("viewTierFor", () => {
-  it("unconfigured → everyone is account tier (today's behavior preserved)", () => {
-    expect(viewTierFor(undefined, "anyone@agency.com", false)).toBe("account");
-    expect(viewTierFor({}, "anyone@agency.com", false)).toBe("account");
+  it("unconfigured → fullest tier (today's see-everything behavior preserved)", () => {
+    expect(viewTierFor(undefined, "anyone@agency.com", false)).toBe("project_manager");
+    expect(viewTierFor({}, "anyone@agency.com", false)).toBe("project_manager");
   });
 
-  it("app admins are always account tier, even under a delivery default", () => {
-    expect(viewTierFor({ defaultTier: "delivery" }, "boss@agency.com", true)).toBe("account");
+  it("app admins always get the fullest tier, even under a delivery default", () => {
+    expect(viewTierFor({ defaultTier: "delivery" }, "boss@agency.com", true)).toBe("project_manager");
   });
 
   it("falls back to the configured default when a person has no override", () => {
     expect(viewTierFor({ defaultTier: "delivery" }, "nobody@agency.com", false)).toBe("delivery");
+    expect(viewTierFor({ defaultTier: "account_manager" }, "nobody@agency.com", false)).toBe("account_manager");
   });
 
   it("a per-person override wins over the default (case-insensitive email)", () => {
-    const cfg = { defaultTier: "delivery" as const, memberTiers: { "alice@agency.com": "account" as const } };
-    expect(viewTierFor(cfg, "Alice@Agency.com", false)).toBe("account");
+    const cfg = { defaultTier: "delivery" as const, memberTiers: { "alice@agency.com": "account_manager" as const, "carol@agency.com": "project_manager" as const } };
+    expect(viewTierFor(cfg, "Alice@Agency.com", false)).toBe("account_manager");
+    expect(viewTierFor(cfg, "carol@agency.com", false)).toBe("project_manager");
     expect(viewTierFor(cfg, "bob@agency.com", false)).toBe("delivery");
   });
 });
 
 describe("tabVisibleForTier", () => {
-  it("account tier sees every tab", () => {
+  it("project_manager sees every tab", () => {
     for (const t of ["home", "plan", "resourcing", "dashboard", "files", "discussions", "access"]) {
-      expect(tabVisibleForTier("account", t)).toBe(true);
+      expect(tabVisibleForTier("project_manager", t)).toBe(true);
     }
+  });
+
+  it("account_manager is client-facing: dashboard yes, resourcing no", () => {
+    for (const t of ["home", "plan", "dashboard", "files", "discussions", "access"]) {
+      expect(tabVisibleForTier("account_manager", t)).toBe(true);
+    }
+    expect(tabVisibleForTier("account_manager", "resourcing")).toBe(false);
   });
 
   it("delivery tier sees only Home, Project Plan, Discussions and Files", () => {
