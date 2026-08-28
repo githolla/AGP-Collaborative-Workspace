@@ -1657,13 +1657,26 @@ function ImportReview({
     });
 
   return (
-    <div style={{ ...card, borderColor: navy, borderWidth: 1.5 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <SectionTitle>Review import — nothing lands until you say so</SectionTitle>
-        <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={onClose}>
-          Close
-        </button>
-      </div>
+    // Modal overlay — floats above the current tab so opening Review import
+    // never disturbs Home (or whatever tab you're on). Click the backdrop or
+    // Close to dismiss; the panel itself scrolls if the candidate list is long.
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Review import"
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(16,21,46,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ ...card, borderColor: navy, borderWidth: 1.5, maxWidth: 900, width: "100%", maxHeight: "calc(100vh - 80px)", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <SectionTitle>Review import — nothing lands until you say so</SectionTitle>
+          <button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={onClose}>
+            Close
+          </button>
+        </div>
 
       {candidates.length + taskCandidates.length > 0 && onImportAll && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0 10px", borderBottom: `1px solid ${T.grid}`, flexWrap: "wrap" }}>
@@ -1797,6 +1810,7 @@ function ImportReview({
           </button>
         </>
       )}
+      </div>
     </div>
   );
 }
