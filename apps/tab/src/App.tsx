@@ -912,7 +912,11 @@ function Workspace() {
     if (selectedTaskCandidates.length === 0) return; // nothing to pull (or mirror still loading)
     autoImportedRef.current.add(id);
     void handleImportAll();
-  }, [collabAccountId, collabData, selectedTaskCandidates]);
+    // Depend on the two lengths, not the whole `collabData`/candidate arrays
+    // (fresh references every render). Emptiness and candidate-availability are
+    // the only signals this effect reacts to, so length is exactly right and
+    // the body stops re-running on unrelated re-renders.
+  }, [collabAccountId, collabData?.tasks.length, selectedTaskCandidates.length]);
 
   // Backfill the project (milestone) label onto tasks that were imported before
   // the label existed, so existing workspaces group by project without anyone

@@ -67,10 +67,18 @@ export function TeamLoad({ canManage }: { canManage: boolean }) {
       setCapErr(`Capacity for ${name} must be 0–168 hours.`);
       return;
     }
-    const prev = data;
+    // Snapshot only THIS person's prior row, not the whole dataset — a
+    // whole-`data` rollback would clobber any other capacity edit that landed
+    // while this save was in flight.
+    const prevPerson = data?.people.find((p) => p.name === name) ?? null;
     setData((d) => d ? { ...d, people: applyCapacity(d.people, d.weeks, name, weeklyHours) } : d);
     void setPersonCapacity(name, weeklyHours).catch((e) => {
-      setData(prev); // roll back the optimistic change
+      // Restore just this person to their prior row (functional update so it
+      // composes with any other in-flight edit), leaving everyone else alone.
+      setData((d) => {
+        if (!d || !prevPerson) return d;
+        return { ...d, people: d.people.map((p) => (p.name === name ? prevPerson : p)) };
+      });
       setCapErr(`Couldn't save capacity for ${name}: ${e instanceof MsApiError ? e.message : "try again"}.`);
     });
   };
@@ -181,6 +189,10 @@ export function TeamLoad({ canManage }: { canManage: boolean }) {
                 <td style={{ position: "sticky", left: 170, background: "#fff", zIndex: 1, textAlign: "right", padding: "6px 6px", borderBottom: `1px solid ${T.grid}` }}>
                   {canManage ? (
                     <input
+                      // key on the value so an external change (rollback, or a
+                      // fresh fetch) re-seeds this uncontrolled input instead of
+                      // leaving a stale typed value on screen.
+                      key={`cap-${p.name}-${p.capacity}`}
                       type="number" min={0} max={168} defaultValue={p.capacity}
                       onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v !== p.capacity) saveCapacity(p.name, v); }}
                       style={{ width: 52, fontSize: 11.5, padding: "2px 4px", borderRadius: 5, border: `1px solid ${p.isDefaultCapacity ? T.status.warning : T.grid}`, textAlign: "right" }}
