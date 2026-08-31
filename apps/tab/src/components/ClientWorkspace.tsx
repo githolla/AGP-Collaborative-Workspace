@@ -499,6 +499,9 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
   // (Cara/Kellie). Falls back to all tasks for a viewer who's on none of them
   // (e.g. a client), so the home never looks empty by accident.
   const [mineOnly, setMineOnly] = useState(true);
+  // "Due this week" can get long (a whole team's Monday deadlines); collapse it
+  // by default so the home page stays clean, with the count visible in the header.
+  const [dueOpen, setDueOpen] = useState(false);
   const myTasks = tasks.filter((t) => isOnPersonList(t, userName));
   const scoped = mineOnly && myTasks.length > 0 ? myTasks : tasks;
   const open = scoped.filter((t) => t.status !== "done");
@@ -590,10 +593,25 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
           <ViewAll label="View All Tasks" onClick={() => goTo("plan")} />
         </div>
 
-        {/* Due this week */}
+        {/* Due this week — collapsible so a long team deadline list doesn't
+            dominate the home page. Header shows the count and toggles the body. */}
         <div style={card}>
-          <SectionTitle>Due This Week</SectionTitle>
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <button
+            type="button"
+            onClick={() => setDueOpen((o) => !o)}
+            aria-expanded={dueOpen}
+            title={dueOpen ? "Collapse" : "Expand"}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: dueOpen ? 10 : 0 }}
+          >
+            <span style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, color: T.ink, textTransform: "uppercase" }}>Due This Week</span>
+              {dueThisWeek.length > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: navy, borderRadius: 9, padding: "1px 7px", lineHeight: 1.5 }}>{dueThisWeek.length}</span>
+              )}
+            </span>
+            <span aria-hidden style={{ fontSize: 11, color: T.inkMuted, transform: dueOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+          </button>
+          <div style={{ display: dueOpen ? "flex" : "none", flexDirection: "column" }}>
             {dueThisWeek.map((t, i) => (
               <RowButton key={t.id} onClick={() => onOpenTask(t)} title="See everything about this task" style={{ padding: "9px 4px", alignItems: "flex-start" }}>
                 <span aria-hidden style={{ width: 11, height: 11, marginTop: 3, background: squares[i % squares.length], borderRadius: 2, flexShrink: 0 }} />
