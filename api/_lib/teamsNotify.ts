@@ -19,12 +19,22 @@
 import { graphFetch } from "./graph.js";
 
 /**
- * Signature embedded in every message this app posts INTO Teams. The inbound
- * webhook (two-way sync) skips any channel message carrying it, so the app's
- * own outbound notifications never echo back into the Discussion as if a person
- * had typed them in Teams.
+ * Human-readable phrase in every message this app posts INTO Teams. Retained
+ * for readability AND as a backwards-compatible echo signal for any message
+ * posted before the invisible sentinel below existed.
  */
 export const WORKSPACE_POST_MARKER = "in the workspace Discussion:";
+
+/**
+ * Invisible echo sentinel appended to every outbound post (zero-width joiner /
+ * non-joiner run — renders as nothing in Teams). The inbound webhook skips any
+ * channel message carrying it, so the app's own notifications never round-trip
+ * back into the Discussion. Unlike the visible phrase, no human would ever type
+ * this, so a real Teams reply can never be mistaken for our own echo.
+ * (ZWSP, ZWNJ, ZWJ, ZWNJ, ZWSP — an intentionally unusual run, written as
+ * explicit escapes so the sentinel is visible and auditable in source.)
+ */
+export const WORKSPACE_ECHO_SENTINEL = "\u200B\u200C\u200D\u200C\u200B";
 
 const ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(s: string): string {
@@ -84,7 +94,7 @@ export async function notifyTeamsMentions(opts: {
     // Real Teams mention entities — the <at id="n"> tags in the body must line
     // up with the mentions array by id for Teams to render + notify them.
     const atTags = resolved.map((r, i) => `<at id="${i}">${escapeHtml(r.name)}</at>`).join(" ");
-    const content = `${atTags} — <b>${escapeHtml(authorName)}</b> ${WORKSPACE_POST_MARKER} ${escapeHtml(body)}`;
+    const content = `${atTags} — <b>${escapeHtml(authorName)}</b> ${WORKSPACE_POST_MARKER} ${escapeHtml(body)}${WORKSPACE_ECHO_SENTINEL}`;
     const graphMentions = resolved.map((r, i) => ({
       id: i,
       mentionText: r.name,

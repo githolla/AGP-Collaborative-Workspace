@@ -4,7 +4,7 @@
  */
 
 import { withServiceContext } from "./db.js";
-import { WORKSPACE_POST_MARKER } from "./teamsNotify.js";
+import { WORKSPACE_POST_MARKER, WORKSPACE_ECHO_SENTINEL } from "./teamsNotify.js";
 
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
 
@@ -22,9 +22,11 @@ export function stripHtml(html: string): string {
 }
 
 /** True when a channel message is one WE posted (an @mention notification) —
- * so it never round-trips back into the Discussion as if a person typed it. */
+ * so it never round-trips back into the Discussion as if a person typed it.
+ * Prefers the invisible sentinel (no human types it), with the legacy visible
+ * phrase kept as a fallback for messages posted before the sentinel existed. */
 export function isOwnEcho(content: string): boolean {
-  return content.includes(WORKSPACE_POST_MARKER);
+  return content.includes(WORKSPACE_ECHO_SENTINEL) || content.includes(WORKSPACE_POST_MARKER);
 }
 
 /**
