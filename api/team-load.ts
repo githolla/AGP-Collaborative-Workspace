@@ -45,6 +45,17 @@ export default async function handler(
   }
 
   try {
+    // Internal-only: Team Load exposes the whole AGP staff roster + each
+    // person's capacity across the portfolio — an external client/contractor
+    // (who also authenticates as `authenticated`) must never see it.
+    const [me] = await withUserContext(auth.userId!, async (tx) => {
+      return await tx<{ kind: string }[]>`select kind from collab.app_user where id = ${auth.userId!}`;
+    });
+    if (me?.kind !== "internal") {
+      res.status(403).json({ error: { code: "forbidden", message: "team resourcing is internal-only" } });
+      return;
+    }
+
     const { rows, caps } = await withUserContext(auth.userId!, async (tx) => {
       const rowsP = await tx<TaskRow[]>`
         select id, owner_name, assignments, start_date, due, estimated_hours, status

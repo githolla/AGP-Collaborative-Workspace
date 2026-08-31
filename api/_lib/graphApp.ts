@@ -85,6 +85,12 @@ export class GraphAppError extends Error {
 export async function graphAppFetch(path: string, init: { method?: string; body?: unknown } = {}): Promise<unknown> {
   const token = await appToken();
   const url = path.startsWith("http") ? path : `${GRAPH_BASE}${path}`;
+  // Hard allowlist: the application token is tenant-wide and powerful — it may
+  // only ever be sent to Microsoft Graph, never an arbitrary absolute URL a
+  // caller might pass through (defense-in-depth against SSRF).
+  if (!url.startsWith("https://graph.microsoft.com/")) {
+    throw new GraphAppError(400, `refusing to send the app token off-Graph: ${url.slice(0, 80)}`);
+  }
   const res = await fetch(url, {
     method: init.method ?? "GET",
     headers: {

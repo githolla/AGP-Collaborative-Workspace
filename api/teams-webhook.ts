@@ -101,8 +101,12 @@ export default async function handler(req: WebhookReq, res: WebhookRes): Promise
       // Read the actual message. Prefer the `resource` path Graph hands us — it
       // is correct for BOTH a root channel message AND a threaded reply (which
       // lives at messages/{rootId}/replies/{replyId}, not messages/{replyId}).
-      // Only fall back to the constructed root path when resource is absent.
-      const resourcePath = n.resource ? `/${n.resource}` : `/teams/${sub.team_id}/channels/${sub.channel_id}/messages/${messageId}`;
+      // SECURITY: only trust it when it names THIS subscription's team AND
+      // channel, so a (hypothetically) forged notification can't point the
+      // tenant-wide app token at some other team's messages. Otherwise
+      // reconstruct the path from the trusted subscription row.
+      const resourceTrusted = !!n.resource && n.resource.includes(sub.team_id) && n.resource.includes(sub.channel_id);
+      const resourcePath = resourceTrusted ? `/${n.resource}` : `/teams/${sub.team_id}/channels/${sub.channel_id}/messages/${messageId}`;
       const msg = (await graphAppFetch(resourcePath)) as GraphMessage;
 
       if (!msg?.id || (msg.messageType && msg.messageType !== "message")) continue;
