@@ -13,6 +13,7 @@ import { ClientWorkspace, type ClientTab, type ImportCandidate, type TaskCandida
 import { DiscussLauncher } from "./components/DiscussLauncher.js";
 import { FeedbackAdmin } from "./components/FeedbackAdmin.js";
 import { GraphCheck } from "./components/GraphCheck.js";
+import { KantataDiagnostic } from "./components/KantataDiagnostic.js";
 import { ExternalWorkspace } from "./components/ExternalWorkspace.js";
 import { FeedbackButton } from "./components/FeedbackButton.js";
 import { TeamsConfig } from "./components/TeamsConfig.js";
@@ -1682,6 +1683,7 @@ function Workspace() {
         {route.view === "admin" && amIAppAdmin && (
           <>
             <GraphCheck {...(email ? { loginHintEmail: email } : {})} />
+            <KantataDiagnostic />
             <FeedbackAdmin feedback={ws.feedback} onBack={() => setRoute({ view: "clients" })} />
           </>
         )}

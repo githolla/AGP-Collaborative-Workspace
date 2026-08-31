@@ -40,6 +40,7 @@ import adminExternalsHandler from "./api/admin/externals.js";
 import adminOffboardHandler from "./api/admin/offboard.js";
 import adminAccountsArchiveAllHandler from "./api/admin/accounts/archive-all.js";
 import adminWorkspaceClearHandler from "./api/admin/workspace/clear.js";
+import adminKantataDiagnosticHandler from "./api/admin/kantata-diagnostic.js";
 import accountDeepenHandler from "./api/account-deepen.js";
 import accountImportHandler from "./api/account-import.js";
 import accountScopeHandler from "./api/account-scope.js";
@@ -132,6 +133,9 @@ app.all("/api/admin/externals", guard(adminExternalsHandler));
 app.all("/api/admin/offboard", guard(adminOffboardHandler));
 app.all("/api/admin/accounts/archive-all", guard(adminAccountsArchiveAllHandler));
 app.all("/api/admin/workspace/clear", guard(adminWorkspaceClearHandler));
+// App-admin Kantata resourcing-data diagnostic (Resource Center allocations +
+// story hours per workspace) — surfaced in the #admin page.
+app.all("/api/admin/kantata-diagnostic", guard(adminKantataDiagnosticHandler));
 app.all("/api/account-deepen", guard(accountDeepenHandler));
 app.all("/api/account-import", guard(accountImportHandler));
 app.all("/api/account-scope", guard(accountScopeHandler));
