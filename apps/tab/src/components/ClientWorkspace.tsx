@@ -931,7 +931,9 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
         ...(t.startDate ? { start: t.startDate } : {}),
         ...(t.due ? { due: t.due } : {}),
         ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-        ...(eff ? { assignments: [...eff].map(([name, hours]) => ({ name, hours })) } : {}),
+        // Drop assignees who finished their part — their hours are done, not
+        // future load (matches the cross-client Team Load engine).
+        ...(eff ? { assignments: [...eff].filter(([name]) => !t.assignments!.some((a) => a.name === name && a.done)).map(([name, hours]) => ({ name, hours })) } : {}),
       };
     }),
   );
