@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { card, T } from "../theme.js";
-import { KantataChip, SectionTitle, TagChip } from "./bits.js";
+import { KantataChip, SectionTitle, StatTile, TagChip } from "./bits.js";
 import { ProjectScope } from "./ProjectScope.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
@@ -18,7 +18,7 @@ import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage } f
  * `ClientFileLink.clientShare` model and are gone with it (Phase 7 cutover),
  * but the type itself is still load-bearing here. */
 type ApprovalState = "fyi" | "pending" | "approved" | "changes";
-import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation } from "../workspace/resourcing.js";
+import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation, type ResourceTask, type AllocationGrid } from "../workspace/resourcing.js";
 import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
 import { TeamHoursEditor } from "./TeamHours.js";
 import { fetchAllAccounts, fetchAccountCollabData, toOldTask, toOldCampaign, type MsAccountData, type MsAccountFileApproval, type MsAccountActivity, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
@@ -739,6 +739,100 @@ function BigHoursInput({ hours, onSet, autoFocusMe }: { hours?: number; onSet: (
  *      and push it to Kantata.
  * Timeline shifts flow through on their own. No leveling here — by decision.
  */
+/** Plan tasks → the resourcing engine's shape: per-person EFFECTIVE hours with
+ * finished portions dropped. Shared by the weekly grid and the resourcing
+ * charts so they always agree. */
+function toResourceTasks(tasks: Task[]): ResourceTask[] {
+  return tasks.map((t) => {
+    const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
+    return {
+      id: t.id,
+      status: t.status,
+      ...(t.ownerName ? { ownerName: t.ownerName } : {}),
+      ...(t.startDate ? { start: t.startDate } : {}),
+      ...(t.due ? { due: t.due } : {}),
+      ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
+      ...(t.projectLabel ? { projectLabel: t.projectLabel } : {}),
+      ...(eff ? { assignments: [...eff].filter(([name]) => !t.assignments!.some((a) => a.name === name && a.done)).map(([name, hours]) => ({ name, hours })) } : {}),
+    };
+  });
+}
+
+/** Heatmap cell shade by magnitude (this client's hours), on the theme's
+ * sequential teal ramp — replaces the old hardcoded 20/40 bands. */
+function resSeqCell(hours: number, max: number): { bg: string; fg: string } {
+  if (hours <= 0) return { bg: "transparent", fg: T.grid };
+  const idx = Math.min(9, Math.max(1, Math.round((hours / (max || 1)) * 9)));
+  return { bg: T.seq[idx] ?? T.seq[1]!, fg: idx >= 6 ? "#fff" : T.ink };
+}
+
+/** KPI stat row for the Resourcing tab. */
+function ResourcingKpis({ grid, missingHours, blocked }: { grid: AllocationGrid; missingHours: number; blocked: number }) {
+  const total = grid.weeks.reduce((s, w) => s + grid.weekTotal(w), 0);
+  const busiest = grid.weeks.reduce((best, w) => { const h = grid.weekTotal(w); return h > best.h ? { w, h } : best; }, { w: "", h: 0 });
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+      <StatTile label="Scheduled hours" value={`${Math.round(total)}h`} detail={`${grid.people.length} ${grid.people.length === 1 ? "person" : "people"}`} />
+      <StatTile label="Busiest week" value={busiest.h > 0 ? `${Math.round(busiest.h)}h` : "—"} {...(busiest.w ? { detail: weekLabel(busiest.w) } : {})} />
+      <StatTile label="Needs hours" value={`${missingHours}`} detail="owned, dated tasks" {...(missingHours > 0 ? { detailColor: T.status.warning } : {})} />
+      <StatTile label="Not resourceable" value={`${blocked}`} detail="need owner + date" {...(blocked > 0 ? { detailColor: T.status.warning } : {})} />
+    </div>
+  );
+}
+
+/** This client's demand across its weeks — columns vs the busiest-week peak. */
+function ClientDemandTrend({ grid }: { grid: AllocationGrid }) {
+  if (grid.weeks.length < 2) return null;
+  const totals = grid.weeks.map((w) => grid.weekTotal(w));
+  const max = Math.max(1, ...totals);
+  const H = 72;
+  return (
+    <div style={{ ...card }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Hours by week</div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: H }}>
+        {grid.weeks.map((w, i) => {
+          const h = (totals[i]! / max) * H;
+          return (
+            <div key={w} title={`${weekLabel(w)} · ${Math.round(totals[i]!)}h`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
+              <div style={{ width: "78%", height: Math.max(2, h), background: T.series1, borderRadius: "3px 3px 0 0" }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: T.inkMuted, marginTop: 3 }}>
+        <span>{weekLabel(grid.weeks[0]!)}</span>
+        <span>{weekLabel(grid.weeks[grid.weeks.length - 1]!)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Which project (job) is eating the hours — horizontal bar per project. */
+function ProjectBreakdown({ groups }: { groups: [string, Task[]][] }) {
+  const rows = groups
+    .map(([, tasks]) => ({ label: tasks[0]?.projectLabel ?? "No project", hours: tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0), count: tasks.length }))
+    .filter((r) => r.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+  if (rows.length < 2) return null;
+  const max = Math.max(1, ...rows.map((r) => r.hours));
+  return (
+    <div style={{ ...card }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Hours by project</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {rows.map((r) => (
+          <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+            <span style={{ width: 190, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: T.ink }} title={r.label}>{r.label}</span>
+            <span style={{ flex: 1, height: 12, background: "#f0efec", borderRadius: 4, overflow: "hidden" }}>
+              <span style={{ display: "block", height: "100%", width: `${(r.hours / max) * 100}%`, background: T.series1, borderRadius: 4 }} />
+            </span>
+            <span style={{ width: 74, flexShrink: 0, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.inkSecondary }}>{Math.round(r.hours)}h · {r.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ResourcingView({
   tasks,
   reservations = [],
@@ -805,6 +899,12 @@ function ResourcingView({
   }, [resKeys, resToggled]);
   const labelOf = (t: Task) => t.projectLabel ?? "No project";
 
+  // Derived weekly grid (always computed so it can be pushed back to Kantata);
+  // the SHOWN grid prefers live Kantata reservations when present.
+  const derivedGrid = allocationGrid(toResourceTasks(tasks));
+  const grid = reservations.length > 0 ? gridFrom(weeklyReservations(reservations)) : derivedGrid;
+  const unestimated = candidates.filter((t) => t.estimatedHours == null).length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...card, background: "#eef8fc", borderColor: T.roi.cyan }}>
@@ -815,8 +915,16 @@ function ResourcingView({
         </span>
       </div>
 
-      {/* The payoff first: the weekly picture + push. */}
-      <WeeklyResourcing tasks={tasks} reservations={reservations} {...(onPublish ? { onPublish } : {})} />
+      {grid.weeks.length > 0 && <ResourcingKpis grid={grid} missingHours={missingHours} blocked={blocked} />}
+      {grid.weeks.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+          <ClientDemandTrend grid={grid} />
+          <ProjectBreakdown groups={orderedGroups} />
+        </div>
+      )}
+
+      {/* The payoff: the weekly picture + push. */}
+      <WeeklyResourcing grid={grid} derivedWeeks={derivedGrid.weeks.length} fromKantata={reservations.length > 0} unestimated={unestimated} {...(onPublish ? { onPublish } : {})} />
 
       {/* Validate hours — clean, grouped by project, roomy input. */}
       <div style={card}>
@@ -908,38 +1016,17 @@ function ResourcingView({
   );
 }
 
-function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task[]; reservations?: readonly ResourceReservation[]; onPublish?: () => Promise<WriteResponse> }) {
+function WeeklyResourcing({ grid, derivedWeeks, fromKantata, unestimated, onPublish }: {
+  grid: AllocationGrid;
+  /** Weeks in the DERIVED plan — gates the push (can push even when showing live Kantata). */
+  derivedWeeks: number;
+  fromKantata: boolean;
+  unestimated: number;
+  onPublish?: () => Promise<WriteResponse>;
+}) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteResponse | null>(null);
-  // Prefer the REAL Resource Center grid when Kantata has reservations for this
-  // account — that's the hours Kellie's team already maintains, shown live.
-  // Only when there are none do we fall back to the app's derived spread from
-  // task hours (the "if it were empty, here's what it'd be" picture).
-  const fromKantata = reservations.length > 0;
-  // The DERIVED plan from in-app hours (per person, per week) — always computed
-  // so it can be pushed back to Kantata even when the live grid is showing
-  // Kantata's own reservations. This is the "two-way" half.
-  const derivedGrid = allocationGrid(
-    tasks.map((t) => {
-      // A split task must book PER PERSON — otherwise the whole estimate piles
-      // on one owner here while the Kantata write-back books the split.
-      const eff = t.assignments && t.assignments.length > 0 ? effectiveHours(t) : null;
-      return {
-        id: t.id,
-        status: t.status,
-        ...(t.ownerName ? { ownerName: t.ownerName } : {}),
-        ...(t.startDate ? { start: t.startDate } : {}),
-        ...(t.due ? { due: t.due } : {}),
-        ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
-        // Drop assignees who finished their part — their hours are done, not
-        // future load (matches the cross-client Team Load engine).
-        ...(eff ? { assignments: [...eff].filter(([name]) => !t.assignments!.some((a) => a.name === name && a.done)).map(([name, hours]) => ({ name, hours })) } : {}),
-      };
-    }),
-  );
-  const grid = fromKantata ? gridFrom(weeklyReservations(reservations)) : derivedGrid;
-  const canPush = !!onPublish && derivedGrid.weeks.length > 0;
-  const unestimated = tasks.filter((t) => t.status !== "done" && t.ownerName && t.due && t.estimatedHours == null).length;
+  const canPush = !!onPublish && derivedWeeks > 0;
 
   const run = async () => {
     if (!onPublish) return;
@@ -965,57 +1052,59 @@ function WeeklyResourcing({ tasks, reservations = [], onPublish }: { tasks: Task
     );
   }
 
+  // Most-loaded person first; deepest cell drives the shade scale.
+  const people = [...grid.people].sort((a, b) => grid.personTotal(b) - grid.personTotal(a));
+  const maxCell = Math.max(1, ...grid.people.flatMap((p) => grid.weeks.map((w) => grid.hoursFor(p, w))));
+
   return (
     <div style={{ ...card, padding: 14 }}>
       <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{fromKantata ? "live from Kantata · Resource Center" : "hours by person · by week — derived, always current"}</span>}>
         Weekly resourcing
       </SectionTitle>
       <div style={{ fontSize: 11.5, color: T.inkSecondary, marginBottom: 10, lineHeight: 1.5 }}>
-        {fromKantata ? (
-          <>
-            These are your Kantata Resource Center reservations — the hours your team already schedules — pulled in
-            live, not re-entered. Heavier weeks are shaded so peaks stand out; leveling anyone who’s overloaded is
-            handled separately, not here.
-          </>
-        ) : (
-          <>
-            Built from the hours you set on tasks above, placed in the week each task is due. Move a timeline and this
-            re-figures on its own — no weekly redistribute. Heavier weeks are shaded so peaks stand out; leveling anyone
-            who’s overloaded is handled separately, not here.
-          </>
-        )}
+        {fromKantata
+          ? <>Your Kantata Resource Center reservations, pulled in live — not re-entered. Deeper teal = heavier weeks; for who's over capacity across every client, see <b>Team Load</b>.</>
+          : <>Built from the hours you set on tasks above, placed in the weeks each task spans. Move a timeline and it re-figures on its own — no weekly redistribute. Deeper teal = heavier weeks; cross-client over-allocation lives on <b>Team Load</b>.</>}
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480 }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480, width: "100%" }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "6px 10px 6px 2px", color: T.inkMuted, fontWeight: 700, position: "sticky", left: 0, background: T.surface }}>Person</th>
+              <th style={{ textAlign: "left", padding: "6px 10px 6px 2px", color: T.inkMuted, fontWeight: 700, position: "sticky", left: 0, background: T.surface, zIndex: 2 }}>Person</th>
               {grid.weeks.map((w) => (
                 <th key={w} style={{ textAlign: "center", padding: "6px 8px", color: T.inkMuted, fontWeight: 700, whiteSpace: "nowrap" }}>{weekLabel(w)}</th>
               ))}
-              <th style={{ textAlign: "center", padding: "6px 8px", color: T.roi.navy, fontWeight: 800 }}>Total</th>
+              <th style={{ textAlign: "center", padding: "6px 10px", color: T.roi.navy, fontWeight: 800, position: "sticky", right: 0, background: T.surface, zIndex: 2 }}>Total</th>
             </tr>
           </thead>
           <tbody>
-            {grid.people.map((p) => (
+            {people.map((p) => (
               <tr key={p} style={{ borderTop: `1px solid ${T.grid}` }}>
-                <td style={{ padding: "6px 10px 6px 2px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap", position: "sticky", left: 0, background: T.surface }}>{p}</td>
+                <td style={{ padding: "6px 10px 6px 2px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap", position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>{p}</td>
                 {grid.weeks.map((w) => {
                   const h = grid.hoursFor(p, w);
-                  // Shade heavier weeks so the peaks read at a glance — visibility
-                  // only, never a prompt to level anyone down.
-                  const heavy = h >= 40;
-                  const some = h >= 20;
+                  const c = resSeqCell(h, maxCell);
                   return (
-                    <td key={w} style={{ textAlign: "center", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: h === 0 ? T.grid : T.ink, fontWeight: heavy ? 800 : 400, background: heavy ? "#fdeced" : some ? "#faf3dc" : "transparent" }}>
+                    <td key={w} title={`${p} · ${weekLabel(w)} · ${h}h`} style={{ textAlign: "center", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: h === 0 ? T.grid : c.fg, fontWeight: h > 0 ? 600 : 400, background: c.bg }}>
                       {h === 0 ? "·" : h}
                     </td>
                   );
                 })}
-                <td style={{ textAlign: "center", padding: "6px 8px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums" }}>{grid.personTotal(p)}</td>
+                <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>{grid.personTotal(p)}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr style={{ borderTop: `2px solid ${T.grid}` }}>
+              <td style={{ padding: "6px 10px 6px 2px", fontWeight: 800, color: T.inkMuted, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Team / week</td>
+              {grid.weeks.map((w) => (
+                <td key={w} style={{ textAlign: "center", padding: "6px 8px", fontWeight: 700, color: T.inkSecondary, fontVariantNumeric: "tabular-nums" }}>{Math.round(grid.weekTotal(w)) || "·"}</td>
+              ))}
+              <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>
+                {Math.round(grid.weeks.reduce((s, w) => s + grid.weekTotal(w), 0))}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 

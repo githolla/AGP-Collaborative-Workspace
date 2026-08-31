@@ -56,17 +56,8 @@ export function isSchedulable(t: ResourceTask): boolean {
   return t.status !== "done" && !!t.ownerName && !!t.due && (t.estimatedHours ?? 0) > 0;
 }
 
-/** Inclusive list of ISO dates from start to end (bounded so a bad span can't run away). */
-function daysInclusive(start: string, end: string): string[] {
-  const out: string[] = [];
-  let cur = Date.parse(`${start}T00:00:00Z`);
-  const stop = Date.parse(`${end}T00:00:00Z`);
-  for (let i = 0; cur <= stop && i < 366; i += 1) {
-    out.push(new Date(cur).toISOString().slice(0, 10));
-    cur += 86_400_000;
-  }
-  return out.length > 0 ? out : [end];
-}
+const MS_DAY = 86_400_000;
+const SPAN_EMIT_CAP = 800; // ~2 years of days emitted, for runaway safety
 
 export interface WeekAllocation {
   personName: string;
@@ -89,10 +80,16 @@ export function weeklyAllocations(tasks: readonly ResourceTask[]): WeekAllocatio
   const byKey = new Map<string, { personName: string; weekStart: string; hours: number; tasks: Set<string> }>();
   const place = (personName: string, taskId: string, start: string, end: string, hours: number): void => {
     if (!personName || !(hours > 0)) return;
-    const days = daysInclusive(start, end);
-    const perDay = hours / days.length;
-    for (const d of days) {
-      const weekStart = weekStartOf(d);
+    // Per-day rate is the TRUE span length (not a truncated day list), so a
+    // long task can't over-weight its early weeks; emission is capped only for
+    // runaway safety.
+    const startMs = Date.parse(`${start}T00:00:00Z`);
+    const endMs = Date.parse(`${end}T00:00:00Z`);
+    const spanDays = Math.max(1, Math.round((endMs - startMs) / MS_DAY) + 1);
+    const perDay = hours / spanDays;
+    let curMs = startMs;
+    for (let i = 0; i < Math.min(spanDays, SPAN_EMIT_CAP); i += 1, curMs += MS_DAY) {
+      const weekStart = weekStartOf(new Date(curMs).toISOString().slice(0, 10));
       const key = `${personName}|${weekStart}`;
       const cur = byKey.get(key) ?? { personName, weekStart, hours: 0, tasks: new Set<string>() };
       cur.hours += perDay;
@@ -144,10 +141,13 @@ export function weeklyReservations(reservations: readonly ResourceReservation[])
   for (const r of reservations) {
     if (!r.personName || !r.end || !(r.hours > 0)) continue;
     const start = r.start && r.start <= r.end ? r.start : r.end;
-    const days = daysInclusive(start, r.end);
-    const perDay = r.hours / days.length;
-    for (const d of days) {
-      const weekStart = weekStartOf(d);
+    const startMs = Date.parse(`${start}T00:00:00Z`);
+    const endMs = Date.parse(`${r.end}T00:00:00Z`);
+    const spanDays = Math.max(1, Math.round((endMs - startMs) / MS_DAY) + 1);
+    const perDay = r.hours / spanDays;
+    let curMs = startMs;
+    for (let i = 0; i < Math.min(spanDays, SPAN_EMIT_CAP); i += 1, curMs += MS_DAY) {
+      const weekStart = weekStartOf(new Date(curMs).toISOString().slice(0, 10));
       const key = `${r.personName}|${weekStart}`;
       const cur = byKey.get(key) ?? { personName: r.personName, weekStart, hours: 0, items: new Set<string>() };
       cur.hours += perDay;
