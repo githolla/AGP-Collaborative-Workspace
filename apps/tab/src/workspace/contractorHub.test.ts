@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContractorRows, contractorKpis, mentions, humanDuration } from "./contractorHub.js";
+import { buildContractorRows, contractorKpis, mentions, humanDuration, buildInviteMessage } from "./contractorHub.js";
 import type { MsAccountExternal, MsAccountGrant, MsAccountShare, MsAccountMessage, MsAccountFileApproval } from "./msAccountData.js";
 
 // A fixed "now" so week-bucketing and status windows are deterministic.
@@ -133,6 +133,33 @@ describe("contractorKpis", () => {
     expect(k.filesShared).toBe(2);
     expect(k.opensThisWeek).toBe(1);
     expect(k.awaitingApproval).toBe(1);
+  });
+});
+
+describe("buildInviteMessage", () => {
+  const base = { name: "Dana Reyes", email: "dana@studio.co", clientName: "CWS", appUrl: "https://collab.example.com/", fromName: "Cara" };
+
+  it("addresses them by first name and includes the app link and email", () => {
+    const msg = buildInviteMessage({ ...base, folderCount: 2 });
+    expect(msg).toContain("Hi Dana,");
+    expect(msg).toContain("https://collab.example.com"); // trailing slash trimmed
+    expect(msg).not.toContain("https://collab.example.com/"); // no trailing slash
+    expect(msg).toContain("dana@studio.co");
+    expect(msg).toContain("2 areas");
+    expect(msg).toContain("— Cara");
+    expect(msg).toContain("only see what's been shared");
+  });
+
+  it("uses honest wording when no access has been granted yet", () => {
+    const msg = buildInviteMessage({ ...base, folderCount: 0 });
+    expect(msg).toContain("I'll share the folders you need");
+    expect(msg).not.toContain("You've been given access to 0");
+  });
+
+  it("omits the email clause when there's no email on file", () => {
+    const msg = buildInviteMessage({ name: "Lee Okafor", clientName: "CWS", appUrl: "https://x.co", folderCount: 1 });
+    expect(msg).toContain("Hi Lee,");
+    expect(msg).not.toContain("with your email");
   });
 });
 

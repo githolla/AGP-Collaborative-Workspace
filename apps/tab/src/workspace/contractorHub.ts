@@ -208,6 +208,52 @@ export function humanDuration(ms: number): string {
   return `${Math.round(hours / 24)} d`;
 }
 
+// ---- invite message ---------------------------------------------------------
+
+/**
+ * A ready-to-paste invite an AGP person can drop into an email or Teams/Slack
+ * message. The link is just the app origin — a contractor who signs in with the
+ * email on their record auto-lands in their OWN scoped external workspace (RLS
+ * shows only what's been shared with them), so no per-link token is needed and
+ * nothing leaks. The wording is different when they don't have access yet, so a
+ * hollow "sign in" that can't work isn't sent by accident.
+ */
+export function buildInviteMessage(input: {
+  name: string;
+  email?: string;
+  clientName: string;
+  folderCount: number;
+  appUrl: string;
+  fromName?: string;
+}): string {
+  const first = input.name.split(/\s+/)[0] || input.name;
+  const url = input.appUrl.replace(/\/+$/, "");
+  const signIn = input.email ? ` with your email (${input.email})` : "";
+  const from = input.fromName ? `\n\n— ${input.fromName}` : "";
+
+  if (input.folderCount === 0) {
+    // No access granted yet — say so honestly rather than sending a dead link.
+    return [
+      `Hi ${first},`,
+      ``,
+      `I'm setting you up on AGP's collaboration workspace for ${input.clientName} so we can share files and updates in one place. I'll share the folders you need in a moment — you'll get a separate email from Microsoft to accept access, and then you can sign in${signIn} here:`,
+      ``,
+      url,
+      ``,
+      `You'll only ever see what's been shared with you.${from}`,
+    ].join("\n");
+  }
+  return [
+    `Hi ${first},`,
+    ``,
+    `You've been given access to ${input.folderCount} ${input.folderCount === 1 ? "area" : "areas"} on AGP's collaboration workspace for ${input.clientName}. You should also have (or shortly get) an email from Microsoft to accept access — once you have, sign in${signIn} here:`,
+    ``,
+    url,
+    ``,
+    `You'll only see what's been shared with you — the files for this project and our discussion. Anything you open is just visible to our team so we know you have what you need.${from}`,
+  ].join("\n");
+}
+
 // ---- AI assistant client call -----------------------------------------------
 
 export interface ContractorChatTurn { role: "user" | "assistant"; content: string }

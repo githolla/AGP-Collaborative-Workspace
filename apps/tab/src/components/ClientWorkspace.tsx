@@ -785,6 +785,38 @@ function ResourcingKpis({ grid, missingHours, blocked }: { grid: AllocationGrid;
   );
 }
 
+/** Zero-hours state: the weekly picture is empty because no task carries hours
+ * yet (common on a fresh Kantata pull — hours live in the Resource Center, not
+ * on stories). Rather than collapse to a bare list, show the frame, say why
+ * it's empty, and point straight at the fix. */
+function ResourcingEmptyFrame({ candidates, missingHours, blocked, onFocusNeedsHours }: { candidates: number; missingHours: number; blocked: number; onFocusNeedsHours: () => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        <StatTile label="Owned & dated" value={`${candidates}`} detail="tasks ready to resource" />
+        <StatTile label="Need hours" value={`${missingHours}`} detail="no hours from Kantata yet" {...(missingHours > 0 ? { detailColor: T.status.warning } : {})} />
+        <StatTile label="Not resourceable" value={`${blocked}`} detail="need owner + date" {...(blocked > 0 ? { detailColor: T.status.warning } : {})} />
+      </div>
+      <div style={{ ...card, background: "#fbfbf8", borderStyle: "dashed", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 26, lineHeight: 1 }}>📊</div>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div style={{ fontWeight: 800, color: navy, fontSize: 14 }}>Add hours to light up the weekly picture</div>
+          <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: "62ch" }}>
+            These tasks came in from Kantata without hours, so there's nothing to spread across the weeks yet.
+            Add hours to the tasks below — or push reservations back from Kantata's Resource Center — and the
+            weekly demand chart, per-person load, and hours-by-project fill in automatically.
+          </div>
+        </div>
+        {missingHours > 0 && (
+          <button type="button" className="btn-primary" style={{ whiteSpace: "nowrap" }} onClick={onFocusNeedsHours}>
+            Show the {missingHours} that need hours
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** This client's demand across its weeks — columns vs the busiest-week peak. */
 function ClientDemandTrend({ grid }: { grid: AllocationGrid }) {
   if (grid.weeks.length < 2) return null;
@@ -931,7 +963,9 @@ function ResourcingView({
         </span>
       </div>
 
-      {grid.weeks.length > 0 && <ResourcingKpis grid={grid} missingHours={missingHours} blocked={blocked} />}
+      {grid.weeks.length > 0
+        ? <ResourcingKpis grid={grid} missingHours={missingHours} blocked={blocked} />
+        : <ResourcingEmptyFrame candidates={candidates.length} missingHours={missingHours} blocked={blocked} onFocusNeedsHours={() => setNeedsHoursOnly(true)} />}
       {grid.weeks.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
           <ClientDemandTrend grid={grid} />
@@ -3716,7 +3750,7 @@ export function ClientWorkspace({
       {tab === "contractors" && (() => {
         const msAccount = collabAccountId ? collabData?.accounts.find((a) => a.id === collabAccountId) : undefined;
         return msAccount
-          ? <ContractorHub account={msAccount} loginHintEmail={loginHintEmail} canManage={canManage} onOpenDiscussions={() => setTab("discussions")} />
+          ? <ContractorHub account={msAccount} loginHintEmail={loginHintEmail} canManage={canManage} userName={userName} onOpenDiscussions={() => setTab("discussions")} />
           : <div style={{ fontSize: 13, color: T.inkMuted }}>{collabDataError ? "Couldn't load this client's workspace. Open the Admin tab to finish setting it up." : "Loading contractors…"}</div>;
       })()}
       {tab === "sandbox" && sandboxContent}

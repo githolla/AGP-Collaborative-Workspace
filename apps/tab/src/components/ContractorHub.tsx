@@ -23,7 +23,7 @@ import { grantAccess } from "../workspace/msShare.js";
 import { shareItems, type ShareItemInput } from "../workspace/msHandover.js";
 import type { FolderTreeNode } from "../workspace/msFolderTree.js";
 import {
-  buildContractorRows, contractorKpis, humanDuration, askContractorChat,
+  buildContractorRows, contractorKpis, humanDuration, askContractorChat, buildInviteMessage,
   type ContractorRow, type ContractorStatus, type ContractorChatTurn,
 } from "../workspace/contractorHub.js";
 
@@ -92,17 +92,35 @@ const chip: CSSProperties = { fontSize: 11, fontWeight: 500, padding: "3px 8px",
 
 // ---- main component ---------------------------------------------------------
 
+/** Copy text to the clipboard, resolving true on success (best-effort). */
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard?.writeText(text); return true; } catch { return false; }
+}
+
+/** The app URL a contractor signs into — the deployed origin. */
+function appOrigin(): string {
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
+
 export function ContractorHub({
   account,
   loginHintEmail,
   canManage = false,
+  userName,
   onOpenDiscussions,
 }: {
   account: MsAccountData;
   loginHintEmail?: string | undefined;
   canManage?: boolean;
+  userName?: string;
   onOpenDiscussions?: () => void;
 }) {
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 2600); };
+  const copyInvite = async (row: ContractorRow) => {
+    const msg = buildInviteMessage({ name: row.name, ...(row.email ? { email: row.email } : {}), clientName: account.clientName, folderCount: row.folderCount, appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) });
+    flash(await copyText(msg) ? `Invite for ${row.name.split(" ")[0]} copied — paste it into an email or Teams` : "Couldn't copy — check clipboard permissions");
+  };
   const [data, setData] = useState<WorkspaceAccountPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ContractorStatus>("all");
@@ -172,9 +190,13 @@ export function ContractorHub({
         {shown.map((r) => <ContractorRowCard key={r.id} row={r} onOpen={() => setSelectedId(r.id)} />)}
       </div>
 
-      {selected && <Drawer row={selected} onClose={() => setSelectedId(null)} {...(onOpenDiscussions ? { onOpenDiscussions } : {})} />}
-      {modal === "add" && <AddContractorModal account={account} loginHintEmail={loginHintEmail} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      {selected && <Drawer row={selected} onClose={() => setSelectedId(null)} {...(canManage ? { onCopyInvite: () => void copyInvite(selected) } : {})} {...(onOpenDiscussions ? { onOpenDiscussions } : {})} />}
+      {modal === "add" && <AddContractorModal account={account} loginHintEmail={loginHintEmail} {...(userName ? { userName } : {})} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} onCopied={flash} />}
       {modal === "share" && <ShareFilesModal account={account} loginHintEmail={loginHintEmail} contractors={rows} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+
+      {toast && (
+        <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: navy, color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500, boxShadow: "0 20px 50px -18px rgba(16,21,46,.5)", zIndex: 70 }}>{toast}</div>
+      )}
     </div>
   );
 }
@@ -212,7 +234,7 @@ function ContractorRowCard({ row, onOpen }: { row: ContractorRow; onOpen: () => 
 
 // ---- drawer (activity + discussion) ----------------------------------------
 
-function Drawer({ row, onClose, onOpenDiscussions }: { row: ContractorRow; onClose: () => void; onOpenDiscussions?: () => void }) {
+function Drawer({ row, onClose, onCopyInvite, onOpenDiscussions }: { row: ContractorRow; onClose: () => void; onCopyInvite?: () => void; onOpenDiscussions?: () => void }) {
   const [tab, setTab] = useState<"activity" | "discussion">("activity");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -234,7 +256,10 @@ function Drawer({ row, onClose, onOpenDiscussions }: { row: ContractorRow; onClo
               <div style={{ fontSize: 18, fontWeight: 800, color: T.ink }}>{row.name}</div>
               <div style={{ fontSize: 12.5, color: T.inkMuted }}>{row.role}{row.org ? ` · ${row.org}` : ""}</div>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close" style={{ marginLeft: "auto", width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.grid}`, background: "#f4f6f8", color: T.inkSecondary, fontSize: 17, cursor: "pointer" }}>×</button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+              {onCopyInvite && <button type="button" className="btn-secondary" style={{ fontSize: 12, padding: "6px 11px" }} onClick={onCopyInvite} title="Copy a message you can paste into an email or Teams">Copy invite</button>}
+              <button type="button" onClick={onClose} aria-label="Close" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.grid}`, background: "#f4f6f8", color: T.inkSecondary, fontSize: 17, cursor: "pointer" }}>×</button>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: T.inkSecondary }}>
             {row.email && <span><b style={{ color: T.ink }}>{row.email}</b></span>}
@@ -422,7 +447,7 @@ function ModalShell({ title, sub, children, foot, onClose }: { title: string; su
 const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 600, color: T.inkSecondary, display: "block", marginBottom: 5 };
 const inputStyle: CSSProperties = { width: "100%", background: "#f7f9fa", border: `1px solid ${T.grid}`, borderRadius: 9, padding: "10px 12px", fontFamily: "inherit", fontSize: 13, color: T.ink };
 
-function AddContractorModal({ account, loginHintEmail, onClose, onDone }: { account: MsAccountData; loginHintEmail?: string | undefined; onClose: () => void; onDone: () => void }) {
+function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone, onCopied }: { account: MsAccountData; loginHintEmail?: string | undefined; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [org, setOrg] = useState("");
@@ -430,6 +455,8 @@ function AddContractorModal({ account, loginHintEmail, onClose, onDone }: { acco
   const [picked, setPicked] = useState<Map<string, FolderTreeNode>>(new Map());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Post-add success view: what got created, so we can render the invite text.
+  const [added, setAdded] = useState<{ name: string; email?: string; folderCount: number } | null>(null);
 
   const togglePick = (node: FolderTreeNode) => setPicked((prev) => {
     const next = new Map(prev);
@@ -444,24 +471,50 @@ function AddContractorModal({ account, loginHintEmail, onClose, onDone }: { acco
       const ext = await addExternal(account.id, name.trim(), org.trim(), role, email.trim() || undefined);
       // Grant each picked folder immediately, targeting the external link
       // (works before they've ever signed in — grants can be backfilled to the
-      // userId later via "Resolve sign-in").
+      // userId later via "Resolve sign-in"). Each grant is what actually fires
+      // the Microsoft SharePoint invite email.
+      let granted = 0;
       for (const node of picked.values()) {
-        try { await grantAccess(account.id, { externalLinkId: ext.id }, node.kantataId, node.level, "read", loginHintEmail); } catch { /* best-effort per folder */ }
+        try { await grantAccess(account.id, { externalLinkId: ext.id }, node.kantataId, node.level, "read", loginHintEmail); granted += 1; } catch { /* best-effort per folder */ }
       }
-      onDone();
+      setAdded({ name: name.trim(), ...(email.trim() ? { email: email.trim() } : {}), folderCount: granted });
+      setBusy(false);
     } catch (e) {
       setErr(e instanceof MsApiError ? e.message : "Couldn't add this contractor.");
       setBusy(false);
     }
   };
 
+  // ---- success view: the copy-paste invite -----------------------------------
+  if (added) {
+    const message = buildInviteMessage({ name: added.name, ...(added.email ? { email: added.email } : {}), clientName: account.clientName, folderCount: added.folderCount, appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) });
+    const first = added.name.split(" ")[0];
+    return (
+      <ModalShell title={`${added.name} added`} sub={added.folderCount > 0
+        ? `They can see ${added.folderCount} ${added.folderCount === 1 ? "area" : "areas"} — and nothing else on the account. Send them this to get them in:`
+        : "Heads up — you didn't share any folders, so they have no access and no invite went out yet. Share a folder or file and they'll get a Microsoft invite. You can still send them this note:"}
+        onClose={() => { onDone(); }}
+        foot={<>
+          <span style={{ fontSize: 11.5, color: T.inkMuted, flex: 1 }}>The link signs them into their own view — they only ever see what's shared.</span>
+          <button type="button" className="btn-link" onClick={() => onDone()}>Done</button>
+          <button type="button" className="btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>
+        </>}>
+        <textarea readOnly value={message} rows={9} style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }} onFocus={(e) => e.currentTarget.select()} />
+      </ModalShell>
+    );
+  }
+
+  const noFolder = picked.size === 0;
   return (
     <ModalShell title="Add a contractor" sub="One screen — they get access to only the folders you pick, nothing else on the account." onClose={onClose}
       foot={<>
-        {err && <span style={{ fontSize: 11.5, color: T.status.critical, flex: 1 }}>{err}</span>}
-        {!err && <span style={{ fontSize: 11.5, color: T.status.good, fontWeight: 600, flex: 1 }}>✓ Invite + folder access, in one go</span>}
+        {err
+          ? <span style={{ fontSize: 11.5, color: T.status.critical, flex: 1 }}>{err}</span>
+          : noFolder
+            ? <span style={{ fontSize: 11.5, color: T.status.warning, fontWeight: 600, flex: 1 }}>⚠ No folder picked — they'll have no access and won't be invited yet</span>
+            : <span style={{ fontSize: 11.5, color: T.status.good, fontWeight: 600, flex: 1 }}>✓ {picked.size} {picked.size === 1 ? "folder" : "folders"} — invite + access in one go</span>}
         <button type="button" className="btn-link" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Adding…" : "Add contractor"}</button>
+        <button type="button" className="btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Adding…" : noFolder ? "Add without access" : "Add contractor"}</button>
       </>}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div><label style={labelStyle}>Full name</label><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Dana Reyes" /></div>
@@ -477,7 +530,7 @@ function AddContractorModal({ account, loginHintEmail, onClose, onDone }: { acco
         </div>
       </div>
       <div>
-        <label style={labelStyle}>Share SharePoint folders <span style={{ color: T.inkMuted, fontWeight: 400 }}>({picked.size} selected)</span></label>
+        <label style={labelStyle}>Share SharePoint folders <span style={{ color: T.inkMuted, fontWeight: 400 }}>— pick these to give access &amp; send the invite ({picked.size} selected)</span></label>
         <FolderTreePicker accountId={account.id} loginHintEmail={loginHintEmail} multiSelect selectedKantataIds={new Set(picked.keys())} onSelect={togglePick} />
       </div>
     </ModalShell>
