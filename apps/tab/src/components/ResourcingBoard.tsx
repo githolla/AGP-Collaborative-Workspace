@@ -245,7 +245,14 @@ export function ResourcingBoard({
       )}
 
       {/* Push to Kantata — only meaningful once there are hours */}
-      {hasHours && onPublish && <PushToKantata fromKantata={fromKantata} onPublish={onPublish} />}
+      {hasHours && onPublish && (() => {
+        // Name the scope so the review is meaningful: how many person-weeks carry
+        // hours, across how many people. The grid above IS the review — this
+        // sends exactly what's shown, when the PM decides it's right.
+        let cells = 0; const withHours = new Set<string>();
+        for (const p of people) for (const w of weeks) if (hoursGrid.hoursFor(p, w) > 0) { cells += 1; withHours.add(p); }
+        return <PushToKantata reservationCount={cells} peopleCount={withHours.size} onPublish={onPublish} />;
+      })()}
     </div>
   );
 
@@ -325,7 +332,7 @@ function DrillPanel({ label, tasks, onSetHours, fromKantata, onClose }: { label:
 }
 
 /** Push the derived weekly reservations back to Kantata (review-gated). */
-function PushToKantata({ fromKantata, onPublish }: { fromKantata: boolean; onPublish: () => Promise<WriteResponse> }) {
+function PushToKantata({ reservationCount, peopleCount, onPublish }: { reservationCount: number; peopleCount: number; onPublish: () => Promise<WriteResponse> }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteResponse | null>(null);
   const run = async () => {
@@ -334,13 +341,14 @@ function PushToKantata({ fromKantata, onPublish }: { fromKantata: boolean; onPub
     catch (err) { setResult({ dryRun: true, reason: err instanceof Error ? err.message : "publish failed", applied: 0, failed: 0, results: [] }); }
     finally { setBusy(false); }
   };
+  const scope = `${reservationCount} weekly reservation${reservationCount === 1 ? "" : "s"} · ${peopleCount} ${peopleCount === 1 ? "person" : "people"}`;
   return (
     <div style={{ ...card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
       <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
-        {busy ? "Sending…" : fromKantata ? "Update Kantata with this plan →" : "Send weekly reservations to Kantata →"}
+        {busy ? "Sending…" : `Send ${scope} to Kantata →`}
       </button>
       <span style={{ fontSize: 11, color: T.inkMuted, flex: 1, minWidth: 200 }}>
-        Reserves each person's hours on the weeks they fall — the weekly picture, back in Kantata. Never duplicates an existing reservation.
+        The grid above is your review — this sends exactly what's shown, when you decide it's right. Kantata stays the system of record; nothing goes until you click. Never duplicates an existing reservation.
       </span>
       {result && (
         <div style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>

@@ -1428,10 +1428,17 @@ function KantataPush({
 
   return (
     <div style={{ ...card, padding: 14, marginBottom: 14, borderLeft: `3px solid ${T.series1}` }}>
-      <SectionTitle>Send these changes to Kantata</SectionTitle>
+      <SectionTitle right={
+        writes.length > 1 ? (
+          <button type="button" className="btn-link" style={{ fontSize: 11.5 }}
+            onClick={() => setSkipped((s) => (s.size === 0 ? new Set(writes.map((w) => w.ref)) : new Set()))}>
+            {skipped.size === 0 ? "Deselect all" : "Select all"}
+          </button>
+        ) : undefined
+      }>Send these changes to Kantata</SectionTitle>
       <div style={{ fontSize: 12, color: T.inkSecondary, margin: "2px 0 10px" }}>
         {writes.length} {writes.length === 1 ? "task differs" : "tasks differ"} from Kantata. Nothing is sent until you
-        choose it — Kantata stays the system of record for capacity.
+        choose it — Kantata stays the system of record for capacity. Untick anything you don't want to send.
       </div>
 
       {writes.map((w) => (
@@ -1473,8 +1480,9 @@ function KantataPush({
         >
           {result.dryRun ? (
             <>
-              <strong>Preview only — nothing was sent.</strong> {result.reason ?? ""} The changes above are valid and will
-              go through once writing is switched on.
+              <strong>Staged — not sent (nothing you did is wrong).</strong> Kantata write-back is switched off on the
+              server, so this is a safe preview. The changes above are valid and go through the moment an admin sets
+              <code> KANTATA_WRITE_ENABLED=true</code>. {result.reason ?? ""}
             </>
           ) : (
             <>
