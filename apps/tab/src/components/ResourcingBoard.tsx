@@ -50,13 +50,13 @@ function DrillStat({ onClick, active, title, children }: { onClick: () => void; 
         transition: "transform .12s, box-shadow .12s",
       }}>
       {children}
-      {/* Resting affordance: a small "drill" hint that brightens on hover so the
-          tile reads as clickable even before you touch it. */}
+      {/* Resting affordance: a plain-language hint that brightens on hover so the
+          tile reads as clickable — click to open the tasks behind it. */}
       <span aria-hidden style={{
-        position: "absolute", top: 8, right: 10, fontSize: 10, fontWeight: 700,
+        position: "absolute", top: 8, right: 10, fontSize: 10.5, fontWeight: 700,
         letterSpacing: 0.2, color: active ? T.roi.navy : hover ? T.roi.cyan : T.inkMuted,
-        opacity: active || hover ? 1 : 0.55, transition: "color .12s, opacity .12s",
-      }}>{active ? "clear ✕" : "drill ⤢"}</span>
+        opacity: active || hover ? 1 : 0.6, transition: "color .12s, opacity .12s",
+      }}>{active ? "Hide ✕" : "View →"}</span>
     </div>
   );
 }

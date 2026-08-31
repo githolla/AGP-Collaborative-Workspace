@@ -609,7 +609,7 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
                 <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: navy, borderRadius: 9, padding: "1px 7px", lineHeight: 1.5 }}>{dueThisWeek.length}</span>
               )}
             </span>
-            <span aria-hidden style={{ fontSize: 11, color: T.inkMuted, transform: dueOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+            <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 8, background: T.grid, color: navy, fontSize: 16, fontWeight: 800, lineHeight: 1, transform: dueOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
           </button>
           <div style={{ display: dueOpen ? "flex" : "none", flexDirection: "column" }}>
             {dueThisWeek.map((t, i) => (
