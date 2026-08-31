@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { card, T } from "../theme.js";
-import { KantataChip, SectionTitle, StatTile, TagChip } from "./bits.js";
+import { KantataChip, SectionTitle, TagChip } from "./bits.js";
 import { ProjectScope } from "./ProjectScope.js";
 import { TasksCard } from "./TasksCard.js";
 import { Thread } from "./Thread.js";
@@ -18,7 +18,7 @@ import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage } f
  * `ClientFileLink.clientShare` model and are gone with it (Phase 7 cutover),
  * but the type itself is still load-bearing here. */
 type ApprovalState = "fyi" | "pending" | "approved" | "changes";
-import { allocationGrid, gridFrom, weeklyReservations, weekLabel, type ResourceReservation, type ResourceTask, type AllocationGrid } from "../workspace/resourcing.js";
+import type { ResourceReservation, ResourceTask } from "../workspace/resourcing.js";
 import { assignmentProgress, blockingDeps, effectiveHours, isOnPersonList } from "../workspace/taskAssignments.js";
 import { TeamHoursEditor } from "./TeamHours.js";
 import { fetchAllAccounts, fetchAccountCollabData, toOldTask, toOldCampaign, type MsAccountData, type MsAccountFileApproval, type MsAccountActivity, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
@@ -29,6 +29,7 @@ import { listFolder, uploadFile, type FileListing, type FileListItem } from "../
 import { type FolderTreeNode } from "../workspace/msFolderTree.js";
 import { ClientAdminPanel, FolderTreePicker } from "./ClientAdminPanel.js";
 import { ContractorHub } from "./ContractorHub.js";
+import { ResourcingBoard } from "./ResourcingBoard.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -762,124 +763,6 @@ function toResourceTasks(tasks: Task[]): ResourceTask[] {
     };
   });
 }
-
-/** Heatmap cell shade by magnitude (this client's hours), on the theme's
- * sequential teal ramp — replaces the old hardcoded 20/40 bands. */
-function resSeqCell(hours: number, max: number): { bg: string; fg: string } {
-  if (hours <= 0) return { bg: "transparent", fg: T.grid };
-  const idx = Math.min(9, Math.max(1, Math.round((hours / (max || 1)) * 9)));
-  return { bg: T.seq[idx] ?? T.seq[1]!, fg: idx >= 6 ? "#fff" : T.ink };
-}
-
-/** KPI stat row for the Resourcing tab. */
-function ResourcingKpis({ grid, missingHours, blocked }: { grid: AllocationGrid; missingHours: number; blocked: number }) {
-  const total = grid.weeks.reduce((s, w) => s + grid.weekTotal(w), 0);
-  const busiest = grid.weeks.reduce((best, w) => { const h = grid.weekTotal(w); return h > best.h ? { w, h } : best; }, { w: "", h: 0 });
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-      <StatTile label="Scheduled hours" value={`${Math.round(total)}h`} detail={`${grid.people.length} ${grid.people.length === 1 ? "person" : "people"}`} />
-      <StatTile label="Busiest week" value={busiest.h > 0 ? `${Math.round(busiest.h)}h` : "—"} {...(busiest.w ? { detail: weekLabel(busiest.w) } : {})} />
-      <StatTile label="Needs hours" value={`${missingHours}`} detail="owned, dated tasks" {...(missingHours > 0 ? { detailColor: T.status.warning } : {})} />
-      <StatTile label="Not resourceable" value={`${blocked}`} detail="need owner + date" {...(blocked > 0 ? { detailColor: T.status.warning } : {})} />
-    </div>
-  );
-}
-
-/** Zero-hours state: the weekly picture is empty because no task carries hours
- * yet (common on a fresh Kantata pull — hours live in the Resource Center, not
- * on stories). Rather than collapse to a bare list, show the frame, say why
- * it's empty, and point straight at the fix. */
-function ResourcingEmptyFrame({ candidates, missingHours, blocked, onFocusNeedsHours }: { candidates: number; missingHours: number; blocked: number; onFocusNeedsHours: () => void }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-        <StatTile label="Owned & dated" value={`${candidates}`} detail="tasks ready to resource" />
-        <StatTile label="Need hours" value={`${missingHours}`} detail="no hours from Kantata yet" {...(missingHours > 0 ? { detailColor: T.status.warning } : {})} />
-        <StatTile label="Not resourceable" value={`${blocked}`} detail="need owner + date" {...(blocked > 0 ? { detailColor: T.status.warning } : {})} />
-      </div>
-      <div style={{ ...card, background: "#fbfbf8", borderStyle: "dashed", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ fontSize: 26, lineHeight: 1 }}>📊</div>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ fontWeight: 800, color: navy, fontSize: 14 }}>Add hours to light up the weekly picture</div>
-          <div style={{ fontSize: 12.5, color: T.inkSecondary, marginTop: 4, maxWidth: "62ch" }}>
-            These tasks came in from Kantata without hours, so there's nothing to spread across the weeks yet.
-            Add hours to the tasks below — or push reservations back from Kantata's Resource Center — and the
-            weekly demand chart, per-person load, and hours-by-project fill in automatically.
-          </div>
-        </div>
-        {missingHours > 0 && (
-          <button type="button" className="btn-primary" style={{ whiteSpace: "nowrap" }} onClick={onFocusNeedsHours}>
-            Show the {missingHours} that need hours
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** This client's demand across its weeks — columns vs the busiest-week peak. */
-function ClientDemandTrend({ grid }: { grid: AllocationGrid }) {
-  if (grid.weeks.length < 2) return null;
-  const totals = grid.weeks.map((w) => grid.weekTotal(w));
-  const max = Math.max(1, ...totals);
-  const H = 72;
-  return (
-    <div style={{ ...card }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Hours by week</div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: H }}>
-        {grid.weeks.map((w, i) => {
-          const h = (totals[i]! / max) * H;
-          return (
-            <div key={w} title={`${weekLabel(w)} · ${Math.round(totals[i]!)}h`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
-              <div style={{ width: "78%", height: Math.max(2, h), background: T.series1, borderRadius: "3px 3px 0 0" }} />
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: T.inkMuted, marginTop: 3 }}>
-        <span>{weekLabel(grid.weeks[0]!)}</span>
-        <span>{weekLabel(grid.weeks[grid.weeks.length - 1]!)}</span>
-      </div>
-    </div>
-  );
-}
-
-/** Which project (job) is eating the hours — horizontal bar per project. Uses
- * the SAME effective (post-done, post-split) hours the weekly grid does, so the
- * two panels reconcile. */
-function ProjectBreakdown({ resTasks }: { resTasks: ResourceTask[] }) {
-  const byProject = new Map<string, { hours: number; count: number }>();
-  for (const t of resTasks) {
-    if (t.status === "done" || !t.due) continue;
-    const hours = t.assignments && t.assignments.length > 0 ? t.assignments.reduce((s, a) => s + a.hours, 0) : (t.estimatedHours ?? 0);
-    if (!(hours > 0)) continue;
-    const label = t.projectLabel ?? "No project";
-    const cur = byProject.get(label) ?? { hours: 0, count: 0 };
-    cur.hours += hours;
-    cur.count += 1;
-    byProject.set(label, cur);
-  }
-  const rows = [...byProject.entries()].map(([label, v]) => ({ label, hours: v.hours, count: v.count })).sort((a, b) => b.hours - a.hours);
-  if (rows.length < 2) return null;
-  const max = Math.max(1, ...rows.map((r) => r.hours));
-  return (
-    <div style={{ ...card }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.inkMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Hours by project</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {rows.map((r) => (
-          <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
-            <span style={{ width: 190, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: T.ink }} title={r.label}>{r.label}</span>
-            <span style={{ flex: 1, height: 12, background: "#f0efec", borderRadius: 4, overflow: "hidden" }}>
-              <span style={{ display: "block", height: "100%", width: `${(r.hours / max) * 100}%`, background: T.series1, borderRadius: 4 }} />
-            </span>
-            <span style={{ width: 74, flexShrink: 0, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.inkSecondary }}>{Math.round(r.hours)}h · {r.count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function ResourcingView({
   tasks,
   reservations = [],
@@ -946,35 +829,18 @@ function ResourcingView({
   }, [resKeys, resToggled]);
   const labelOf = (t: Task) => t.projectLabel ?? "No project";
 
-  // Derived weekly grid (always computed so it can be pushed back to Kantata);
-  // the SHOWN grid prefers live Kantata reservations when present.
-  const resTasks = toResourceTasks(tasks);
-  const derivedGrid = allocationGrid(resTasks);
-  const grid = reservations.length > 0 ? gridFrom(weeklyReservations(reservations)) : derivedGrid;
-  const unestimated = candidates.filter((t) => t.estimatedHours == null).length;
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ ...card, background: "#eef8fc", borderColor: T.roi.cyan }}>
         <span style={{ fontSize: 12.5, color: "#16708f", fontWeight: 600 }}>
-          Hours come from Kantata — you just validate or fine-tune them here. The weekly view spreads each
-          task's hours across its dates and re-figures on its own when a timeline shifts, so nobody
-          redistributes by hand every week. Send it back to Kantata when it's right.
+          Live from Kantata — every owned, dated task is placed on the weeks it spans, so the picture is here the
+          moment the workspace opens and re-figures on its own when a timeline shifts. Add hours to switch to the
+          hours view and push weekly reservations back to Kantata. Click any cell, person, or week to drill in.
         </span>
       </div>
 
-      {grid.weeks.length > 0
-        ? <ResourcingKpis grid={grid} missingHours={missingHours} blocked={blocked} />
-        : <ResourcingEmptyFrame candidates={candidates.length} missingHours={missingHours} blocked={blocked} onFocusNeedsHours={() => setNeedsHoursOnly(true)} />}
-      {grid.weeks.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-          <ClientDemandTrend grid={grid} />
-          <ProjectBreakdown resTasks={resTasks} />
-        </div>
-      )}
-
-      {/* The payoff: the weekly picture + push. */}
-      <WeeklyResourcing grid={grid} derivedWeeks={derivedGrid.weeks.length} fromKantata={reservations.length > 0} unestimated={unestimated} {...(onPublish ? { onPublish } : {})} />
+      {/* Interactive centerpiece — works from auto-imported task data, hours when present. */}
+      <ResourcingBoard tasks={tasks} reservations={reservations} toResourceTasks={toResourceTasks} onSetHours={onSetHours} {...(onPublish ? { onPublish } : {})} />
 
       {/* Validate hours — clean, grouped by project, roomy input. */}
       <div style={card}>
@@ -1062,134 +928,6 @@ function ResourcingView({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function WeeklyResourcing({ grid, derivedWeeks, fromKantata, unestimated, onPublish }: {
-  grid: AllocationGrid;
-  /** Weeks in the DERIVED plan — gates the push (can push even when showing live Kantata). */
-  derivedWeeks: number;
-  fromKantata: boolean;
-  unestimated: number;
-  onPublish?: () => Promise<WriteResponse>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<WriteResponse | null>(null);
-  const canPush = !!onPublish && derivedWeeks > 0;
-
-  const run = async () => {
-    if (!onPublish) return;
-    setBusy(true);
-    try {
-      setResult(await onPublish());
-    } catch (err) {
-      setResult({ dryRun: true, reason: err instanceof Error ? err.message : "publish failed", applied: 0, failed: 0, results: [] });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (grid.weeks.length === 0) {
-    return (
-      <div style={{ ...card, padding: 14 }}>
-        <SectionTitle>Weekly resourcing</SectionTitle>
-        <div style={{ fontSize: 12, color: T.inkSecondary, lineHeight: 1.5 }}>
-          Add hours to the tasks above and the weekly picture builds itself here — and stays current as
-          due dates move, so you never redistribute by hand. {unestimated > 0 ? `${unestimated} owned, dated task${unestimated === 1 ? "" : "s"} still need hours.` : ""}
-        </div>
-      </div>
-    );
-  }
-
-  // Most-loaded person first; deepest cell drives the shade scale.
-  const people = [...grid.people].sort((a, b) => grid.personTotal(b) - grid.personTotal(a));
-  const maxCell = Math.max(1, ...grid.people.flatMap((p) => grid.weeks.map((w) => grid.hoursFor(p, w))));
-
-  return (
-    <div style={{ ...card, padding: 14 }}>
-      <SectionTitle right={<span style={{ fontSize: 10.5, color: T.inkMuted }}>{fromKantata ? "live from Kantata · Resource Center" : "hours by person · by week — derived, always current"}</span>}>
-        Weekly resourcing
-      </SectionTitle>
-      <div style={{ fontSize: 11.5, color: T.inkSecondary, marginBottom: 10, lineHeight: 1.5 }}>
-        {fromKantata
-          ? <>Your Kantata Resource Center reservations, pulled in live — not re-entered. Deeper teal = heavier weeks; for who's over capacity across every client, see <b>Team Load</b>.</>
-          : <>Built from the hours you set on tasks above, placed in the weeks each task spans. Move a timeline and it re-figures on its own — no weekly redistribute. Deeper teal = heavier weeks; cross-client over-allocation lives on <b>Team Load</b>.</>}
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 480, width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: "6px 10px 6px 2px", color: T.inkMuted, fontWeight: 700, position: "sticky", left: 0, background: T.surface, zIndex: 2 }}>Person</th>
-              {grid.weeks.map((w) => (
-                <th key={w} style={{ textAlign: "center", padding: "6px 8px", color: T.inkMuted, fontWeight: 700, whiteSpace: "nowrap" }}>{weekLabel(w)}</th>
-              ))}
-              <th style={{ textAlign: "center", padding: "6px 10px", color: T.roi.navy, fontWeight: 800, position: "sticky", right: 0, background: T.surface, zIndex: 2 }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {people.map((p) => (
-              <tr key={p} style={{ borderTop: `1px solid ${T.grid}` }}>
-                <td style={{ padding: "6px 10px 6px 2px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap", position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>{p}</td>
-                {grid.weeks.map((w) => {
-                  const h = grid.hoursFor(p, w);
-                  const c = resSeqCell(h, maxCell);
-                  return (
-                    <td key={w} title={`${p} · ${weekLabel(w)} · ${h}h`} style={{ textAlign: "center", padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: h === 0 ? T.grid : c.fg, fontWeight: h > 0 ? 600 : 400, background: c.bg }}>
-                      {h === 0 ? "·" : h}
-                    </td>
-                  );
-                })}
-                <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>{grid.personTotal(p)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ borderTop: `2px solid ${T.grid}` }}>
-              <td style={{ padding: "6px 10px 6px 2px", fontWeight: 800, color: T.inkMuted, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Team / week</td>
-              {grid.weeks.map((w) => (
-                <td key={w} style={{ textAlign: "center", padding: "6px 8px", fontWeight: 700, color: T.inkSecondary, fontVariantNumeric: "tabular-nums" }}>{Math.round(grid.weekTotal(w)) || "·"}</td>
-              ))}
-              <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: T.roi.navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>
-                {Math.round(grid.weeks.reduce((s, w) => s + grid.weekTotal(w), 0))}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {fromKantata && (
-        <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 12, lineHeight: 1.5 }}>
-          Live from Kantata's Resource Center — no double entry. As task timelines shift, this stays the single place
-          the weekly picture is kept current.
-        </div>
-      )}
-      {canPush && (
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run()}>
-            {busy ? "Sending…" : fromKantata ? "Update Kantata with this plan →" : "Send weekly reservations to Kantata →"}
-          </button>
-          <span style={{ fontSize: 11, color: T.inkMuted }}>
-            {fromKantata
-              ? "Pushes the plan's per-person hours back to Kantata — updates the existing reservation, doesn't duplicate."
-              : "Reserves each person's hours on the week they fall — accurate per person, not split evenly across a task."}
-          </span>
-        </div>
-      )}
-      {!fromKantata && unestimated > 0 && (
-        <div style={{ fontSize: 11, color: "#8a6d1a", marginTop: 6 }}>
-          {unestimated} owned, dated task{unestimated === 1 ? "" : "s"} still {unestimated === 1 ? "has" : "have"} no hours — {unestimated === 1 ? "it isn't" : "they aren't"} in the numbers above yet.
-        </div>
-      )}
-      {result && (
-        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>
-          {result.dryRun ? (
-            <><strong>Preview only — nothing was sent.</strong> {result.reason ?? ""} These reservations are valid and will post once writing to Kantata is switched on.</>
-          ) : (
-            <><strong>{result.applied} weekly reservation{result.applied === 1 ? "" : "s"} sent{result.failed > 0 ? `, ${result.failed} failed` : ""}.</strong> {result.failed > 0 ? result.results.filter((r) => !r.ok).map((r) => r.error).join(" · ") : "Kantata now reflects this plan."}</>
-          )}
-        </div>
-      )}
     </div>
   );
 }

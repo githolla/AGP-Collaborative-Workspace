@@ -202,6 +202,56 @@ export function totalScheduledHours(tasks: readonly ResourceTask[]): number {
   return weeklyAllocations(tasks).reduce((s, a) => s + a.hours, 0);
 }
 
+/**
+ * Per person, per week, one cell of workload — counting EVERY open, owned,
+ * dated task whether or not it has hours yet. This is what makes the resourcing
+ * view work on a fresh Kantata pull (no hours on the stories): you can still see
+ * who's carrying how many tasks, and when, and which ones. `hours` rides along
+ * (0 until estimated) so the same grid drives the "by hours" view once hours
+ * land. `taskIds` powers the click-to-drill.
+ */
+export interface WeekLoadCell {
+  personName: string;
+  weekStart: string;
+  taskCount: number;
+  hours: number;
+  taskIds: string[];
+}
+
+export function weeklyLoad(tasks: readonly ResourceTask[]): WeekLoadCell[] {
+  const byKey = new Map<string, { personName: string; weekStart: string; hours: number; tasks: Set<string> }>();
+  const place = (personName: string, taskId: string, start: string, end: string, hours: number): void => {
+    if (!personName) return;
+    const startMs = Date.parse(`${start}T00:00:00Z`);
+    const endMs = Date.parse(`${end}T00:00:00Z`);
+    const spanDays = Math.max(1, Math.round((endMs - startMs) / MS_DAY) + 1);
+    const perDay = spanDays > 0 ? hours / spanDays : 0;
+    let curMs = startMs;
+    for (let i = 0; i < Math.min(spanDays, SPAN_EMIT_CAP); i += 1, curMs += MS_DAY) {
+      const weekStart = weekStartOf(new Date(curMs).toISOString().slice(0, 10));
+      const key = `${personName}|${weekStart}`;
+      const cur = byKey.get(key) ?? { personName, weekStart, hours: 0, tasks: new Set<string>() };
+      cur.hours += perDay;
+      cur.tasks.add(taskId);
+      byKey.set(key, cur);
+    }
+  };
+  for (const t of tasks) {
+    if (t.status === "done" || !t.ownerName && !(t.assignments && t.assignments.length > 0)) continue;
+    if (!t.due) continue;
+    const end = t.due;
+    const start = t.start && t.start <= end ? t.start : end;
+    if (t.assignments && t.assignments.length > 0) {
+      for (const person of t.assignments) place(person.name, t.id, start, end, person.hours);
+    } else {
+      place(t.ownerName!, t.id, start, end, t.estimatedHours ?? 0);
+    }
+  }
+  return [...byKey.values()]
+    .map((a) => ({ personName: a.personName, weekStart: a.weekStart, hours: Math.round(a.hours * 10) / 10, taskCount: a.tasks.size, taskIds: [...a.tasks] }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.personName.localeCompare(b.personName));
+}
+
 /** "Aug 3" style label for a week-start Monday. */
 export function weekLabel(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });

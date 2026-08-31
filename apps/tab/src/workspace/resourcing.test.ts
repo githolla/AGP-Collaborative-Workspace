@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResourceReservation, ResourceTask } from "./resourcing.js";
-import { allocationGrid, gridFrom, isSchedulable, totalScheduledHours, weekStartOf, weeklyAllocations, weeklyReservations } from "./resourcing.js";
+import { allocationGrid, gridFrom, isSchedulable, totalScheduledHours, weekStartOf, weeklyAllocations, weeklyReservations, weeklyLoad } from "./resourcing.js";
 
 function t(over: Partial<Record<keyof ResourceTask, unknown>> = {}): ResourceTask {
   const base: ResourceTask = { id: "t", ownerName: "Kara Rachal", due: "2026-08-12", estimatedHours: 8, status: "todo" };
@@ -180,5 +180,44 @@ describe("weeklyReservations (real Kantata Resource Center rows)", () => {
 describe("totalScheduledHours", () => {
   it("sums everything currently placed on a week", () => {
     expect(totalScheduledHours([t({ estimatedHours: 8 }), t({ id: "x", estimatedHours: 4 })])).toBe(12);
+  });
+});
+
+describe("weeklyLoad", () => {
+  it("counts open, owned, dated tasks even with ZERO hours (the fresh-Kantata case)", () => {
+    const load = weeklyLoad([
+      t({ id: "a", ownerName: "Kara Rachal", due: "2026-08-12", estimatedHours: undefined }),
+      t({ id: "b", ownerName: "Kara Rachal", due: "2026-08-13", estimatedHours: undefined }),
+    ]);
+    // Both fall in the week of 2026-08-10 for Kara.
+    const cell = load.find((c) => c.personName === "Kara Rachal" && c.weekStart === "2026-08-10");
+    expect(cell?.taskCount).toBe(2);
+    expect(cell?.hours).toBe(0);
+    expect(cell?.taskIds.sort()).toEqual(["a", "b"]);
+  });
+
+  it("skips done tasks and tasks with no owner or no due date", () => {
+    const load = weeklyLoad([
+      t({ id: "done", status: "done" }),
+      t({ id: "noowner", ownerName: undefined }),
+      t({ id: "nodue", due: undefined }),
+      t({ id: "ok" }),
+    ]);
+    expect(load.flatMap((c) => c.taskIds)).toEqual(["ok"]);
+  });
+
+  it("counts each assignee of a split task in their own weeks", () => {
+    const load = weeklyLoad([
+      t({ id: "s", ownerName: undefined, due: "2026-08-12", estimatedHours: undefined, assignments: [{ name: "Amy", hours: 0 }, { name: "Lee", hours: 0 }] }),
+    ]);
+    expect(load.map((c) => c.personName).sort()).toEqual(["Amy", "Lee"]);
+    expect(load.every((c) => c.taskCount === 1)).toBe(true);
+  });
+
+  it("carries hours along when they exist, so the same grid drives the hours view", () => {
+    const load = weeklyLoad([t({ id: "h", ownerName: "Kara Rachal", start: "2026-08-10", due: "2026-08-10", estimatedHours: 8 })]);
+    const cell = load.find((c) => c.personName === "Kara Rachal");
+    expect(cell?.hours).toBe(8);
+    expect(cell?.taskCount).toBe(1);
   });
 });
