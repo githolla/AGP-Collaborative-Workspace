@@ -1,7 +1,7 @@
 /** Product name shown in the header banner. Edit here to rename the app. */
 export const APP_TITLE = {
-  primary: "COLLABORATION",
-  secondary: "WORKSPACE",
+  primary: "Collaboration",
+  secondary: "Workspace",
 } as const;
 
 /** Client Health design system (2026-07): deep indigo navy, teal accent,
