@@ -25,7 +25,7 @@
 
 import { randomUUID } from "node:crypto";
 import { requireUser } from "./_lib/requireUser.js";
-import { withUserContext } from "./_lib/db.js";
+import { withUserContext, withServiceContext } from "./_lib/db.js";
 import { toApiError } from "./_lib/apiError.js";
 import { logActivity } from "./_lib/activity.js";
 
@@ -52,45 +52,46 @@ async function handleCreate(
   }
   const fromMirror = (body as { fromMirror?: unknown })?.fromMirror === true;
 
-  // The id is generated here, before any SQL runs, rather than captured from
-  // an `INSERT ... RETURNING` on the first statement. Proven necessary by a
-  // real failure, not a style preference: RETURNING requires the new row to
-  // also satisfy the table's SELECT policy (can_read_account), which is
-  // false for this account at the moment it's created — account_member and
-  // user_role for its creator don't exist yet. Postgres enforces that check
-  // even though the WITH CHECK clause for the insert itself has already
-  // passed, and raises the same "row-level security policy" error either
-  // way, which reads exactly like the write being refused when it is
-  // actually the RETURNING clause that failed. Insert everything under a
-  // known id first, and only SELECT it back as the last step, once the
-  // bootstrap rows that make it readable actually exist.
-  const accountId = randomUUID();
+  // GET-OR-CREATE by name, run under the ELEVATED context so it can see a
+  // canonical account for this client even when the caller isn't a member yet.
+  // Without this, account visibility is per-member but identity is by name, so
+  // two internal people opening the same client each minted their OWN row and
+  // silently forked the workspace. Now everyone binds to one account per name,
+  // and the caller is added as a member/admin if not already.
+  //
+  // Internal-only: creating/joining an account by name is an AGP-staff action
+  // (externals never reach this — they use ExternalWorkspace), so an external
+  // can't self-join a workspace by guessing its name.
+  const account = await withServiceContext(async (tx) => {
+    const [who] = await tx<{ kind: string }[]>`select kind from collab.app_user where id = ${userId}`;
+    if (who?.kind === "external") throw new Error("only internal users can create a workspace");
 
-  const account = await withUserContext(userId, async (tx) => {
-    await tx`
-      insert into collab.client_account (id, client_name, created_by)
-      values (${accountId}, ${clientName}, ${userId})
+    const [existing] = await tx<AccountRow[]>`
+      select id, client_name, archived, created_at from collab.client_account
+      where lower(client_name) = lower(${clientName}) and not archived
+      order by created_at asc limit 1
     `;
+    const accountId = existing?.id ?? randomUUID();
+    if (!existing) {
+      await tx`insert into collab.client_account (id, client_name, created_by) values (${accountId}, ${clientName}, ${userId})`;
+      await logActivity(tx, accountId, "Workspace created", "workspace");
+    }
 
-    await tx`
-      insert into collab.user_role (user_id, role, account_id, granted_by)
-      values (${userId}, 'workspace_admin', ${accountId}, ${userId})
-    `;
+    // Ensure the caller is a workspace admin + member (only if not already, so
+    // re-opening never duplicates rows).
+    const [hasRole] = await tx<{ x: number }[]>`select 1 as x from collab.user_role where user_id = ${userId} and account_id = ${accountId} limit 1`;
+    if (!hasRole) {
+      await tx`insert into collab.user_role (user_id, role, account_id, granted_by) values (${userId}, 'workspace_admin', ${accountId}, ${userId})`;
+    }
+    const [isMember] = await tx<{ x: number }[]>`select 1 as x from collab.account_member where account_id = ${accountId} and user_id = ${userId} limit 1`;
+    if (!isMember) {
+      const [me] = await tx<{ display_name: string; title: string | null }[]>`select display_name, title from collab.app_user where id = ${userId}`;
+      await tx`insert into collab.account_member (account_id, user_id, person_id, name, title) values (${accountId}, ${userId}, ${"u-" + userId}, ${me?.display_name ?? "Unknown"}, ${me?.title ?? null})`;
+    }
 
-    const [me] = await tx<{ display_name: string; title: string | null }[]>`
-      select display_name, title from collab.app_user where id = ${userId}
-    `;
-    await tx`
-      insert into collab.account_member (account_id, user_id, person_id, name, title)
-      values (${accountId}, ${userId}, ${"u-" + userId}, ${me?.display_name ?? "Unknown"}, ${me?.title ?? null})
-    `;
-
-    const [created] = await tx<AccountRow[]>`
-      select id, client_name, archived, created_at from collab.client_account where id = ${accountId}
-    `;
-    if (!created) throw new Error("could not read back the account just created");
-    await logActivity(tx, accountId, "Workspace created", "workspace");
-    return created;
+    const [row] = await tx<AccountRow[]>`select id, client_name, archived, created_at from collab.client_account where id = ${accountId}`;
+    if (!row) throw new Error("could not read back the account");
+    return row;
   });
 
   res.status(200).json({

@@ -645,7 +645,10 @@ function Workspace() {
       // then fill it. Best-effort: if creation fails, the Admin tab still offers
       // the manual button. Only for workspaces with linked Kantata projects, so
       // we don't mint empty records for demo/placeholder names.
-      if (!id && (acct.kantataProjectIds?.length ?? 0) > 0) {
+      // Never auto-create for an archived workspace (a stale deep link, or
+      // restore-then-open) — that would resurrect and re-populate a client that
+      // was deliberately archived.
+      if (!id && !acct.archived && (acct.kantataProjectIds?.length ?? 0) > 0) {
         try {
           await createAccount(acct.clientName);
           id = await resolveAccountIdByName(acct.clientName);

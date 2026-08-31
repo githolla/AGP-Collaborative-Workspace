@@ -807,12 +807,22 @@ function ClientDemandTrend({ grid }: { grid: AllocationGrid }) {
   );
 }
 
-/** Which project (job) is eating the hours — horizontal bar per project. */
-function ProjectBreakdown({ groups }: { groups: [string, Task[]][] }) {
-  const rows = groups
-    .map(([, tasks]) => ({ label: tasks[0]?.projectLabel ?? "No project", hours: tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0), count: tasks.length }))
-    .filter((r) => r.hours > 0)
-    .sort((a, b) => b.hours - a.hours);
+/** Which project (job) is eating the hours — horizontal bar per project. Uses
+ * the SAME effective (post-done, post-split) hours the weekly grid does, so the
+ * two panels reconcile. */
+function ProjectBreakdown({ resTasks }: { resTasks: ResourceTask[] }) {
+  const byProject = new Map<string, { hours: number; count: number }>();
+  for (const t of resTasks) {
+    if (t.status === "done" || !t.due) continue;
+    const hours = t.assignments && t.assignments.length > 0 ? t.assignments.reduce((s, a) => s + a.hours, 0) : (t.estimatedHours ?? 0);
+    if (!(hours > 0)) continue;
+    const label = t.projectLabel ?? "No project";
+    const cur = byProject.get(label) ?? { hours: 0, count: 0 };
+    cur.hours += hours;
+    cur.count += 1;
+    byProject.set(label, cur);
+  }
+  const rows = [...byProject.entries()].map(([label, v]) => ({ label, hours: v.hours, count: v.count })).sort((a, b) => b.hours - a.hours);
   if (rows.length < 2) return null;
   const max = Math.max(1, ...rows.map((r) => r.hours));
   return (
@@ -901,7 +911,8 @@ function ResourcingView({
 
   // Derived weekly grid (always computed so it can be pushed back to Kantata);
   // the SHOWN grid prefers live Kantata reservations when present.
-  const derivedGrid = allocationGrid(toResourceTasks(tasks));
+  const resTasks = toResourceTasks(tasks);
+  const derivedGrid = allocationGrid(resTasks);
   const grid = reservations.length > 0 ? gridFrom(weeklyReservations(reservations)) : derivedGrid;
   const unestimated = candidates.filter((t) => t.estimatedHours == null).length;
 
@@ -919,7 +930,7 @@ function ResourcingView({
       {grid.weeks.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
           <ClientDemandTrend grid={grid} />
-          <ProjectBreakdown groups={orderedGroups} />
+          <ProjectBreakdown resTasks={resTasks} />
         </div>
       )}
 
@@ -3199,12 +3210,13 @@ export function ClientWorkspace({
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab, focusTaskId]);
-  // Never leave a hidden tab active for this view tier — a delivery-tier person
-  // who deep-links to (or was on) the Client Dashboard / Admin falls back to
-  // Home, so the content can't render behind a hidden tab button.
+  // Never leave a hidden tab active — a delivery-tier person who deep-links to
+  // the Client Dashboard / Admin, OR a non-AGP-domain internal user who deep-
+  // links to Resourcing (hidden by showResourcing but visible to their tier),
+  // falls back to Home so the workspace body can't render blank.
   useEffect(() => {
-    if (!tabVisibleForTier(viewTier, tab)) setTab("home");
-  }, [viewTier, tab]);
+    if (!tabVisibleForTier(viewTier, tab) || (tab === "resourcing" && !showResourcing)) setTab("home");
+  }, [viewTier, tab, showResourcing]);
   useEffect(() => {
     onTabChange?.(tab);
   }, [tab, onTabChange]);
