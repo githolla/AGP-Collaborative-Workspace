@@ -86,7 +86,9 @@ type Route =
 
 function parseHash(): Route {
   const hash = window.location.hash;
-  if (/^#admin\/feedback$/.test(hash)) return { view: "admin" };
+  // Both bare #admin and the legacy #admin/feedback reach the admin page
+  // (Graph check, Kantata diagnostic, tour feedback) — #admin is what people type.
+  if (/^#admin(?:\/feedback)?$/.test(hash)) return { view: "admin" };
   if (/^#teams-config$/.test(hash)) return { view: "teams-config" };
   const initiative = hash.match(/^#i\/(.+)$/);
   if (initiative?.[1]) return { view: "initiative", id: initiative[1] };
