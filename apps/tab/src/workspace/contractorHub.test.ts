@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContractorRows, contractorKpis, mentions, humanDuration, buildInviteMessage } from "./contractorHub.js";
+import { buildContractorRows, contractorKpis, mentions, humanDuration, buildInviteMessage, signInState } from "./contractorHub.js";
 import type { MsAccountExternal, MsAccountGrant, MsAccountShare, MsAccountMessage, MsAccountFileApproval } from "./msAccountData.js";
 
 // A fixed "now" so week-bucketing and status windows are deterministic.
@@ -133,6 +133,23 @@ describe("contractorKpis", () => {
     expect(k.filesShared).toBe(2);
     expect(k.opensThisWeek).toBe(1);
     expect(k.awaitingApproval).toBe(1);
+    expect(k.notSignedIn).toBe(0); // the one contractor is entraStatus "active"
+  });
+
+  it("counts contractors who haven't signed in yet", () => {
+    const rows = buildContractorRows(
+      [ext({ id: "e1", entraStatus: "active" }), ext({ id: "e2", name: "Lee Okafor", entraStatus: "invited" }), ext({ id: "e3", name: "Mo Kib", entraStatus: "none" })],
+      [], [], [], [], NOW,
+    );
+    expect(contractorKpis(rows, [], NOW).notSignedIn).toBe(2);
+  });
+});
+
+describe("signInState", () => {
+  it("maps entra status to a nudge state", () => {
+    expect(signInState({ entraStatus: "active", folderCount: 1, sharedCount: 1 })).toBe("active");
+    expect(signInState({ entraStatus: "invited", folderCount: 1, sharedCount: 0 })).toBe("invited");
+    expect(signInState({ entraStatus: "none", folderCount: 0, sharedCount: 0 })).toBe("no-access");
   });
 });
 

@@ -23,7 +23,7 @@ import { grantAccess } from "../workspace/msShare.js";
 import { shareItems, type ShareItemInput } from "../workspace/msHandover.js";
 import type { FolderTreeNode } from "../workspace/msFolderTree.js";
 import {
-  buildContractorRows, contractorKpis, humanDuration, askContractorChat, buildInviteMessage,
+  buildContractorRows, contractorKpis, humanDuration, askContractorChat, buildInviteMessage, signInState,
   type ContractorRow, type ContractorStatus, type ContractorChatTurn,
 } from "../workspace/contractorHub.js";
 
@@ -59,6 +59,22 @@ const STATUS_META: Record<ContractorStatus, { color: string; wash: string; label
 function StatusDot({ status }: { status: ContractorStatus }) {
   const m = STATUS_META[status];
   return <span title={m.label} style={{ width: 9, height: 9, borderRadius: "50%", background: m.color, boxShadow: `0 0 0 3px ${m.wash}`, flexShrink: 0 }} />;
+}
+
+/** A "needs a nudge" pill for contractors who haven't signed in. Null when
+ * they're active (nothing to nudge). */
+function NudgePill({ row }: { row: ContractorRow }) {
+  const st = signInState(row);
+  if (st === "active") return null;
+  const [label, color, wash] = st === "invited"
+    ? ["Invited · not signed in", T.status.warning, "#faf1dc"]
+    : ["No access yet", T.inkMuted, "#eef0f4"];
+  return (
+    <span title={st === "invited" ? "They've been invited but haven't signed in — a nudge may help" : "No folder shared yet, so no invite has gone out"}
+      style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: wash, color, whiteSpace: "nowrap" }}>
+      {label}
+    </span>
+  );
 }
 
 function Spark({ values }: { values: number[] }) {
@@ -167,6 +183,7 @@ export function ContractorHub({
         <StatTile label="Active contractors" value={String(kpis.activeThisWeek)} detail={`of ${kpis.contractors} on the account`} />
         <StatTile label="Files shared" value={String(kpis.filesShared)} detail="across contractors" />
         <StatTile label="Opens this week" value={String(kpis.opensThisWeek)} detail="file opens" {...(kpis.opensThisWeek > 0 ? { detailColor: T.status.good } : {})} />
+        <StatTile label="Not signed in" value={String(kpis.notSignedIn)} detail={kpis.notSignedIn > 0 ? "may need a nudge" : "everyone's in"} {...(kpis.notSignedIn > 0 ? { detailColor: T.status.warning } : { detailColor: T.status.good })} />
         <StatTile label="Awaiting approval" value={String(kpis.awaitingApproval)} detail="pending decision" {...(kpis.awaitingApproval > 0 ? { detailColor: T.status.warning } : {})} />
       </div>
 
@@ -192,7 +209,7 @@ export function ContractorHub({
 
       {selected && <Drawer row={selected} onClose={() => setSelectedId(null)} {...(canManage ? { onCopyInvite: () => void copyInvite(selected) } : {})} {...(onOpenDiscussions ? { onOpenDiscussions } : {})} />}
       {modal === "add" && <AddContractorModal account={account} loginHintEmail={loginHintEmail} {...(userName ? { userName } : {})} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} onCopied={flash} />}
-      {modal === "share" && <ShareFilesModal account={account} loginHintEmail={loginHintEmail} contractors={rows} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      {modal === "share" && <ShareFilesModal account={account} loginHintEmail={loginHintEmail} contractors={rows} {...(userName ? { userName } : {})} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} onCopied={flash} />}
 
       {toast && (
         <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: navy, color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500, boxShadow: "0 20px 50px -18px rgba(16,21,46,.5)", zIndex: 70 }}>{toast}</div>
@@ -209,8 +226,9 @@ function ContractorRowCard({ row, onOpen }: { row: ContractorRow; onOpen: () => 
       style={{ ...card, display: "grid", gridTemplateColumns: "auto minmax(0,1.5fr) minmax(0,1fr) auto", alignItems: "center", gap: 16, textAlign: "left", cursor: "pointer", width: "100%", padding: 14 }}>
       <Avatar name={row.name} />
       <span style={{ minWidth: 0 }}>
-        <span style={{ fontWeight: 700, color: T.ink, display: "flex", alignItems: "center", gap: 7 }}>{row.name}
+        <span style={{ fontWeight: 700, color: T.ink, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>{row.name}
           <span style={{ ...chip, textTransform: "capitalize" }}>{row.role}</span>
+          <NudgePill row={row} />
         </span>
         <span style={{ fontSize: 12, color: T.inkMuted, display: "block", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {row.org || "—"} · {row.folderCount} folder{row.folderCount === 1 ? "" : "s"} · {row.sharedCount} shared{row.notOpenedCount > 0 ? ` · ${row.notOpenedCount} unopened` : ""}
@@ -539,11 +557,14 @@ function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone
 
 // ---- share files modal ------------------------------------------------------
 
-function ShareFilesModal({ account, loginHintEmail, contractors, onClose, onDone }: { account: MsAccountData; loginHintEmail?: string | undefined; contractors: ContractorRow[]; onClose: () => void; onDone: () => void }) {
+function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClose, onDone, onCopied }: { account: MsAccountData; loginHintEmail?: string | undefined; contractors: ContractorRow[]; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
   const [personName, setPersonName] = useState(contractors[0]?.name ?? "");
   const [picked, setPicked] = useState<Map<string, FolderTreeNode>>(new Map());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [shared, setShared] = useState<{ count: number } | null>(null);
+
+  const recipient = contractors.find((c) => c.name === personName) ?? null;
 
   const togglePick = (node: FolderTreeNode) => setPicked((prev) => {
     const next = new Map(prev);
@@ -559,12 +580,37 @@ function ShareFilesModal({ account, loginHintEmail, contractors, onClose, onDone
       const items: ShareItemInput[] = [...picked.values()].map((n) => ({ kind: n.level === "folder" ? "folder" : "file", itemId: n.kantataId, itemName: n.name }));
       const res = await shareItems(account.id, personName, items);
       if (res.rejected && res.rejected.length > 0) { setErr(`${res.rejected.length} item(s) couldn't be shared.`); setBusy(false); return; }
-      onDone();
+      setShared({ count: items.length });
+      setBusy(false);
     } catch (e) {
       setErr(e instanceof MsApiError ? e.message : "Couldn't share those files.");
       setBusy(false);
     }
   };
+
+  // ---- success view: offer the invite if the recipient hasn't signed in ------
+  if (shared) {
+    const notIn = recipient ? recipient.entraStatus !== "active" : false;
+    const message = recipient
+      ? buildInviteMessage({ name: recipient.name, ...(recipient.email ? { email: recipient.email } : {}), clientName: account.clientName, folderCount: Math.max(recipient.folderCount, picked.size), appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) })
+      : "";
+    const first = (recipient?.name ?? personName).split(" ")[0];
+    return (
+      <ModalShell title={`Shared with ${recipient?.name ?? personName}`} sub={notIn
+        ? `They haven't signed in yet — send them this so they know it's waiting. Every open shows up on their card.`
+        : `They're already signed in and will see it in their workspace. Every open shows up on their card.`}
+        onClose={() => onDone()}
+        foot={<>
+          <span style={{ fontSize: 11.5, color: T.inkMuted, flex: 1 }}>{shared.count} {shared.count === 1 ? "item" : "items"} shared.</span>
+          <button type="button" className="btn-link" onClick={() => onDone()}>Done</button>
+          {recipient && <button type="button" className="btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>}
+        </>}>
+        {recipient
+          ? <textarea readOnly value={message} rows={9} style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }} onFocus={(e) => e.currentTarget.select()} />
+          : <div style={{ fontSize: 12.5, color: T.inkMuted }}>Shared successfully.</div>}
+      </ModalShell>
+    );
+  }
 
   return (
     <ModalShell title="Share files" sub="Pick who and what — they're notified, and every open shows up on their card." onClose={onClose}

@@ -186,6 +186,9 @@ export interface ContractorKpis {
   filesShared: number;
   opensThisWeek: number;
   awaitingApproval: number;
+  /** Contractors who haven't signed in yet (entra status not "active") — the
+   * "who still needs a nudge" count. */
+  notSignedIn: number;
 }
 
 export function contractorKpis(rows: ContractorRow[], approvals: MsAccountFileApproval[], now: number = Date.now()): ContractorKpis {
@@ -196,7 +199,16 @@ export function contractorKpis(rows: ContractorRow[], approvals: MsAccountFileAp
     filesShared: rows.reduce((s, r) => s + r.sharedCount, 0),
     opensThisWeek,
     awaitingApproval: approvals.filter((a) => a.purpose === "approval" && !a.decision).length,
+    notSignedIn: rows.filter((r) => r.entraStatus !== "active").length,
   };
+}
+
+/** How a contractor's sign-in stands — drives the "needs a nudge" pill. */
+export function signInState(row: Pick<ContractorRow, "entraStatus" | "folderCount" | "sharedCount">): "active" | "invited" | "no-access" {
+  if (row.entraStatus === "active") return "active";
+  if (row.entraStatus === "invited") return "invited";
+  // "none": distinguish "we shared but no invite fired" from "nothing shared".
+  return "no-access";
 }
 
 /** Format an ms duration as a short "1.4 h" / "3 d" / "12 m". */
