@@ -274,10 +274,12 @@ export function ResourcingBoard({
         </div>
       </div>
 
-      {/* Drill panel */}
+      {/* Drill-down opens a full-screen breakdown of exactly the tasks behind
+          whatever you clicked — grouped, with a summary and inline hours. */}
       {sel && (
-        <DrillPanel
+        <DrillModal
           label={drillLabel(sel)}
+          sel={sel}
           tasks={drillTasks}
           onSetHours={onSetHours}
           fromKantata={fromKantata && activeMode === "hours"}
@@ -335,40 +337,120 @@ function DemandTrend({ weeks, valueOf, unit, selectedWeek, onPick }: { weeks: st
   );
 }
 
-/** The tasks behind a selected cell/row/column — hours validated inline. */
-function DrillPanel({ label, tasks, onSetHours, fromKantata, onClose }: { label: string; tasks: Task[]; onSetHours: (taskId: string, hours: number | undefined) => void; fromKantata: boolean; onClose: () => void }) {
+/** A single task row with an inline hours estimate — shared by the drill modal. */
+function DrillTaskRow({ t, onSetHours }: { t: Task; onSetHours: (taskId: string, hours: number | undefined) => void }) {
   return (
-    <div style={{ ...card, borderColor: T.roi.navy }}>
-      <SectionTitle right={<button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={onClose}>Clear ✕</button>}>
-        {label} <span style={{ fontSize: 12, color: T.inkMuted, fontWeight: 600 }}>· {tasks.length} task{tasks.length === 1 ? "" : "s"}</span>
-      </SectionTitle>
-      {fromKantata && (
-        <div style={{ fontSize: 11.5, color: "#16708f", background: "#f4fbfd", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, padding: "7px 10px", marginBottom: 8 }}>
-          The hours in the grid are live Kantata Resource Center reservations — edit those in Kantata. The box below sets each task's own estimate (the derived plan), which is a separate number.
-        </div>
-      )}
-      {tasks.length === 0
-        ? <div style={{ fontSize: 12.5, color: T.inkMuted }}>{fromKantata ? "These hours come from Kantata's Resource Center for someone who owns no dated task here — there's no task-level breakdown to show. Edit the reservation in Kantata." : "No tasks fall on this selection."}</div>
-        : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {tasks.map((t) => (
-              <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${T.grid}` }}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, color: T.ink, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                  <span style={{ fontSize: 11, color: T.inkMuted }}>
-                    {t.projectLabel ? `${t.projectLabel} · ` : ""}{t.ownerName ?? "—"}{t.due ? ` · due ${new Date(`${t.due}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : ""}
-                  </span>
-                </span>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: T.inkMuted, whiteSpace: "nowrap" }}>
-                  <input type="number" min={0} step={0.5} defaultValue={t.estimatedHours ?? ""} placeholder="0"
-                    onBlur={(e) => { const raw = e.target.value.trim(); const v = raw === "" ? undefined : Number(raw); if (raw === "" || Number.isFinite(v)) onSetHours(t.id, v); }}
-                    style={{ width: 60, textAlign: "right", border: `1px solid ${t.estimatedHours == null ? T.status.warning : T.grid}`, borderRadius: 6, padding: "5px 7px", fontSize: 12.5, fontFamily: "inherit" }} />
-                  h
-                </label>
-              </div>
-            ))}
+    <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.grid}` }}>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontWeight: 600, fontSize: 13, color: T.ink, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>
+          {t.projectLabel ? `${t.projectLabel} · ` : ""}{t.ownerName ?? "—"}{t.due ? ` · due ${new Date(`${t.due}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : ""}
+        </span>
+      </span>
+      <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: T.inkMuted, whiteSpace: "nowrap" }}>
+        <input type="number" min={0} step={0.5} defaultValue={t.estimatedHours ?? ""} placeholder="0"
+          onBlur={(e) => { const raw = e.target.value.trim(); const v = raw === "" ? undefined : Number(raw); if (raw === "" || Number.isFinite(v)) onSetHours(t.id, v); }}
+          style={{ width: 62, textAlign: "right", border: `1px solid ${t.estimatedHours == null ? T.status.warning : T.grid}`, borderRadius: 6, padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit" }} />
+        h
+      </label>
+    </div>
+  );
+}
+
+/**
+ * Full-screen drill-down: click any KPI tile, heatmap cell, person or week and
+ * you "go into" it here — a real breakdown of exactly those tasks, grouped
+ * (by person, or by project when a single person is selected), with a summary
+ * strip and inline hours. Backdrop / Esc / Close all dismiss.
+ */
+function DrillModal({ label, sel, tasks, onSetHours, fromKantata, onClose }: {
+  label: string; sel: NonNullable<Selection>; tasks: Task[];
+  onSetHours: (taskId: string, hours: number | undefined) => void;
+  fromKantata: boolean; onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // When you've already narrowed to one person, grouping by person is useless —
+  // group by project instead so you see where that person's load lives.
+  const singlePerson = !!sel.person && !sel.all;
+  const groupedBy = singlePerson ? "project" : "owner";
+  const groups = useMemo(() => {
+    const m = new Map<string, Task[]>();
+    for (const t of tasks) {
+      const key = singlePerson ? (t.projectLabel || "No project") : (t.ownerName || "Unassigned");
+      const arr = m.get(key);
+      if (arr) arr.push(t); else m.set(key, [t]);
+    }
+    return [...m.entries()]
+      .map(([key, ts]) => ({ key, tasks: [...ts].sort((a, b) => (a.due ?? "").localeCompare(b.due ?? "")) }))
+      .sort((a, b) => b.tasks.length - a.tasks.length || a.key.localeCompare(b.key));
+  }, [tasks, singlePerson]);
+
+  const totalHours = tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
+  const needHours = tasks.filter((t) => t.estimatedHours == null).length;
+
+  return (
+    <div role="dialog" aria-modal="true" onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(16,21,46,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ background: T.surface, borderRadius: 14, width: "min(880px, 100%)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
+        {/* Header + summary strip */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.grid}` }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: T.roi.cyan, textTransform: "uppercase" }}>Resourcing drill-down</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: navy, marginTop: 2 }}>{label}</div>
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} style={{ whiteSpace: "nowrap" }}>Close ✕</button>
           </div>
-        )}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <SummaryPill label="Tasks" value={String(tasks.length)} />
+            <SummaryPill label="Estimated" value={totalHours > 0 ? `${Math.round(totalHours)}h` : "—"} />
+            <SummaryPill label="Need hours" value={String(needHours)} warn={needHours > 0} />
+            <SummaryPill label={`By ${groupedBy}`} value={String(groups.length)} />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "6px 22px 22px", overflowY: "auto" }}>
+          {fromKantata && (
+            <div style={{ fontSize: 11.5, color: "#16708f", background: "#f4fbfd", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, padding: "8px 11px", margin: "12px 0 4px" }}>
+              The hours in the grid are live Kantata Resource Center reservations — edit those in Kantata. The box below sets each task's own estimate (the derived plan), which is a separate number.
+            </div>
+          )}
+          {tasks.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: T.inkMuted, padding: "18px 0" }}>
+              {fromKantata
+                ? "These hours come from Kantata's Resource Center for someone who owns no dated task here — there's no task-level breakdown to show. Edit the reservation in Kantata."
+                : "No tasks fall on this selection."}
+            </div>
+          ) : (
+            groups.map((g) => (
+              <div key={g.key} style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2, position: "sticky", top: 0, background: T.surface, paddingTop: 4, paddingBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: T.ink }}>{g.key}</span>
+                  <span style={{ fontSize: 11, color: T.inkMuted }}>{g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}</span>
+                </div>
+                {g.tasks.map((t) => <DrillTaskRow key={t.id} t={t} onSetHours={onSetHours} />)}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Small labeled stat chip for the drill-modal summary strip. */
+function SummaryPill({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 1, padding: "6px 12px", borderRadius: 9, background: warn ? "#fdf3e6" : "#f3f6fa", minWidth: 74 }}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3, color: warn ? T.status.warning : T.inkMuted, textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 16, fontWeight: 800, color: warn ? T.status.warning : navy, fontVariantNumeric: "tabular-nums" }}>{value}</span>
     </div>
   );
 }
