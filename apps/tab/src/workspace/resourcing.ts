@@ -102,8 +102,11 @@ export function weeklyAllocations(tasks: readonly ResourceTask[]): WeekAllocatio
     const end = t.due;
     // A start after the due date (or none) collapses to the due day.
     const start = t.start && t.start <= end ? t.start : end;
-    if (t.assignments && t.assignments.length > 0) {
-      // Split task: each person's hours spread across the span independently.
+    if (t.assignments) {
+      // Split task: each person's hours spread across the span independently. A
+      // PRESENT-but-empty array means "was split, nothing left to do" (e.g. every
+      // assignee is done) — it must NOT fall through to the owner branch and
+      // re-book the whole estimate.
       for (const person of t.assignments) place(person.name, t.id, start, end, person.hours);
     } else if (isSchedulable(t)) {
       // Single-owner task: the whole estimate on the one owner.
@@ -241,7 +244,8 @@ export function weeklyLoad(tasks: readonly ResourceTask[]): WeekLoadCell[] {
     if (!t.due) continue;
     const end = t.due;
     const start = t.start && t.start <= end ? t.start : end;
-    if (t.assignments && t.assignments.length > 0) {
+    if (t.assignments) {
+      // Present-but-empty = split task with nothing left; don't re-book on owner.
       for (const person of t.assignments) place(person.name, t.id, start, end, person.hours);
     } else {
       place(t.ownerName!, t.id, start, end, t.estimatedHours ?? 0);

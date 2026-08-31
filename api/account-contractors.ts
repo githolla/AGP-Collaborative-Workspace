@@ -47,6 +47,12 @@ export default async function handler(
 
   try {
     const result = await withUserContext(auth.userId!, async (sql) => {
+      // Internal-only (defense-in-depth): this returns the richest external-PII
+      // payload (emails, entra ids, the whole discussion). Externals are never
+      // account_members today, but should one ever be added, this must still
+      // never hand them every contractor's data.
+      const [me] = await sql<{ kind: string }[]>`select kind from collab.app_user where id = ${auth.userId!}`;
+      if (me?.kind === "external") return null;
       const [acct] = await sql<{ id: string; client_name: string }[]>`select id, client_name from collab.client_account where id = ${accountId}`;
       if (!acct) return null;
       const [access] = await sql<{ ok: boolean }[]>`select collab.is_account_member_or_admin(${accountId}) as ok`;

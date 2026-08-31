@@ -221,3 +221,12 @@ describe("weeklyLoad", () => {
     expect(cell?.taskCount).toBe(1);
   });
 });
+
+describe("weeklyLoad — emptied split (all assignees done) books nothing", () => {
+  it("a present-but-empty assignments array does not fall back to the owner", () => {
+    const load = weeklyLoad([
+      t({ id: "e", ownerName: "Kara Rachal", due: "2026-08-12", estimatedHours: 40, assignments: [] }),
+    ]);
+    expect(load).toEqual([]);
+  });
+});

@@ -99,7 +99,7 @@ time and are set on the Container App.
 | `SUPABASE_URL` | runtime | no | Supabase REST + auth token verification |
 | `SUPABASE_SERVICE_ROLE_KEY` | runtime | **yes** | server-side Supabase (JSON store, token verify) |
 | `SUPABASE_DB_URL` | runtime | **yes** | direct Postgres for all `collab` endpoints (use the **transaction pooler**, port 6543) |
-| `KANTATA_API_TOKEN` | runtime | **yes** | live Kantata pull (`/api/mirror`) |
+| `KANTATA_API_TOKEN` | runtime | **yes** | live Kantata pull (`/api/mirror`) **and** the resourcing hours check — needs READ on Resource Management / `workspace_allocations`, not just stories/hours (see §6.1) |
 | `VITE_SUPABASE_URL` | build | no | client Supabase |
 | `VITE_SUPABASE_ANON_KEY` | build | no (safe by design; RLS protects) | client Supabase |
 | `AUTH_REQUIRED=true` | runtime | no | **turns off open mode** — see Security below |
@@ -142,8 +142,8 @@ webhook URL, two-way sync stays fully off and every code path no-ops cleanly.
 ### Admin / feedback (interim)
 | Var | Kind | Notes |
 |---|---|---|
-| `VITE_APP_ADMIN_EMAILS` | build | gates the `#admin` route client-side — presentation-layer only, not the security boundary (server RLS is) |
-| `VITE_FEEDBACK_ADMIN_CODE` | build | passcode for `#admin/feedback`; obscurity, not auth |
+| `VITE_APP_ADMIN_EMAILS` | build | gates the admin page (`#admin`, or the legacy `#admin/feedback` alias) client-side — presentation-layer only, not the security boundary (server RLS is). The admin page holds the Graph check, the Kantata resourcing-data diagnostic (§6.1), and the tour feedback |
+| `VITE_FEEDBACK_ADMIN_CODE` | build | passcode for the tour-feedback view; obscurity, not auth |
 
 ---
 
@@ -159,6 +159,13 @@ webhook URL, two-way sync stays fully off and every code path no-ops cleanly.
   Project Manager / Delivery) are presentation-layer; server enforcement is
   Postgres RLS via `withUserContext`. Elevated `withServiceContext` is used
   only for narrow, audited bootstrap/admin paths (documented in `db.ts`).
+- **Internal staff access model (a policy to confirm):** opening a client
+  workspace joins the caller as a **member** of that account (AGP is one book of
+  business — staff collaborate across clients), audited in the account's
+  activity. It does **not** make them an admin: admin (view-tier config,
+  archive, grants) stays with the creator or is granted explicitly. Externals
+  can never self-join. If AGP wants tighter per-account boundaries between
+  internal staff, that's a deliberate change to `api/account.ts` — flag it.
 - **The Graph app secret** lives only in `api/_lib/graphApp.ts`, is never a
   `VITE_` var, and is never logged. The app token is sent only to
   `https://graph.microsoft.com/` — a hard allowlist in `graphAppFetch` refuses
@@ -186,13 +193,39 @@ webhook URL, two-way sync stays fully off and every code path no-ops cleanly.
   `api/teams-renew.ts` runs an in-process loop (started from `server.mts`) that
   extends every subscription due within 20 min, every ~10 min, via a Graph
   PATCH — and re-provisions from scratch if Graph reports one already lapsed
-  (404). This relies on the container being long-lived (the same assumption the
-  background-provisioning model already makes). **Nothing external to
-  schedule.** It no-ops entirely when the app secret / webhook URL are unset.
+  (404). **Nothing external to schedule.** It no-ops entirely when the app
+  secret / webhook URL are unset.
+- **CRITICAL for Azure: set the Container App min replicas ≥ 1 (disable
+  scale-to-zero).** The renewal loop only runs while a replica is alive. Azure
+  Container Apps' default scale rule allows scale-to-zero; when the last replica
+  idles out, the loop dies and two-way Teams sync silently lapses within ~1h,
+  with nothing surfaced except the container logs. Min-replicas ≥ 1 keeps it
+  alive. (If a run of "last renewal > 30 min ago" appears in the logs, the
+  replica was asleep.)
 - **Diagnosing**: the `GET` status endpoint returns `configured`, `missingEnv`
   (exactly which vars are absent), the live subscription's expiry, and the last
   attempt's `state` + `lastError`. That plus the `[teams-subscribe]` /
   `[teams-renew]` container logs are the first stop for "sync stopped working".
+
+### 6.1 Diagnosing empty resourcing ("why does this client show 0h?")
+
+Resourcing is populated from auto-imported Kantata **tasks** (owners + due
+dates) even when there are no hours — that "task-load" view is expected, not
+broken. Hours appear only when Kantata carries them. Two built-in checks say
+which case you're in:
+
+- **In the Resourcing tab** (any internal user): the **"Why no hours? Check
+  Kantata"** button checks that client's own linked Kantata workspaces and
+  reports a verdict per workspace — hours are in Kantata (an account-link issue,
+  tell eng), story hours the import can carry, nothing to pull yet, or
+  **"couldn't read allocations"** (the token lacks the Resource Management read
+  scope in §4 — fix the scope, don't trust a "no hours" reading until it's
+  granted).
+- **`#admin`** (app-admins): the **Kantata resourcing data** panel does the
+  same for arbitrary workspace ids you paste in — for cross-client spot-checks.
+
+A 403 / "couldn't read allocations" verdict means the token-scope fix in §4;
+the check will **not** falsely report "no hours" when the read failed.
 
 ---
 
@@ -245,8 +278,21 @@ them. See README §"GitHub CI/CD Pipeline" for the required GitHub secrets.
 - [ ] `SUPABASE_DB_URL` set to the **transaction pooler** string (port 6543).
 - [ ] `GRAPH_APP_CLIENT_SECRET` stored as a secret, not `VITE_`-prefixed, and
       rotated on a known schedule with an owner.
-- [ ] `KANTATA_WRITE_ENABLED` deliberately set (off until write-back is
-      intended; on only after exercising the dry-run preview).
+- [ ] `KANTATA_WRITE_ENABLED` deliberately set. **Until it's `true`, "Send to
+      Kantata" is a safe dry-run** — the resourcing push (Cara: "the reason to
+      use this") does nothing. Set it on before the pilot, or the centerpiece
+      looks broken. The UI now says so plainly, but the flag is the real fix.
+- [ ] `KANTATA_API_TOKEN` verified to have **Resource Management / allocations
+      read** scope — run the `#admin` Kantata diagnostic against a known-staffed
+      workspace and confirm it does not report "couldn't read allocations".
+- [ ] `ANTHROPIC_API_KEY` decision made (set it to switch on the Contractor Hub
+      "Ask about your contractors" chat, or accept it stays dark — the hub works
+      either way).
+
+**Resourcing / Kantata data**
+- [ ] Understood that a client with **no hours in Kantata** shows the task-load
+      view, not a bug (§6.1). Hours appear when someone enters them (in Kantata,
+      or in the Resourcing drill panel).
 
 **Database**
 - [ ] All migrations through `0028` applied to the production database.
@@ -259,6 +305,8 @@ them. See README §"GitHub CI/CD Pipeline" for the required GitHub secrets.
 - [ ] `TEAMS_WEBHOOK_URL` points at the real production origin.
 - [ ] Enabled sync on one pilot account and confirmed a Teams reply lands in
       the Discussion, and that it still works >1h later (renewal verified).
+- [ ] **Container App min replicas ≥ 1** (scale-to-zero disabled) — the
+      in-process renewal loop only runs while a replica is alive (§6).
 
 **Ownership**
 - [ ] Real owners assigned for every open BLOCKERS row (they are placeholders).

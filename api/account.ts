@@ -72,21 +72,34 @@ async function handleCreate(
       order by created_at asc limit 1
     `;
     const accountId = existing?.id ?? randomUUID();
-    if (!existing) {
+    const isNew = !existing;
+    const [me] = await tx<{ display_name: string; title: string | null }[]>`select display_name, title from collab.app_user where id = ${userId}`;
+    const displayName = me?.display_name ?? "Unknown";
+    if (isNew) {
       await tx`insert into collab.client_account (id, client_name, created_by) values (${accountId}, ${clientName}, ${userId})`;
       await logActivity(tx, accountId, "Workspace created", "workspace");
     }
 
-    // Ensure the caller is a workspace admin + member (only if not already, so
-    // re-opening never duplicates rows).
-    const [hasRole] = await tx<{ x: number }[]>`select 1 as x from collab.user_role where user_id = ${userId} and account_id = ${accountId} limit 1`;
-    if (!hasRole) {
-      await tx`insert into collab.user_role (user_id, role, account_id, granted_by) values (${userId}, 'workspace_admin', ${accountId}, ${userId})`;
+    // ROLE: only the CREATOR of a NEW account is made workspace_admin. Opening
+    // an EXISTING account must NOT silently make the caller its admin — that let
+    // any internal user self-admin any client by guessing its name (they could
+    // then rewrite view tiers, archive it, or manage grants). Admin on an
+    // existing account is granted explicitly (the admin UI), never by opening it.
+    if (isNew) {
+      const [hasRole] = await tx<{ x: number }[]>`select 1 as x from collab.user_role where user_id = ${userId} and account_id = ${accountId} limit 1`;
+      if (!hasRole) {
+        await tx`insert into collab.user_role (user_id, role, account_id, granted_by) values (${userId}, 'workspace_admin', ${accountId}, ${userId})`;
+      }
     }
+
+    // MEMBERSHIP: AGP is one book of business — internal staff collaborate
+    // across clients, so opening a client joins the caller as a MEMBER
+    // (read/participate, not admin). The join is AUDITED on an existing account
+    // so "who got in, when" is visible, unlike the previous silent grant.
     const [isMember] = await tx<{ x: number }[]>`select 1 as x from collab.account_member where account_id = ${accountId} and user_id = ${userId} limit 1`;
     if (!isMember) {
-      const [me] = await tx<{ display_name: string; title: string | null }[]>`select display_name, title from collab.app_user where id = ${userId}`;
-      await tx`insert into collab.account_member (account_id, user_id, person_id, name, title) values (${accountId}, ${userId}, ${"u-" + userId}, ${me?.display_name ?? "Unknown"}, ${me?.title ?? null})`;
+      await tx`insert into collab.account_member (account_id, user_id, person_id, name, title) values (${accountId}, ${userId}, ${"u-" + userId}, ${displayName}, ${me?.title ?? null})`;
+      if (!isNew) await logActivity(tx, accountId, `${displayName} joined the workspace`, "team");
     }
 
     const [row] = await tx<AccountRow[]>`select id, client_name, archived, created_at from collab.client_account where id = ${accountId}`;

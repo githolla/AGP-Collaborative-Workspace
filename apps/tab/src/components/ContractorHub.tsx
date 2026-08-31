@@ -169,7 +169,10 @@ export function ContractorHub({
       setData(payload);
     })().catch((e) => { if (nameRef.current === forName) setErr(e instanceof MsApiError ? e.message : "Couldn't load contractor data"); });
   };
-  useEffect(() => { setErr(null); reload(); }, [accountId, clientName]);
+  // Clear the previous client's data on switch so the old account's contractors
+  // (and account id, which Add/Share act on) can't linger while the new fetch
+  // is in flight.
+  useEffect(() => { setErr(null); setData(null); reload(); }, [accountId, clientName]);
 
   const account: HubAccount | null = data?.account ?? null;
   const copyInvite = async (row: ContractorRow) => {
@@ -186,7 +189,12 @@ export function ContractorHub({
   const shown = filter === "all" ? rows : rows.filter((r) => r.status === filter);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
-  if (err) return <div style={{ ...card, color: T.status.critical, fontSize: 12.5 }}>{err}</div>;
+  if (err) return (
+    <div style={{ ...card, color: T.status.critical, fontSize: 12.5, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ flex: 1, minWidth: 200 }}>{err}</span>
+      <button type="button" className="btn-secondary" onClick={() => { setErr(null); setData(null); reload(); }}>Retry</button>
+    </div>
+  );
   if (!account || !data || !kpis) return <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>Loading contractors…</div>;
 
   return (
@@ -401,12 +409,16 @@ function ChatPanel({ accountId }: { accountId: string }) {
   const [busy, setBusy] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Ref guard, not the `busy` state: two synchronous fires in one tick (double
+  // Enter / double-click a chip) both read busy===false before the re-render.
+  const inFlight = useRef(false);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [turns, busy]);
 
   const ask = async (q: string) => {
     const question = q.trim();
-    if (!question || busy) return;
+    if (!question || inFlight.current) return;
+    inFlight.current = true;
     const history = turns;
     setTurns((t) => [...t, { role: "user", content: question }]);
     setInput("");
@@ -419,6 +431,7 @@ function ChatPanel({ accountId }: { accountId: string }) {
       setTurns((t) => [...t, { role: "assistant", content: e instanceof MsApiError ? `Sorry — ${e.message}` : "Sorry, I couldn't answer that just now." }]);
     } finally {
       setBusy(false);
+      inFlight.current = false;
     }
   };
 
@@ -585,13 +598,15 @@ function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone
 // ---- share files modal ------------------------------------------------------
 
 function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClose, onDone, onCopied }: { account: HubAccount; loginHintEmail?: string | undefined; contractors: ContractorRow[]; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
-  const [personName, setPersonName] = useState(contractors[0]?.name ?? "");
+  // Select by stable id, not display name — two contractors can share a name,
+  // and resolving by name would target the wrong one.
+  const [personId, setPersonId] = useState(contractors[0]?.id ?? "");
   const [picked, setPicked] = useState<Map<string, FolderTreeNode>>(new Map());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [shared, setShared] = useState<{ count: number } | null>(null);
 
-  const recipient = contractors.find((c) => c.name === personName) ?? null;
+  const recipient = contractors.find((c) => c.id === personId) ?? null;
 
   const togglePick = (node: FolderTreeNode) => setPicked((prev) => {
     const next = new Map(prev);
@@ -600,12 +615,12 @@ function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClo
   });
 
   const submit = async () => {
-    if (!personName) { setErr("Pick who to share with."); return; }
+    if (!recipient) { setErr("Pick who to share with."); return; }
     if (picked.size === 0) { setErr("Pick at least one file or folder."); return; }
     setBusy(true); setErr(null);
     try {
       const items: ShareItemInput[] = [...picked.values()].map((n) => ({ kind: n.level === "folder" ? "folder" : "file", itemId: n.kantataId, itemName: n.name }));
-      const res = await shareItems(account.id, personName, items);
+      const res = await shareItems(account.id, recipient.name, items);
       if (res.rejected && res.rejected.length > 0) { setErr(`${res.rejected.length} item(s) couldn't be shared.`); setBusy(false); return; }
       setShared({ count: items.length });
       setBusy(false);
@@ -621,9 +636,9 @@ function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClo
     const message = recipient
       ? buildInviteMessage({ name: recipient.name, ...(recipient.email ? { email: recipient.email } : {}), clientName: account.clientName, folderCount: Math.max(recipient.folderCount, picked.size), appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) })
       : "";
-    const first = (recipient?.name ?? personName).split(" ")[0];
+    const first = (recipient?.name ?? "there").split(" ")[0];
     return (
-      <ModalShell title={`Shared with ${recipient?.name ?? personName}`} sub={notIn
+      <ModalShell title={`Shared with ${recipient?.name ?? "contractor"}`} sub={notIn
         ? `They haven't signed in yet — send them this so they know it's waiting. Every open shows up on their card.`
         : `They're already signed in and will see it in their workspace. Every open shows up on their card.`}
         onClose={() => onDone()}
@@ -650,8 +665,8 @@ function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClo
         <label style={labelStyle}>Send to</label>
         {contractors.length === 0
           ? <div style={{ fontSize: 12.5, color: T.inkMuted }}>No contractors yet — add one first.</div>
-          : <select style={inputStyle} value={personName} onChange={(e) => setPersonName(e.target.value)}>
-              {contractors.map((c) => <option key={c.id} value={c.name}>{c.name}{c.org ? ` · ${c.org}` : ""}</option>)}
+          : <select style={inputStyle} value={personId} onChange={(e) => setPersonId(e.target.value)}>
+              {contractors.map((c) => <option key={c.id} value={c.id}>{c.name}{c.org ? ` · ${c.org}` : ""}</option>)}
             </select>}
       </div>
       <div>

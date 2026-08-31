@@ -187,3 +187,19 @@ describe("humanDuration", () => {
     expect(humanDuration(3 * 86_400_000)).toBe("3 d");
   });
 });
+
+describe("discussion slice attribution", () => {
+  it("labels another contractor's @mention as external (them), not AGP", () => {
+    const externals = [ext({ id: "e1", name: "Dana Reyes" }), ext({ id: "e2", name: "Mia Ford" })];
+    const thread = [
+      msg({ author: "Mia Ford", body: "hey @Dana can you take this" }), // other external mentions Dana
+      msg({ author: "Kellie B.", body: "thanks @Dana" }),               // internal mentions Dana
+    ];
+    const rows = buildContractorRows(externals, [], [], thread, [], NOW);
+    const dana = rows.find((r) => r.name === "Dana Reyes")!;
+    const fromMia = dana.messages.find((m) => m.author === "Mia Ford")!;
+    const fromKellie = dana.messages.find((m) => m.author === "Kellie B.")!;
+    expect(fromMia.who).toBe("them");   // external author → left/them side
+    expect(fromKellie.who).toBe("agp"); // internal author → right/agp side
+  });
+});

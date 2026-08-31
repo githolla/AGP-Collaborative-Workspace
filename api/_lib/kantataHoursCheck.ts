@@ -10,8 +10,15 @@
  */
 
 const BASE = (process.env.KANTATA_API_BASE || "https://api.mavenlink.com/api/v1").replace(/\/+$/, "");
-const MONEY = /(cost|rate|bill|price|amount|budget|revenue|margin|charge|expense)/i;
-const strip = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => !MONEY.test(k)));
+// ALLOWLIST (not a blocklist): the sample returns only these known-safe
+// diagnostic fields, so a financial or free-text field Kantata adds/renames
+// can never leak by default. Everything else is dropped.
+const SAMPLE_FIELDS = ["id", "workspace_id", "user_id", "story_id", "start_date", "end_date", "total_minutes", "minutes", "scheduled_minutes", "total_hours", "hours", "scheduled_hours", "created_at", "updated_at"] as const;
+const sampleOf = (o: Record<string, unknown>): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const k of SAMPLE_FIELDS) if (o[k] !== undefined) out[k] = o[k];
+  return out;
+};
 const num = (...vals: unknown[]): number => { for (const v of vals) { const n = Number(v); if (Number.isFinite(n) && n !== 0) return n; } return 0; };
 
 type Row = Record<string, unknown>;
@@ -50,7 +57,9 @@ export interface WorkspaceHoursReport {
   stories: number;
   storiesWithHours: number;
   storyHours: number;
-  verdict: "has_allocations" | "has_story_hours" | "no_hours";
+  /** "unknown" = the allocations read failed for this workspace (e.g. the token
+   * lacks resource-management scope), so we can't claim "no hours". */
+  verdict: "has_allocations" | "has_story_hours" | "no_hours" | "unknown";
   sample: Record<string, unknown> | null;
 }
 
@@ -84,11 +93,13 @@ export async function checkKantataWorkspaces(workspaceIds: string[]): Promise<Ka
     // Filter server-side by workspace; also filter client-side in case the API
     // ignores the param, so the count is always exactly this workspace's.
     let mine: Row[] = [];
+    let allocReadable = true;
     try {
       const pulled = await pull(token, `${BASE}/workspace_allocations?workspace_id=${encodeURIComponent(wsId)}&per_page=200&order=updated_at:desc&include=user`, "workspace_allocations", 2000);
       mine = pulled.filter((a) => String(a.workspace_id) === String(wsId));
       totalSeen += mine.length;
     } catch (e) {
+      allocReadable = false;
       if (!allocError) allocError = e instanceof Error ? e.message : "allocations pull failed";
     }
     const taskLinked = mine.filter((a) => a.story_id).length;
@@ -111,8 +122,10 @@ export async function checkKantataWorkspaces(workspaceIds: string[]): Promise<Ka
       stories: stories.length,
       storiesWithHours: withHours.length,
       storyHours,
-      verdict: mine.length > 0 ? "has_allocations" : withHours.length > 0 ? "has_story_hours" : "no_hours",
-      sample: mine[0] ? strip(mine[0]) : null,
+      // Never claim "no hours" when we couldn't actually read allocations — a
+      // scope 403 must not masquerade as an empty Resource Center.
+      verdict: mine.length > 0 ? "has_allocations" : withHours.length > 0 ? "has_story_hours" : allocReadable ? "no_hours" : "unknown",
+      sample: mine[0] ? sampleOf(mine[0]) : null,
     });
   }
 

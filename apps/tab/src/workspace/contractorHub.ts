@@ -94,6 +94,10 @@ export function buildContractorRows(
   approvals: MsAccountFileApproval[],
   now: number = Date.now(),
 ): ContractorRow[] {
+  // Who counts as external, so a message by ANOTHER contractor that @mentions
+  // this person isn't mislabeled as coming from AGP.
+  const externalNames = new Set(externals.map((e) => e.name));
+  const externalUserIds = new Set(externals.filter((e) => e.userId).map((e) => e.userId!));
   return externals
     .map((ext): ContractorRow => {
       const folderCount = grants.filter((g) => (ext.userId && g.userId === ext.userId) || g.externalLinkId === ext.id).length;
@@ -104,12 +108,12 @@ export function buildContractorRows(
       // Discussion slice: messages they authored, or that @mention them.
       const theirMsgs: DiscussionMsg[] = thread
         .filter((m) => m.author === ext.name || (ext.userId && m.authorUserId === ext.userId) || mentions(m.body, ext.name))
-        .map((m) => ({
-          who: (m.author === ext.name || (ext.userId && m.authorUserId === ext.userId)) ? "them" as const : "agp" as const,
-          author: m.author,
-          at: m.createdAt,
-          body: m.body,
-        }));
+        .map((m) => {
+          const authorIsExternal = externalNames.has(m.author) || (!!m.authorUserId && externalUserIds.has(m.authorUserId));
+          // Left/"them" side for any external author (this contractor OR another
+          // one who mentioned them); right/"agp" only for an internal author.
+          return { who: authorIsExternal ? "them" as const : "agp" as const, author: m.author, at: m.createdAt, body: m.body };
+        });
 
       // Their approvals: file_approval has no recipient key, so attribute only
       // when the shared item name also appears in one of their opened shares.

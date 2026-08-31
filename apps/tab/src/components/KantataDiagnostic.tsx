@@ -20,7 +20,7 @@ interface DiagWorkspace {
   stories: number;
   storiesWithHours: number;
   storyHours: number;
-  verdict: "has_allocations" | "has_story_hours" | "no_hours";
+  verdict: "has_allocations" | "has_story_hours" | "no_hours" | "unknown";
   sample: Record<string, unknown> | null;
 }
 interface DiagResult {
@@ -35,6 +35,7 @@ const VERDICT: Record<DiagWorkspace["verdict"], { icon: string; label: string; c
   has_allocations: { icon: "✅", label: "Has allocations", color: "#116a43", bg: "#e6f4ea", note: "The “By hours” view should populate from these. If it's empty in the app, the gap is the workspace↔account match, not the data." },
   has_story_hours: { icon: "◑", label: "Story hours only", color: "#8a6d1a", bg: "#faf3dc", note: "No Resource Center allocations, but stories carry estimated hours — the derived weekly view can spread those if the import carries estimated_minutes." },
   no_hours: { icon: "⚠", label: "No hours in Kantata", color: T.inkSecondary, bg: "#eef0f4", note: "No allocations and no story hours for this workspace. Nothing to pull — the task-load view is the honest picture until someone enters hours." },
+  unknown: { icon: "🔒", label: "Couldn't read allocations", color: "#8a6d1a", bg: "#faf3dc", note: "The allocations read failed — the token likely lacks resource-management (allocations) read scope. This is NOT proof there are no hours; add the scope and re-check." },
 };
 
 async function fetchDiagnostic(workspaceIds: string): Promise<DiagResult> {

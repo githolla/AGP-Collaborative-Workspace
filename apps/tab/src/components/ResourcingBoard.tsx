@@ -17,7 +17,7 @@
  * auto-estimate, no capacity here — those are Team Load / Kantata, by decision.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { card, T } from "../theme.js";
 import { StatTile, SectionTitle } from "./bits.js";
 import type { Task } from "../workspace/types.js";
@@ -68,9 +68,14 @@ export function ResourcingBoard({
   const fromKantata = reservations.length > 0;
   const [mode, setMode] = useState<Mode>(hasHours ? "hours" : "tasks");
   const [sel, setSel] = useState<Selection>(null);
-  // If hours arrive later (import lands), don't fight a manual choice — but if
-  // the user never chose and hours show up, prefer hours.
   const activeMode: Mode = mode === "hours" && !hasHours ? "tasks" : mode;
+  // Auto-offer the hours view the first time hours appear (a PM enters some, or
+  // reservations load), unless they've explicitly chosen a mode — so entering
+  // hours in task mode gives visible feedback instead of a heatmap that doesn't
+  // move (task-count cells don't change when you add hours).
+  const userPicked = useRef(false);
+  const pickMode = (m: Mode) => { userPicked.current = true; setMode(m); };
+  useEffect(() => { if (hasHours && !userPicked.current) setMode("hours"); }, [hasHours]);
 
   // ---- axes -----------------------------------------------------------------
   const loadCell = useMemo(() => {
@@ -94,12 +99,21 @@ export function ResourcingBoard({
     return [...set].sort();
   }, [load, hoursGrid]);
 
-  // cell value in the active unit
+  // cell value in the active unit (a cell is "active that week", correct per-week)
   const cellValue = (p: string, w: string): number =>
     activeMode === "hours" ? hoursGrid.hoursFor(p, w) : (loadCell.get(`${p}|${w}`)?.taskCount ?? 0);
   const maxCell = useMemo(() => Math.max(1, ...people.flatMap((p) => weeks.map((w) => cellValue(p, w)))), [people, weeks, activeMode]);
-  const weekTotal = (w: string) => people.reduce((s, p) => s + cellValue(p, w), 0);
-  const personTotal = (p: string) => weeks.reduce((s, w) => s + cellValue(p, w), 0);
+  // Totals in TASK mode must count DISTINCT tasks (a task spanning N weeks shows
+  // in N cells but is one task) so the row/week/KPI totals match the drill;
+  // summing per-week cells would over-report by the span length. Hours mode sums
+  // fine (hours are split across weeks).
+  const distinctTasks = (pred: (c: WeekLoadCell) => boolean): number => {
+    const s = new Set<string>();
+    for (const c of load) if (pred(c)) for (const id of c.taskIds) s.add(id);
+    return s.size;
+  };
+  const weekTotal = (w: string) => activeMode === "hours" ? people.reduce((s, p) => s + hoursGrid.hoursFor(p, w), 0) : distinctTasks((c) => c.weekStart === w);
+  const personTotal = (p: string) => activeMode === "hours" ? weeks.reduce((s, w) => s + hoursGrid.hoursFor(p, w), 0) : distinctTasks((c) => c.personName === p);
   const unit = activeMode === "hours" ? "h" : "";
 
   // ---- KPIs -----------------------------------------------------------------
@@ -148,7 +162,7 @@ export function ResourcingBoard({
             const disabled = m === "hours" && !hasHours;
             return (
               <button key={m} type="button" disabled={disabled}
-                onClick={() => setMode(m)}
+                onClick={() => pickMode(m)}
                 title={disabled ? "Add hours to a task (or pull Kantata reservations) to see the hours view" : ""}
                 style={{ border: 0, background: activeMode === m ? T.roi.cyan : "transparent", color: activeMode === m ? "#fff" : disabled ? T.inkMuted : T.inkSecondary, fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 6, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1 }}>
                 {m === "tasks" ? "By tasks" : "By hours"}
@@ -225,6 +239,7 @@ export function ResourcingBoard({
           label={drillLabel(sel)}
           tasks={drillTasks}
           onSetHours={onSetHours}
+          fromKantata={fromKantata && activeMode === "hours"}
           onClose={() => setSel(null)}
         />
       )}
@@ -235,7 +250,9 @@ export function ResourcingBoard({
   );
 
   function personTotalAll(): number {
-    return weeks.reduce((s, w) => s + weekTotal(w), 0);
+    // Hours: sum every week. Tasks: distinct across all weeks (not the sum of
+    // per-week distinct counts, which would double-count multi-week tasks).
+    return activeMode === "hours" ? weeks.reduce((s, w) => s + weekTotal(w), 0) : distinctTasks(() => true);
   }
 }
 
@@ -270,14 +287,19 @@ function DemandTrend({ weeks, valueOf, unit, selectedWeek, onPick }: { weeks: st
 }
 
 /** The tasks behind a selected cell/row/column — hours validated inline. */
-function DrillPanel({ label, tasks, onSetHours, onClose }: { label: string; tasks: Task[]; onSetHours: (taskId: string, hours: number | undefined) => void; onClose: () => void }) {
+function DrillPanel({ label, tasks, onSetHours, fromKantata, onClose }: { label: string; tasks: Task[]; onSetHours: (taskId: string, hours: number | undefined) => void; fromKantata: boolean; onClose: () => void }) {
   return (
     <div style={{ ...card, borderColor: T.roi.navy }}>
       <SectionTitle right={<button type="button" className="btn-link" style={{ fontSize: 11.5 }} onClick={onClose}>Clear ✕</button>}>
         {label} <span style={{ fontSize: 12, color: T.inkMuted, fontWeight: 600 }}>· {tasks.length} task{tasks.length === 1 ? "" : "s"}</span>
       </SectionTitle>
+      {fromKantata && (
+        <div style={{ fontSize: 11.5, color: "#16708f", background: "#f4fbfd", border: `1px solid ${T.roi.cyan}`, borderRadius: 8, padding: "7px 10px", marginBottom: 8 }}>
+          The hours in the grid are live Kantata Resource Center reservations — edit those in Kantata. The box below sets each task's own estimate (the derived plan), which is a separate number.
+        </div>
+      )}
       {tasks.length === 0
-        ? <div style={{ fontSize: 12.5, color: T.inkMuted }}>No tasks here.</div>
+        ? <div style={{ fontSize: 12.5, color: T.inkMuted }}>{fromKantata ? "These hours come from Kantata's Resource Center for someone who owns no dated task here — there's no task-level breakdown to show. Edit the reservation in Kantata." : "No tasks fall on this selection."}</div>
         : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {tasks.map((t) => (
@@ -323,7 +345,7 @@ function PushToKantata({ fromKantata, onPublish }: { fromKantata: boolean; onPub
       {result && (
         <div style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: result.failed > 0 ? "#fdeced" : "#eaf6ee", fontSize: 11.5, color: T.ink }}>
           {result.dryRun
-            ? <><strong>Preview only — nothing was sent.</strong> {result.reason ?? ""} These reservations are valid and will post once writing to Kantata is switched on.</>
+            ? <><strong>Staged — not sent (nothing you did is wrong).</strong> Kantata write-back is switched OFF on the server, so this is a safe preview. These {result.results.length || ""} reservations are valid and will post the moment an admin sets <code>KANTATA_WRITE_ENABLED=true</code>. {result.reason ?? ""}</>
             : <><strong>{result.applied} weekly reservation{result.applied === 1 ? "" : "s"} sent{result.failed > 0 ? `, ${result.failed} failed` : ""}.</strong> {result.failed > 0 ? result.results.filter((r) => !r.ok).map((r) => r.error).join(" · ") : "Kantata now reflects this plan."}</>}
         </div>
       )}
@@ -339,7 +361,7 @@ interface HoursWorkspace {
   allocationsHours: number;
   storiesWithHours: number;
   storyHours: number;
-  verdict: "has_allocations" | "has_story_hours" | "no_hours";
+  verdict: "has_allocations" | "has_story_hours" | "no_hours" | "unknown";
 }
 interface HoursCheck {
   configured: boolean;
@@ -353,6 +375,7 @@ const VERDICT_TEXT: Record<HoursWorkspace["verdict"], { icon: string; color: str
   has_allocations: { icon: "✅", color: "#116a43", bg: "#e6f4ea", line: (w) => `Workspace ${w.workspaceId}: ${w.allocations} Resource Center allocations (~${w.allocationsHours}h) — the hours are in Kantata. If "By hours" is still empty, it's the account link, not the data — tell me and I'll fix the match.` },
   has_story_hours: { icon: "◑", color: "#8a6d1a", bg: "#faf3dc", line: (w) => `Workspace ${w.workspaceId}: no allocations, but ${w.storiesWithHours} stories carry estimated hours (~${w.storyHours}h) — the import can carry these onto tasks. Tell me and I'll wire it.` },
   no_hours: { icon: "⚠", color: T.inkSecondary, bg: "#eef0f4", line: (w) => `Workspace ${w.workspaceId}: no allocations and no story hours in Kantata — there's nothing to pull yet. The task view above is the honest picture until someone enters hours (in Kantata or here).` },
+  unknown: { icon: "🔒", color: "#8a6d1a", bg: "#faf3dc", line: (w) => `Workspace ${w.workspaceId}: couldn't read Resource Center allocations — the Kantata token likely lacks resource-management (allocations) read scope. Ask Ren to add it, then re-check. (Story hours: ${w.storiesWithHours}.)` },
 };
 
 function KantataHoursCheckInline({ accountId, emphasize }: { accountId: string; emphasize: boolean }) {
