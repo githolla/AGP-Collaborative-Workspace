@@ -134,9 +134,10 @@ Graph app permissions needed (admin-consented, application not delegated):
 webhook URL, two-way sync stays fully off and every code path no-ops cleanly.
 
 ### AI agents
-| Var | Kind | Notes |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | runtime | **yes** | activates the LLM collaboration agents. See §7. |
+| Var | Kind | Secret | Notes |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | runtime | **yes** | activates the LLM collaboration agents AND the Contractor Hub assistant. See §7. |
+| `CONTRACTOR_CHAT_MODEL` | runtime | no | optional model override for the Contractor Hub assistant (default `claude-opus-5`). |
 
 ### Admin / feedback (interim)
 | Var | Kind | Notes |
@@ -207,6 +208,14 @@ meantime — until the key lands, the Copilot uses deterministic knowledge-base
 matching. If someone asks "is an AI writing these?", the answer today is: the
 ROI analysis is engine math, everything else is deterministic matching, and the
 generative layer is dark until the key is set (BLOCKERS #8).
+
+The **Contractor Hub assistant** ("Ask about your contractors") is the same
+story: it calls Claude with the account's contractor data assembled
+server-side (RLS-scoped), and returns an honest "not switched on yet" message
+until `ANTHROPIC_API_KEY` is set. The Contractor Hub itself — adding
+contractors, sharing files, the activity and discussion history — works fully
+without the key; only the chat box waits on it. No new database migration is
+needed for the hub; it reads the tables already in place.
 
 ---
 
