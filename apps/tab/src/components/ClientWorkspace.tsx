@@ -3309,15 +3309,29 @@ export function ClientWorkspace({
                 Archive
               </button>
             )}
-            {onImportCampaigns && (
+            {/* Only shown when there's actually un-imported Kantata work — a
+                clear call to action then, and nothing at all when everything is
+                already imported (auto-import usually keeps this empty). */}
+            {onImportCampaigns && matchCount > 0 && (
               <button
                 type="button"
-                className={`btn btn-sm ${matchCount > 0 ? "btn-primary" : "btn-secondary"}`}
+                className="btn btn-sm btn-primary"
                 data-tour="review-import"
-                title="See what matched this client in Kantata and choose what to bring in. Nothing imports until you approve it."
+                title="New Kantata work matched this client that isn't in the workspace yet. Review and bring it in — nothing imports until you approve it."
                 onClick={() => setReviewOpen((o) => !o)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
               >
-                Review import{matchCount > 0 ? ` (${matchCount} matched)` : ""}
+                <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff", boxShadow: "0 0 0 3px rgba(255,255,255,.35)" }} />
+                Import {matchCount} from Kantata
+              </button>
+            )}
+            {/* When nothing needs importing, a quiet, non-CTA way back into the
+                panel (to remove or re-check) — a plain link, not a button. */}
+            {onImportCampaigns && matchCount === 0 && (
+              <button type="button" className="btn-link" style={{ fontSize: 11.5, color: T.inkMuted }}
+                title="Everything matched in Kantata is already imported. Open to review or remove."
+                onClick={() => setReviewOpen((o) => !o)}>
+                Kantata: all imported ✓
               </button>
             )}
           </span>

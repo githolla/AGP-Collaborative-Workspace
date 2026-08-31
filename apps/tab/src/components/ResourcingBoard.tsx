@@ -17,7 +17,7 @@
  * auto-estimate, no capacity here — those are Team Load / Kantata, by decision.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { card, T } from "../theme.js";
 import { StatTile, SectionTitle } from "./bits.js";
 import type { Task } from "../workspace/types.js";
@@ -31,7 +31,18 @@ import {
 const navy = T.roi.navy;
 
 type Mode = "tasks" | "hours";
-type Selection = { person?: string; week?: string } | null;
+type Selection = { person?: string; week?: string; needsHours?: boolean; all?: boolean } | null;
+
+/** Makes a KPI tile clickable-to-drill, with a selected ring. */
+function DrillStat({ onClick, active, title, children }: { onClick: () => void; active: boolean; title: string; children: ReactNode }) {
+  return (
+    <div role="button" tabIndex={0} title={title} onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      style={{ cursor: "pointer", borderRadius: 12, outline: active ? `2px solid ${T.roi.navy}` : "none", outlineOffset: 1 }}>
+      {children}
+    </div>
+  );
+}
 
 /** Teal-ramp cell shade by magnitude. */
 function seqCell(value: number, max: number): { bg: string; fg: string } {
@@ -130,8 +141,9 @@ export function ResourcingBoard({
       if (sel.week && c.weekStart !== sel.week) continue;
       for (const id of c.taskIds) ids.add(id);
     }
-    return [...ids].map((id) => taskById.get(id)).filter((t): t is Task => !!t)
-      .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+    let list = [...ids].map((id) => taskById.get(id)).filter((t): t is Task => !!t);
+    if (sel.needsHours) list = list.filter((t) => t.estimatedHours == null);
+    return list.sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
   }, [sel, load, taskById]);
 
   const toggle = (next: Selection) => setSel((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? null : next));
@@ -147,12 +159,20 @@ export function ResourcingBoard({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* KPI row */}
+      {/* KPI row — each tile drills into the tasks behind it */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-        <StatTile label="People on the account" value={String(people.length)} detail={`${candidates.length} tasks in play`} />
-        <StatTile label={activeMode === "hours" ? "Scheduled hours" : "Tasks scheduled"} value={`${Math.round(personTotalAll())}${unit}`} detail="across the weeks below" />
-        <StatTile label="Busiest week" value={busiest.v > 0 ? `${Math.round(busiest.v)}${unit}` : "—"} {...(busiest.w ? { detail: weekLabel(busiest.w) } : {})} />
-        <StatTile label="Need hours" value={String(missingHours)} detail={missingHours > 0 ? "add to unlock the hours view" : "all set"} {...(missingHours > 0 ? { detailColor: T.status.warning } : { detailColor: T.status.good })} />
+        <DrillStat onClick={() => toggle({ all: true })} active={!!sel?.all} title="Show all tasks in play">
+          <StatTile label="People on the account" value={String(people.length)} detail={`${candidates.length} tasks in play`} />
+        </DrillStat>
+        <DrillStat onClick={() => toggle({ all: true })} active={!!sel?.all} title="Show every scheduled task">
+          <StatTile label={activeMode === "hours" ? "Scheduled hours" : "Tasks scheduled"} value={`${Math.round(personTotalAll())}${unit}`} detail="across the weeks below" />
+        </DrillStat>
+        <DrillStat onClick={() => busiest.w && toggle({ week: busiest.w })} active={!!busiest.w && sel?.week === busiest.w} title="Drill into the busiest week">
+          <StatTile label="Busiest week" value={busiest.v > 0 ? `${Math.round(busiest.v)}${unit}` : "—"} {...(busiest.w ? { detail: weekLabel(busiest.w) } : {})} />
+        </DrillStat>
+        <DrillStat onClick={() => missingHours > 0 && toggle({ needsHours: true })} active={!!sel?.needsHours} title="Show the tasks that need hours">
+          <StatTile label="Need hours" value={String(missingHours)} detail={missingHours > 0 ? "click to see which" : "all set"} {...(missingHours > 0 ? { detailColor: T.status.warning } : { detailColor: T.status.good })} />
+        </DrillStat>
       </div>
 
       {/* Mode toggle + source note */}
@@ -216,17 +236,21 @@ export function ResourcingBoard({
                       </td>
                     );
                   })}
-                  <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>{Math.round(personTotal(p))}</td>
+                  <td onClick={() => toggle({ person: p })} title={`All of ${p}'s tasks`}
+                    style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: sel?.person === p && !sel?.week ? "#f0fafc" : T.surface, cursor: "pointer" }}>{Math.round(personTotal(p))}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ borderTop: `2px solid ${T.grid}` }}>
-                <td style={{ padding: "6px 10px 6px 2px", fontWeight: 800, color: T.inkMuted, position: "sticky", left: 0, background: T.surface, zIndex: 1 }}>Team / week</td>
+                <td onClick={() => toggle({ all: true })} title="All tasks"
+                  style={{ padding: "6px 10px 6px 2px", fontWeight: 800, color: T.inkMuted, position: "sticky", left: 0, background: T.surface, zIndex: 1, cursor: "pointer" }}>Team / week</td>
                 {weeks.map((w) => (
-                  <td key={w} style={{ textAlign: "center", padding: "6px 8px", fontWeight: 700, color: T.inkSecondary, fontVariantNumeric: "tabular-nums" }}>{Math.round(weekTotal(w)) || "·"}</td>
+                  <td key={w} onClick={() => toggle({ week: w })} title={`Everyone · week of ${weekLabel(w)}`}
+                    style={{ textAlign: "center", padding: "6px 8px", fontWeight: 700, color: sel?.week === w && !sel?.person ? T.roi.cyan : T.inkSecondary, fontVariantNumeric: "tabular-nums", cursor: "pointer" }}>{Math.round(weekTotal(w)) || "·"}</td>
                 ))}
-                <td style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface }}>{Math.round(personTotalAll())}</td>
+                <td onClick={() => toggle({ all: true })} title="All tasks"
+                  style={{ textAlign: "center", padding: "6px 10px", fontWeight: 800, color: navy, fontVariantNumeric: "tabular-nums", position: "sticky", right: 0, background: T.surface, cursor: "pointer" }}>{Math.round(personTotalAll())}</td>
               </tr>
             </tfoot>
           </table>
@@ -264,10 +288,11 @@ export function ResourcingBoard({
 }
 
 function drillLabel(sel: NonNullable<Selection>): string {
+  if (sel.needsHours) return "Tasks that need hours";
   if (sel.person && sel.week) return `${sel.person} · week of ${weekLabel(sel.week)}`;
   if (sel.person) return `${sel.person} · all weeks`;
   if (sel.week) return `Everyone · week of ${weekLabel(sel.week)}`;
-  return "Tasks";
+  return "All scheduled tasks";
 }
 
 /** Weekly demand columns, clickable. */
