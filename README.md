@@ -143,7 +143,18 @@ Required GitHub environment configuration:
   - `VITE_ENABLE_MICROSOFT_LOGIN` (optional, defaults true)
   - `VITE_SUPABASE_REDIRECT_URI` (optional; exact OAuth return URL)
 - On the Container App itself (not GitHub), set the runtime env vars this
-  image's `/api` routes read: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-  `KANTATA_API_TOKEN`, and (once SSO is wired up) `AUTH_REQUIRED`.
+  image's `/api` routes read. The full, current matrix (build-time vs runtime,
+  which are secret, what each unlocks) lives in **[docs/AGP-HANDOFF.md](./docs/AGP-HANDOFF.md)**;
+  the minimum to run with real data is `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `SUPABASE_DB_URL` (the collab-schema handlers connect to Postgres directly),
+  `KANTATA_API_TOKEN`, and **`AUTH_REQUIRED=true`** (without it the legacy
+  endpoints are open — the server logs a loud warning at boot when it's unset).
+  Kantata write-back additionally needs `KANTATA_WRITE_ENABLED=true`; two-way
+  Teams sync needs `GRAPH_APP_CLIENT_SECRET` + `TEAMS_WEBHOOK_URL` (the client
+  and tenant ids are reused from `VITE_GRAPH_*`).
 - The `stage` branch doesn't exist yet in this repo — create it from `main`
   before relying on `deploy-stage.yml`.
+- **Handoff to AGP:** the operations runbook — how to apply the Supabase
+  migrations, the full env matrix, the two-data-model note, the security
+  posture, and the "before AGP owns this" checklist — is
+  **[docs/AGP-HANDOFF.md](./docs/AGP-HANDOFF.md)**.

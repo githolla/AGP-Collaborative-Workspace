@@ -171,6 +171,17 @@ app.use((_req, res) => {
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
   console.log(`agp-ai-collaboration listening on :${port}`);
+  // SECURITY POSTURE: without AUTH_REQUIRED=true the legacy endpoints
+  // (/api/state, /api/mirror, /api/kantata-write) authorize every request — an
+  // acceptable pre-SSO default, but NOT for a production deployment with real
+  // client data. Make that posture impossible to run into silently: warn loudly
+  // at boot so an operator sees it in the logs. (The collab-schema endpoints are
+  // always RLS-scoped via requireUser and unaffected.)
+  if (process.env.AUTH_REQUIRED !== "true") {
+    console.warn(
+      "[security] AUTH_REQUIRED is not 'true' — legacy /api/state, /api/mirror and /api/kantata-write are OPEN (no sign-in required). Set AUTH_REQUIRED=true (with SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) for any production deployment.",
+    );
+  }
   // Keep Teams two-way-sync subscriptions alive past their ~1h expiry. In-process
   // on this long-lived container (same model as background provisioning), so
   // there's nothing external to schedule. No-ops when Teams sync isn't configured.
