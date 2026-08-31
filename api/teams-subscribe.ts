@@ -26,8 +26,10 @@
  * GET /api/teams-subscribe?accountId=… — status only: server config, the live
  * subscription (if any), and the last background attempt's state/error.
  *
- * Renewal: Graph subscriptions expire (~1h). A scheduled job should re-POST
- * this per active account before expiry; calling it again simply refreshes.
+ * Renewal: Graph subscriptions expire (~1h). An in-process loop
+ * (api/teams-renew.ts, started from server.mts) extends every stored
+ * subscription before it lapses, so two-way sync survives past the first hour
+ * with nothing external to schedule. Re-POSTing here still refreshes on demand.
  */
 
 import { randomBytes } from "node:crypto";
@@ -35,7 +37,7 @@ import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext, withServiceContext } from "./_lib/db.js";
 import { graphAppFetch, graphAppMissing, GraphAppError } from "./_lib/graphApp.js";
 
-const SUBSCRIPTION_MINUTES = 55;
+export const SUBSCRIPTION_MINUTES = 55;
 
 /** Record the background attempt's terminal state so GET can report it. Never
  * throws — this is the last write in a detached task and a rejection here would
@@ -59,7 +61,7 @@ async function recordStatus(accountId: string, state: "active" | "error", lastEr
  * the channel, replaces any existing subscription, creates the new one, and
  * stores it. On ANY failure it records a readable reason to the status table.
  * Returns nothing and never rejects — the caller fire-and-forgets it. */
-async function provisionSubscription(accountId: string, teamId: string, webhookUrl: string): Promise<void> {
+export async function provisionSubscription(accountId: string, teamId: string, webhookUrl: string): Promise<void> {
   try {
     console.log(`[teams-subscribe] account=${accountId} team=${teamId} resolving primary channel`);
     const channel = (await graphAppFetch(`/teams/${teamId}/primaryChannel?$select=id`)) as { id?: string };

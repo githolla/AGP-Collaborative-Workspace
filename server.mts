@@ -66,6 +66,7 @@ import myTasksHandler from "./api/my-tasks.js";
 import filesOpenedHandler from "./api/files-opened.js";
 import teamLoadHandler from "./api/team-load.js";
 import personCapacityHandler from "./api/person-capacity.js";
+import { startTeamsRenewalLoop } from "./api/teams-renew.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(here, "apps/tab/dist");
@@ -170,4 +171,8 @@ app.use((_req, res) => {
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
   console.log(`agp-ai-collaboration listening on :${port}`);
+  // Keep Teams two-way-sync subscriptions alive past their ~1h expiry. In-process
+  // on this long-lived container (same model as background provisioning), so
+  // there's nothing external to schedule. No-ops when Teams sync isn't configured.
+  startTeamsRenewalLoop();
 });
