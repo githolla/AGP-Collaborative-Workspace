@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { card, T } from "../theme.js";
 import { StatTile, SectionTitle } from "./bits.js";
 import { FolderTreePicker } from "./ClientAdminPanel.js";
-import { fetchAccountCollabData, type MsAccountData, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
+import { fetchAccountCollabData, fetchAllAccounts, type MsAccountData, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
 import { MsApiError } from "../workspace/msApiFetch.js";
 import { addExternal } from "../workspace/msPeople.js";
 import { grantAccess } from "../workspace/msShare.js";
@@ -119,37 +119,64 @@ function appOrigin(): string {
 }
 
 export function ContractorHub({
-  account,
+  accountId,
+  clientName,
   loginHintEmail,
   canManage = false,
   userName,
   onOpenDiscussions,
 }: {
-  account: MsAccountData;
+  /** The resolved collab account id, when the parent already has it. May be
+   * null/undefined — the hub then resolves by clientName itself, so it never
+   * hangs waiting on the parent's slow/absent collabData for a big account. */
+  accountId?: string | null | undefined;
+  clientName: string;
   loginHintEmail?: string | undefined;
   canManage?: boolean;
   userName?: string;
   onOpenDiscussions?: () => void;
 }) {
-  const [toast, setToast] = useState<string | null>(null);
-  const flash = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 2600); };
-  const copyInvite = async (row: ContractorRow) => {
-    const msg = buildInviteMessage({ name: row.name, ...(row.email ? { email: row.email } : {}), clientName: account.clientName, folderCount: row.folderCount, appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) });
-    flash(await copyText(msg) ? `Invite for ${row.name.split(" ")[0]} copied — paste it into an email or Teams` : "Couldn't copy — check clipboard permissions");
-  };
+  const [account, setAccount] = useState<MsAccountData | null>(null);
   const [data, setData] = useState<WorkspaceAccountPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ContractorStatus>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modal, setModal] = useState<"add" | "share" | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 2600); };
 
+  // Self-resolving load, mirroring ClientAdminTab: fetch by id when we have one,
+  // else match the client by name. One fetch returns BOTH the account row
+  // (payload.accounts) and all the contractor data — no second call, and no
+  // dependency on the parent's collabData timing.
+  const nameRef = useRef(clientName);
+  useEffect(() => { nameRef.current = clientName; }, [clientName]);
   const reload = () => {
-    fetchAccountCollabData(account.id)
-      .then((d) => setData(d))
-      .catch((e) => setErr(e instanceof MsApiError ? e.message : "Couldn't load contractor data"));
+    const forName = clientName;
+    void (async () => {
+      let id = accountId ?? null;
+      if (!id) {
+        const { accounts } = await fetchAllAccounts();
+        if (nameRef.current !== forName) return;
+        const matches = accounts.filter((a) => a.clientName.toLowerCase() === forName.toLowerCase());
+        if (matches.length !== 1) { setErr(matches.length === 0 ? "No workspace found for this client yet." : "More than one workspace matches this client name."); return; }
+        id = matches[0]!.id;
+      }
+      const payload = await fetchAccountCollabData(id);
+      if (nameRef.current !== forName) return; // a newer client won the race
+      const acct = payload.accounts.find((a) => a.id === id) ?? null;
+      if (!acct) { setErr("Couldn't load this client's workspace."); return; }
+      setAccount(acct);
+      setData(payload);
+    })().catch((e) => { if (nameRef.current === forName) setErr(e instanceof MsApiError ? e.message : "Couldn't load contractor data"); });
   };
-  // Reload whenever the account changes (reload only closes over account.id).
-  useEffect(() => { reload(); }, [account.id]);
+  useEffect(() => { setErr(null); reload(); }, [accountId, clientName]);
+
+  const copyInvite = async (row: ContractorRow) => {
+    if (!account) return;
+    const msg = buildInviteMessage({ name: row.name, ...(row.email ? { email: row.email } : {}), clientName: account.clientName, folderCount: row.folderCount, appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) });
+    flash(await copyText(msg) ? `Invite for ${row.name.split(" ")[0]} copied — paste it into an email or Teams` : "Couldn't copy — check clipboard permissions");
+  };
 
   const rows = useMemo(
     () => data ? buildContractorRows(data.externals, data.grants, data.shares, data.thread, data.fileApprovals) : [],
@@ -160,7 +187,7 @@ export function ContractorHub({
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
   if (err) return <div style={{ ...card, color: T.status.critical, fontSize: 12.5 }}>{err}</div>;
-  if (!data || !kpis) return <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>Loading contractors…</div>;
+  if (!account || !data || !kpis) return <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>Loading contractors…</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

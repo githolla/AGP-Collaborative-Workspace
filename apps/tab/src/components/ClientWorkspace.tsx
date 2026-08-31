@@ -3747,12 +3747,16 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
-      {tab === "contractors" && (() => {
-        const msAccount = collabAccountId ? collabData?.accounts.find((a) => a.id === collabAccountId) : undefined;
-        return msAccount
-          ? <ContractorHub account={msAccount} loginHintEmail={loginHintEmail} canManage={canManage} userName={userName} onOpenDiscussions={() => setTab("discussions")} />
-          : <div style={{ fontSize: 13, color: T.inkMuted }}>{collabDataError ? "Couldn't load this client's workspace. Open the Admin tab to finish setting it up." : "Loading contractors…"}</div>;
-      })()}
+      {tab === "contractors" && (
+        <ContractorHub
+          accountId={collabAccountId}
+          clientName={account.clientName}
+          loginHintEmail={loginHintEmail}
+          canManage={canManage}
+          userName={userName}
+          onOpenDiscussions={() => setTab("discussions")}
+        />
+      )}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
         <ClientAdminTab
