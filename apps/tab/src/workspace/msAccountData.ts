@@ -251,11 +251,15 @@ export async function fetchMyTasks(): Promise<{ userName: string; tasks: MyWorkT
 export interface PersonLoad {
   name: string;
   capacity: number;
+  /** True when no capacity was set — the row is showing the default. */
+  isDefaultCapacity: boolean;
   /** hours keyed by Monday ISO, only for weeks in the window. */
   weekly: Record<string, number>;
   total: number;
   peak: number;
   overWeeks: number;
+  /** This week's hours (first window week). */
+  thisWeek: number;
 }
 
 export interface TeamLoadData {

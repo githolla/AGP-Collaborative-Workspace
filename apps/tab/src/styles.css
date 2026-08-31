@@ -443,3 +443,11 @@ button { font-family: inherit; }
     font-size: 22px;
   }
 }
+
+/* Print: isolate the Team Load portfolio summary for a board-ready PDF. */
+@media print {
+  .no-print { display: none !important; }
+  body * { visibility: hidden; }
+  .team-load-report, .team-load-report * { visibility: visible; }
+  .team-load-report { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+}

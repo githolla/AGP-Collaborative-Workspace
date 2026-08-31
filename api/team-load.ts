@@ -13,7 +13,7 @@ import { requireUser } from "./_lib/requireUser.js";
 import { withUserContext } from "./_lib/db.js";
 import { toApiError } from "./_lib/apiError.js";
 import { toDateOnly } from "./_lib/dates.js";
-import { teamLoad, upcomingWeeks, type LoadTask } from "./_lib/resourceLoad.js";
+import { teamLoad, upcomingWeeks, type LoadTask, type LoadAssignment, type CapacityInfo } from "./_lib/resourceLoad.js";
 
 const DEFAULT_CAPACITY = 40;
 const WEEKS = 12;
@@ -24,7 +24,7 @@ interface TaskRow {
   assignments: unknown;
   start_date: Date | string | null;
   due: Date | string | null;
-  estimated_hours: number | null;
+  estimated_hours: string | null; // postgres.js returns numeric as a string
   status: "todo" | "doing" | "done";
 }
 
@@ -51,28 +51,27 @@ export default async function handler(
         from collab.task
         where status <> 'done' and due is not null
       `;
-      const capsP = await tx<{ person_key: string; weekly_hours: string }[]>`
-        select person_key, weekly_hours from collab.person_capacity
+      const capsP = await tx<{ person_key: string; display_name: string; weekly_hours: string }[]>`
+        select person_key, display_name, weekly_hours from collab.person_capacity
       `;
       return { rows: rowsP, caps: capsP };
     });
 
-    const capacityByKey = new Map<string, number>();
-    for (const c of caps) capacityByKey.set(c.person_key, Number(c.weekly_hours));
-    const capacityOf = (name: string): number => capacityByKey.get(name.trim().toLowerCase()) ?? DEFAULT_CAPACITY;
+    const capacities = new Map<string, CapacityInfo>();
+    for (const c of caps) capacities.set(c.person_key, { displayName: c.display_name || c.person_key, weeklyHours: Number(c.weekly_hours) });
 
     const tasks: LoadTask[] = rows.map((r) => ({
       id: r.id,
       status: r.status,
       ...(r.owner_name ? { ownerName: r.owner_name } : {}),
-      ...(Array.isArray(r.assignments) ? { assignments: r.assignments as { name: string; hours?: number | null }[] } : {}),
-      ...(r.estimated_hours != null ? { estimatedHours: r.estimated_hours } : {}),
-      ...(toDateOnly(r.start_date) ? { start: toDateOnly(r.start_date) } : {}),
-      ...(toDateOnly(r.due) ? { due: toDateOnly(r.due) } : {}),
+      ...(Array.isArray(r.assignments) ? { assignments: r.assignments as LoadAssignment[] } : {}),
+      ...(r.estimated_hours != null ? { estimatedHours: Number(r.estimated_hours) } : {}),
+      ...(toDateOnly(r.start_date) ? { start: toDateOnly(r.start_date)! } : {}),
+      ...(toDateOnly(r.due) ? { due: toDateOnly(r.due)! } : {}),
     }));
 
     const weeks = upcomingWeeks(WEEKS);
-    const people = teamLoad(tasks, weeks, capacityOf);
+    const people = teamLoad(tasks, weeks, capacities, DEFAULT_CAPACITY);
 
     res.status(200).json({ data: { weeks, defaultCapacity: DEFAULT_CAPACITY, people } });
   } catch (err) {
