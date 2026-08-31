@@ -7,9 +7,12 @@ export const APP_TITLE = {
 /** Client Health design system (2026-07): deep indigo navy, teal accent,
  * lime highlight — colours + logo lifted from AGP's live portfolio tool. */
 export const BRAND = {
-  headerBg: "#22346f",
+  /** Near-black navy field of the AGP master logo. */
+  headerBg: "#0f1a2c",
   headerText: "#ffffff",
   headerMuted: "#7f88ad",
+  /** Text on the white AGP chip. */
+  chipInk: "#0f1a2c",
   /** Teal — the accent that marks the product name and section labels. */
   accent: "#2bb8c9",
   /** Lime — highlight chips (Live data, Take the tour). */

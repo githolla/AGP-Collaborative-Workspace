@@ -13,21 +13,17 @@ const styles: Record<string, CSSProperties> = {
     color: BRAND.headerText,
   },
   left: { display: "flex", alignItems: "center", gap: 18, minWidth: 0 },
-  logo: { display: "flex", alignItems: "center", gap: 8 },
-  logoMark: { fontSize: 22, fontWeight: 800, letterSpacing: 0.5, lineHeight: 1 },
-  logoDivider: { width: 1, height: 26, background: "rgba(255,255,255,0.35)" },
-  logoSub: {
-    fontSize: 7.5,
-    fontWeight: 600,
-    letterSpacing: 0.8,
-    lineHeight: 1.35,
-    textTransform: "uppercase",
-    opacity: 0.9,
-    whiteSpace: "pre-line",
+  logo: { display: "flex", alignItems: "center", gap: 11 },
+  /** White rounded chip with black "AGP" — the master-logo mark. */
+  logoMark: {
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    background: "#ffffff", color: BRAND.chipInk,
+    fontSize: 16, fontWeight: 800, letterSpacing: 0.4, lineHeight: 1,
+    padding: "6px 9px", borderRadius: 7,
   },
-  title: { display: "flex", alignItems: "baseline", gap: 7, whiteSpace: "nowrap" },
-  titlePrimary: { fontSize: 13, fontWeight: 700, letterSpacing: 1.2, color: BRAND.accent },
-  titleSecondary: { fontSize: 13, fontWeight: 500, letterSpacing: 1.2, color: BRAND.headerMuted },
+  lockup: { display: "flex", flexDirection: "column", lineHeight: 1.12, whiteSpace: "nowrap" },
+  logoName: { fontSize: 13.5, fontWeight: 700, letterSpacing: 0.7, color: BRAND.headerText, textTransform: "uppercase" },
+  logoOrg: { fontSize: 8.5, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: BRAND.lime, marginTop: 2 },
   right: { display: "flex", alignItems: "center", gap: 16 },
   live: { display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: BRAND.live },
   liveDot: { width: 7, height: 7, borderRadius: "50%", background: BRAND.live },
@@ -290,13 +286,11 @@ export function AppHeader({ userName, onChangeName, live = false, liveLabel, liv
           style={{ ...styles.logo, background: "none", border: "none", padding: 0, cursor: onHome ? "pointer" : "default", color: "inherit" }}
         >
           <span style={styles.logoMark}>AGP</span>
-          <span style={styles.logoDivider} />
-          <span style={styles.logoSub}>{"Allegiance Group &\nPursuant"}</span>
+          <span style={styles.lockup}>
+            <span style={styles.logoName}>{APP_TITLE.primary} {APP_TITLE.secondary}</span>
+            <span style={styles.logoOrg}>Allegiance Group &amp; Pursuant</span>
+          </span>
         </button>
-        <div style={styles.title}>
-          <span style={styles.titlePrimary}>{APP_TITLE.primary}</span>
-          <span style={styles.titleSecondary}>— {APP_TITLE.secondary}</span>
-        </div>
       </div>
       <div style={styles.right}>
         {/* Live status only — no manual refresh. Data re-pulls on its own in
