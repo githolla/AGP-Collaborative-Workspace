@@ -118,13 +118,13 @@ describe("viewTierFor", () => {
 
 describe("tabVisibleForTier", () => {
   it("project_manager sees every tab", () => {
-    for (const t of ["home", "plan", "resourcing", "dashboard", "files", "discussions", "access"]) {
+    for (const t of ["home", "plan", "resourcing", "dashboard", "files", "contractors", "discussions", "access"]) {
       expect(tabVisibleForTier("project_manager", t)).toBe(true);
     }
   });
 
   it("account_manager is client-facing: dashboard yes, resourcing no", () => {
-    for (const t of ["home", "plan", "dashboard", "files", "discussions", "access"]) {
+    for (const t of ["home", "plan", "dashboard", "files", "contractors", "discussions", "access"]) {
       expect(tabVisibleForTier("account_manager", t)).toBe(true);
     }
     expect(tabVisibleForTier("account_manager", "resourcing")).toBe(false);
@@ -139,5 +139,6 @@ describe("tabVisibleForTier", () => {
     expect(tabVisibleForTier("delivery", "dashboard")).toBe(false);
     expect(tabVisibleForTier("delivery", "access")).toBe(false);
     expect(tabVisibleForTier("delivery", "resourcing")).toBe(false);
+    expect(tabVisibleForTier("delivery", "contractors")).toBe(false);
   });
 });

@@ -28,6 +28,7 @@ import { postMessage, editMessage, deleteMessage, setMessageVisibility } from ".
 import { listFolder, uploadFile, type FileListing, type FileListItem } from "../workspace/msFiles.js";
 import { type FolderTreeNode } from "../workspace/msFolderTree.js";
 import { ClientAdminPanel, FolderTreePicker } from "./ClientAdminPanel.js";
+import { ContractorHub } from "./ContractorHub.js";
 
 /**
  * Client-account workspace — built to the manager's wireframe: tabs Home /
@@ -50,7 +51,7 @@ const titlePrefix = (title: string): string => {
 };
 const squash = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-export type ClientTab = "home" | "plan" | "resourcing" | "dashboard" | "files" | "discussions" | "sandbox" | "access";
+export type ClientTab = "home" | "plan" | "resourcing" | "dashboard" | "files" | "contractors" | "discussions" | "sandbox" | "access";
 
 const TABS: { key: ClientTab; label: string }[] = [
   { key: "home", label: "Home" },
@@ -61,6 +62,10 @@ const TABS: { key: ClientTab; label: string }[] = [
   { key: "resourcing", label: "Resourcing" },
   { key: "dashboard", label: "Client Dashboard" },
   { key: "files", label: "Files" },
+  // Contractors: add a contractor, share SharePoint files, and see what each
+  // has opened + their discussion slice — one place, replacing the old split
+  // across Files/Admin (Cara & Kellie: "make it much easier").
+  { key: "contractors", label: "Contractors" },
   { key: "discussions", label: "Discussions" },
   // Sandbox tab removed per Kellie's pilot feedback (2026-08-19): "We don't need
   // this page." The type + render path stay (harmless when no tab points here)
@@ -3708,6 +3713,12 @@ export function ClientWorkspace({
           </div>
         </div>
       )}
+      {tab === "contractors" && (() => {
+        const msAccount = collabAccountId ? collabData?.accounts.find((a) => a.id === collabAccountId) : undefined;
+        return msAccount
+          ? <ContractorHub account={msAccount} loginHintEmail={loginHintEmail} canManage={canManage} onOpenDiscussions={() => setTab("discussions")} />
+          : <div style={{ fontSize: 13, color: T.inkMuted }}>{collabDataError ? "Couldn't load this client's workspace. Open the Admin tab to finish setting it up." : "Loading contractors…"}</div>;
+      })()}
       {tab === "sandbox" && sandboxContent}
       {tab === "access" && (
         <ClientAdminTab

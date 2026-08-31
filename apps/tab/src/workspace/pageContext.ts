@@ -68,6 +68,12 @@ const ACCOUNT: Record<ClientTab, Omit<PageQuestion, "key" | "prompt"> & { prompt
     options: YES_NO("Yes — this would replace what I do now", "Partly — I'd still use something else", "No — this doesn't fit how we share"),
     placeholder: "What do you do today that this doesn't cover?",
   },
+  contractors: {
+    label: "Client workspace · Contractors",
+    prompt: () => "Is this an easier way to add contractors, share files, and see what they've opened?",
+    options: YES_NO("Yes — this replaces the scramble", "Better, but I'd still change things", "No — this doesn't fit how we work with contractors"),
+    placeholder: "What's clunky today that this should fix?",
+  },
   discussions: {
     label: "Client workspace · Discussions",
     prompt: () => "Would conversations here be better than the email thread they'd replace?",

@@ -107,8 +107,8 @@ export const TIER_LABELS: Record<ViewTier, string> = {
 /** Tab keys each tier sees (match ClientWorkspace's ClientTab). "project_manager"
  * is the fullest set and doubles as the safe default / app-admin view. */
 const TIER_TABS: Record<ViewTier, readonly string[]> = {
-  account_manager: ["home", "plan", "dashboard", "files", "discussions", "access"],
-  project_manager: ["home", "plan", "resourcing", "dashboard", "files", "discussions", "access"],
+  account_manager: ["home", "plan", "dashboard", "files", "contractors", "discussions", "access"],
+  project_manager: ["home", "plan", "resourcing", "dashboard", "files", "contractors", "discussions", "access"],
   delivery: ["home", "plan", "discussions", "files"],
 };
 

@@ -66,6 +66,7 @@ import myTasksHandler from "./api/my-tasks.js";
 import filesOpenedHandler from "./api/files-opened.js";
 import teamLoadHandler from "./api/team-load.js";
 import personCapacityHandler from "./api/person-capacity.js";
+import contractorChatHandler from "./api/contractor-chat.js";
 import { startTeamsRenewalLoop } from "./api/teams-renew.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -161,6 +162,8 @@ app.all("/api/files-opened", guard(filesOpenedHandler));
 // Cross-client resourcing: each person's weekly load vs capacity, portfolio-wide.
 app.all("/api/team-load", guard(teamLoadHandler));
 app.all("/api/person-capacity", guard(personCapacityHandler));
+// Grounded AI assistant over one account's contractor data (Contractor Hub).
+app.all("/api/contractor-chat", guard(contractorChatHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.
