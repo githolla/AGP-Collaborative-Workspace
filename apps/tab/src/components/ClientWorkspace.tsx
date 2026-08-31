@@ -3328,8 +3328,10 @@ export function ClientWorkspace({
       {/* "Send these changes to Kantata" — PM-only per Kellie's pilot feedback
           (2026-08-19): PMs maintain tasks in Kantata, so pushing task/timeline
           changes back is theirs alone; the rest of the team never sees it.
-          (Resourcing's separate write-back stays available to everyone.) */}
-      {pendingKantataWrites.length > 0 && onPushToKantata && canManage && (
+          (Resourcing's separate write-back stays available to everyone.)
+          Scoped to the Project Plan tab — this is about task/timeline edits made
+          there, so it doesn't belong hovering over Home, Files, Discussions, etc. */}
+      {tab === "plan" && pendingKantataWrites.length > 0 && onPushToKantata && canManage && (
         <KantataPush writes={pendingKantataWrites} onPush={onPushToKantata} />
       )}
 
