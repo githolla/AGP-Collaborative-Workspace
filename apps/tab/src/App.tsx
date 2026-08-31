@@ -1098,9 +1098,16 @@ function Workspace() {
   // by hand through the Admin tab's separate "linked Kantata projects"
   // field. Cheap and idempotent (a plain overwrite), so it's just re-run
   // before every import rather than tracked as a one-time migration step.
-  async function ensureKantataProjectsLinked() {
+  async function ensureKantataProjectsLinked(extraProjectIds: string[] = []) {
     if (!collabAccountId || !selectedAccount) return;
-    const ids = selectedAccount.kantataProjectIds ?? [];
+    // Link the account's own projects PLUS any project the items being imported
+    // belong to. Without the second half, a candidate from a Kantata workspace
+    // matched by client name but not yet linked (e.g. an older fiscal-year
+    // workspace) could never import: the server only reads from the account's
+    // linked `kantata_project_ids`, so the selection filter matched nothing and
+    // the items stayed in the review panel forever. `linkKantataProjects` unions
+    // (never replaces), so this only ever adds.
+    const ids = [...new Set([...(selectedAccount.kantataProjectIds ?? []), ...extraProjectIds])].filter(Boolean);
     if (ids.length === 0) return;
     try {
       await linkKantataProjects(collabAccountId, ids);
@@ -1125,18 +1132,23 @@ function Workspace() {
   }
   async function handleImportAll() {
     if (!collabAccountId) return;
-    await ensureKantataProjectsLinked();
+    // "Everything" = every CWS-matched Kantata project, so link them all first.
+    const allProjectIds = (selectedLiveCtx?.projects ?? []).map((p) => p.id);
+    await ensureKantataProjectsLinked(allProjectIds);
     await runImport(() => importFromKantata(collabAccountId, "all"));
   }
   async function handleImportCampaigns(selected: ImportCandidate[]) {
     if (!collabAccountId) return;
-    await ensureKantataProjectsLinked();
     const campaignProjectIds = selected.map((c) => c.kantataProjectId).filter((x): x is string => !!x);
+    await ensureKantataProjectsLinked(campaignProjectIds);
     await runImport(() => importFromKantata(collabAccountId, "campaigns", { campaignProjectIds }));
   }
   async function handleImportTasks(selected: TaskCandidate[]) {
     if (!collabAccountId) return;
-    await ensureKantataProjectsLinked();
+    // Link the projects the picked tasks live in, so tasks from a not-yet-linked
+    // Kantata workspace (e.g. an older fiscal year) can actually be imported.
+    const taskProjectIds = selected.map((t) => t.kantataProjectId).filter((x): x is string => !!x);
+    await ensureKantataProjectsLinked(taskProjectIds);
     const taskStoryIds = selected.map((t) => t.kantataStoryId).filter((x): x is string => !!x);
     await runImport(() => importFromKantata(collabAccountId, "tasks", { taskStoryIds }));
   }
