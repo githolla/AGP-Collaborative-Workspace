@@ -9,7 +9,7 @@
  * pieces the Admin tab already loads.
  */
 
-import { msApiCallPlain } from "./msApiFetch.js";
+import { msApiCallPlain, msApiGetPlain } from "./msApiFetch.js";
 import type {
   MsAccountExternal,
   MsAccountGrant,
@@ -264,6 +264,23 @@ export function buildInviteMessage(input: {
     ``,
     `You'll only see what's been shared with you — the files for this project and our discussion. Anything you open is just visible to our team so we know you have what you need.${from}`,
   ].join("\n");
+}
+
+// ---- lightweight hub data fetch ---------------------------------------------
+
+/** Just the collections the Contractor Hub aggregates — no tasks/campaigns, so
+ * it stays fast on big accounts. Mirrors the api/account-contractors payload. */
+export interface ContractorHubData {
+  account: { id: string; clientName: string };
+  externals: MsAccountExternal[];
+  grants: MsAccountGrant[];
+  thread: MsAccountMessage[];
+  shares: MsAccountShare[];
+  fileApprovals: MsAccountFileApproval[];
+}
+
+export async function fetchContractorHubData(accountId: string): Promise<ContractorHubData> {
+  return msApiGetPlain<ContractorHubData>(`/api/account-contractors?accountId=${encodeURIComponent(accountId)}`);
 }
 
 // ---- AI assistant client call -----------------------------------------------

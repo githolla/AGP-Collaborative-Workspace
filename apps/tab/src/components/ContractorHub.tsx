@@ -16,16 +16,19 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { card, T } from "../theme.js";
 import { StatTile, SectionTitle } from "./bits.js";
 import { FolderTreePicker } from "./ClientAdminPanel.js";
-import { fetchAccountCollabData, fetchAllAccounts, type MsAccountData, type WorkspaceAccountPayload } from "../workspace/msAccountData.js";
+import { fetchAllAccounts } from "../workspace/msAccountData.js";
 import { MsApiError } from "../workspace/msApiFetch.js";
 import { addExternal } from "../workspace/msPeople.js";
 import { grantAccess } from "../workspace/msShare.js";
 import { shareItems, type ShareItemInput } from "../workspace/msHandover.js";
 import type { FolderTreeNode } from "../workspace/msFolderTree.js";
 import {
-  buildContractorRows, contractorKpis, humanDuration, askContractorChat, buildInviteMessage, signInState,
-  type ContractorRow, type ContractorStatus, type ContractorChatTurn,
+  buildContractorRows, contractorKpis, humanDuration, askContractorChat, buildInviteMessage, signInState, fetchContractorHubData,
+  type ContractorRow, type ContractorStatus, type ContractorChatTurn, type ContractorHubData,
 } from "../workspace/contractorHub.js";
+
+/** The bit of account identity the hub and its modals need. */
+type HubAccount = { id: string; clientName: string };
 
 const navy = T.roi.navy;
 
@@ -136,8 +139,7 @@ export function ContractorHub({
   userName?: string;
   onOpenDiscussions?: () => void;
 }) {
-  const [account, setAccount] = useState<MsAccountData | null>(null);
-  const [data, setData] = useState<WorkspaceAccountPayload | null>(null);
+  const [data, setData] = useState<ContractorHubData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | ContractorStatus>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -145,10 +147,10 @@ export function ContractorHub({
   const [toast, setToast] = useState<string | null>(null);
   const flash = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 2600); };
 
-  // Self-resolving load, mirroring ClientAdminTab: fetch by id when we have one,
-  // else match the client by name. One fetch returns BOTH the account row
-  // (payload.accounts) and all the contractor data — no second call, and no
-  // dependency on the parent's collabData timing.
+  // Self-resolving load, mirroring ClientAdminTab: use the id when we have one,
+  // else match the client by name (a light LIST call). Then one lightweight
+  // fetch of just the contractor collections — no tasks/campaigns — so a big
+  // account loads fast, and it never depends on the parent's collabData timing.
   const nameRef = useRef(clientName);
   useEffect(() => { nameRef.current = clientName; }, [clientName]);
   const reload = () => {
@@ -162,16 +164,14 @@ export function ContractorHub({
         if (matches.length !== 1) { setErr(matches.length === 0 ? "No workspace found for this client yet." : "More than one workspace matches this client name."); return; }
         id = matches[0]!.id;
       }
-      const payload = await fetchAccountCollabData(id);
+      const payload = await fetchContractorHubData(id);
       if (nameRef.current !== forName) return; // a newer client won the race
-      const acct = payload.accounts.find((a) => a.id === id) ?? null;
-      if (!acct) { setErr("Couldn't load this client's workspace."); return; }
-      setAccount(acct);
       setData(payload);
     })().catch((e) => { if (nameRef.current === forName) setErr(e instanceof MsApiError ? e.message : "Couldn't load contractor data"); });
   };
   useEffect(() => { setErr(null); reload(); }, [accountId, clientName]);
 
+  const account: HubAccount | null = data?.account ?? null;
   const copyInvite = async (row: ContractorRow) => {
     if (!account) return;
     const msg = buildInviteMessage({ name: row.name, ...(row.email ? { email: row.email } : {}), clientName: account.clientName, folderCount: row.folderCount, appUrl: appOrigin(), ...(userName ? { fromName: userName } : {}) });
@@ -492,7 +492,7 @@ function ModalShell({ title, sub, children, foot, onClose }: { title: string; su
 const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 600, color: T.inkSecondary, display: "block", marginBottom: 5 };
 const inputStyle: CSSProperties = { width: "100%", background: "#f7f9fa", border: `1px solid ${T.grid}`, borderRadius: 9, padding: "10px 12px", fontFamily: "inherit", fontSize: 13, color: T.ink };
 
-function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone, onCopied }: { account: MsAccountData; loginHintEmail?: string | undefined; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
+function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone, onCopied }: { account: HubAccount; loginHintEmail?: string | undefined; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [org, setOrg] = useState("");
@@ -584,7 +584,7 @@ function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone
 
 // ---- share files modal ------------------------------------------------------
 
-function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClose, onDone, onCopied }: { account: MsAccountData; loginHintEmail?: string | undefined; contractors: ContractorRow[]; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
+function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClose, onDone, onCopied }: { account: HubAccount; loginHintEmail?: string | undefined; contractors: ContractorRow[]; userName?: string; onClose: () => void; onDone: () => void; onCopied: (msg: string) => void }) {
   const [personName, setPersonName] = useState(contractors[0]?.name ?? "");
   const [picked, setPicked] = useState<Map<string, FolderTreeNode>>(new Map());
   const [busy, setBusy] = useState(false);

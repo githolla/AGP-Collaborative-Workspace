@@ -67,6 +67,7 @@ import filesOpenedHandler from "./api/files-opened.js";
 import teamLoadHandler from "./api/team-load.js";
 import personCapacityHandler from "./api/person-capacity.js";
 import contractorChatHandler from "./api/contractor-chat.js";
+import accountContractorsHandler from "./api/account-contractors.js";
 import { startTeamsRenewalLoop } from "./api/teams-renew.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -164,6 +165,9 @@ app.all("/api/team-load", guard(teamLoadHandler));
 app.all("/api/person-capacity", guard(personCapacityHandler));
 // Grounded AI assistant over one account's contractor data (Contractor Hub).
 app.all("/api/contractor-chat", guard(contractorChatHandler));
+// Lightweight Contractor Hub payload — externals/grants/shares/thread/approvals
+// only, no tasks (fast on big accounts).
+app.all("/api/account-contractors", guard(accountContractorsHandler));
 
 app.use(express.static(distDir));
 // SPA fallback — anything not a static asset or /api/* route gets index.html.
