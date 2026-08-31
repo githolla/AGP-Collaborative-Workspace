@@ -33,13 +33,30 @@ const navy = T.roi.navy;
 type Mode = "tasks" | "hours";
 type Selection = { person?: string; week?: string; needsHours?: boolean; all?: boolean } | null;
 
-/** Makes a KPI tile clickable-to-drill, with a selected ring. */
+/** Makes a KPI tile clickable-to-drill, with a hover lift and a selected ring. */
 function DrillStat({ onClick, active, title, children }: { onClick: () => void; active: boolean; title: string; children: ReactNode }) {
+  const [hover, setHover] = useState(false);
   return (
     <div role="button" tabIndex={0} title={title} onClick={onClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
-      style={{ cursor: "pointer", borderRadius: 12, outline: active ? `2px solid ${T.roi.navy}` : "none", outlineOffset: 1 }}>
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)} onBlur={() => setHover(false)}
+      style={{
+        position: "relative", cursor: "pointer", borderRadius: 12,
+        outline: active ? `2px solid ${T.roi.navy}` : hover ? `1.5px solid ${T.roi.cyan}` : "none",
+        outlineOffset: 1,
+        boxShadow: hover && !active ? "0 4px 14px rgba(15,41,74,.12)" : "none",
+        transform: hover && !active ? "translateY(-1px)" : "none",
+        transition: "transform .12s, box-shadow .12s",
+      }}>
       {children}
+      {/* Resting affordance: a small "drill" hint that brightens on hover so the
+          tile reads as clickable even before you touch it. */}
+      <span aria-hidden style={{
+        position: "absolute", top: 8, right: 10, fontSize: 10, fontWeight: 700,
+        letterSpacing: 0.2, color: active ? T.roi.navy : hover ? T.roi.cyan : T.inkMuted,
+        opacity: active || hover ? 1 : 0.55, transition: "color .12s, opacity .12s",
+      }}>{active ? "clear ✕" : "drill ⤢"}</span>
     </div>
   );
 }
