@@ -27,7 +27,6 @@ interface DiagResult {
   configured: boolean;
   message?: string;
   totalAllocationsVisible?: number;
-  allocationsTruncated?: boolean;
   allocationsError?: string;
   workspaces?: DiagWorkspace[];
 }
@@ -81,7 +80,7 @@ export function KantataDiagnostic() {
       {result?.configured && (
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 11.5, color: T.inkMuted }}>
-            {result.totalAllocationsVisible ?? 0} allocations visible to the server token{result.allocationsTruncated ? " (capped at 1500 — recent-first)" : ""}.
+            {result.totalAllocationsVisible ?? 0} allocations found across these workspaces.
             {result.allocationsError ? ` ⚠ allocations pull error: ${result.allocationsError} (a 403 means the token lacks resource-management scope).` : ""}
           </div>
           {(result.workspaces ?? []).map((w) => {

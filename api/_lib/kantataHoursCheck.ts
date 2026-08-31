@@ -58,13 +58,15 @@ export interface KantataHoursCheck {
   configured: boolean;
   message?: string;
   totalAllocationsVisible?: number;
-  allocationsTruncated?: boolean;
   allocationsError?: string;
   workspaces?: WorkspaceHoursReport[];
 }
 
 /** Run the check for a set of Kantata workspace ids. Returns configured:false
- * when the server token isn't set. Never throws for a per-workspace error. */
+ * when the server token isn't set. Never throws for a per-workspace error.
+ * Allocations are queried PER workspace (workspace_id filter) so an older
+ * workspace can't fall outside a global recency window — the verdict is
+ * complete for each workspace, not "within the last N updated". */
 export async function checkKantataWorkspaces(workspaceIds: string[]): Promise<KantataHoursCheck> {
   const token = process.env.KANTATA_API_TOKEN;
   if (!token) {
@@ -75,17 +77,20 @@ export async function checkKantataWorkspaces(workspaceIds: string[]): Promise<Ka
     return { configured: true, totalAllocationsVisible: 0, workspaces: [] };
   }
 
-  let allAllocations: Row[] = [];
   let allocError: string | null = null;
-  try {
-    allAllocations = await pull(token, `${BASE}/workspace_allocations?per_page=200&order=updated_at:desc&include=user`, "workspace_allocations", 1500);
-  } catch (e) {
-    allocError = e instanceof Error ? e.message : "allocations pull failed";
-  }
-
+  let totalSeen = 0;
   const workspaces: WorkspaceHoursReport[] = [];
   for (const wsId of ids) {
-    const mine = allAllocations.filter((a) => String(a.workspace_id) === String(wsId));
+    // Filter server-side by workspace; also filter client-side in case the API
+    // ignores the param, so the count is always exactly this workspace's.
+    let mine: Row[] = [];
+    try {
+      const pulled = await pull(token, `${BASE}/workspace_allocations?workspace_id=${encodeURIComponent(wsId)}&per_page=200&order=updated_at:desc&include=user`, "workspace_allocations", 2000);
+      mine = pulled.filter((a) => String(a.workspace_id) === String(wsId));
+      totalSeen += mine.length;
+    } catch (e) {
+      if (!allocError) allocError = e instanceof Error ? e.message : "allocations pull failed";
+    }
     const taskLinked = mine.filter((a) => a.story_id).length;
     const hours = Math.round(mine.reduce((s, a) => s + allocHours(a), 0));
     const dates = mine.flatMap((a) => [a.start_date, a.end_date].filter((d): d is string => typeof d === "string")).sort();
@@ -113,8 +118,7 @@ export async function checkKantataWorkspaces(workspaceIds: string[]): Promise<Ka
 
   return {
     configured: true,
-    totalAllocationsVisible: allAllocations.length,
-    allocationsTruncated: allAllocations.length >= 1500,
+    totalAllocationsVisible: totalSeen,
     ...(allocError ? { allocationsError: allocError } : {}),
     workspaces,
   };
