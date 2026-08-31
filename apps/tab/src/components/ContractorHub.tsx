@@ -192,7 +192,7 @@ export function ContractorHub({
   if (err) return (
     <div style={{ ...card, color: T.status.critical, fontSize: 12.5, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ flex: 1, minWidth: 200 }}>{err}</span>
-      <button type="button" className="btn-secondary" onClick={() => { setErr(null); setData(null); reload(); }}>Retry</button>
+      <button type="button" className="btn btn-secondary" onClick={() => { setErr(null); setData(null); reload(); }}>Retry</button>
     </div>
   );
   if (!account || !data || !kpis) return <div style={{ ...card, color: T.inkMuted, fontSize: 12.5 }}>Loading contractors…</div>;
@@ -207,8 +207,14 @@ export function ContractorHub({
         </div>
         {canManage && (
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="btn-secondary" onClick={() => setModal("share")}>Share files</button>
-            <button type="button" className="btn-primary" onClick={() => setModal("add")}>+ Add contractor</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setModal("share")}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 16V3M8 7l4-4 4 4" /></svg>
+              Share files
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setModal("add")}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+              Add contractor
+            </button>
           </div>
         )}
       </div>
@@ -310,7 +316,7 @@ function Drawer({ row, onClose, onCopyInvite, onOpenDiscussions }: { row: Contra
               <div style={{ fontSize: 12.5, color: T.inkMuted }}>{row.role}{row.org ? ` · ${row.org}` : ""}</div>
             </div>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-              {onCopyInvite && <button type="button" className="btn-secondary" style={{ fontSize: 12, padding: "6px 11px" }} onClick={onCopyInvite} title="Copy a message you can paste into an email or Teams">Copy invite</button>}
+              {onCopyInvite && <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: "6px 11px" }} onClick={onCopyInvite} title="Copy a message you can paste into an email or Teams">Copy invite</button>}
               <button type="button" onClick={onClose} aria-label="Close" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.grid}`, background: "#f4f6f8", color: T.inkSecondary, fontSize: 17, cursor: "pointer" }}>×</button>
             </div>
           </div>
@@ -469,7 +475,7 @@ function ChatPanel({ accountId }: { accountId: string }) {
           <form onSubmit={(e) => { e.preventDefault(); void ask(input); }} style={{ display: "flex", gap: 8, padding: "12px 16px", borderTop: `1px solid ${T.grid}` }}>
             <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question…" disabled={busy}
               style={{ flex: 1, border: `1px solid ${T.grid}`, borderRadius: 9, padding: "9px 12px", fontSize: 13, fontFamily: "inherit" }} />
-            <button type="submit" className="btn-primary" disabled={busy || !input.trim()}>Ask</button>
+            <button type="submit" className="btn btn-primary" disabled={busy || !input.trim()}>Ask</button>
           </form>
         </div>
       )}
@@ -555,7 +561,7 @@ function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone
         foot={<>
           <span style={{ fontSize: 11.5, color: T.inkMuted, flex: 1 }}>The link signs them into their own view — they only ever see what's shared.</span>
           <button type="button" className="btn-link" onClick={() => onDone()}>Done</button>
-          <button type="button" className="btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>
+          <button type="button" className="btn btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>
         </>}>
         <textarea readOnly value={message} rows={9} style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }} onFocus={(e) => e.currentTarget.select()} />
       </ModalShell>
@@ -572,7 +578,7 @@ function AddContractorModal({ account, loginHintEmail, userName, onClose, onDone
             ? <span style={{ fontSize: 11.5, color: T.status.warning, fontWeight: 600, flex: 1 }}>⚠ No folder picked — they'll have no access and won't be invited yet</span>
             : <span style={{ fontSize: 11.5, color: T.status.good, fontWeight: 600, flex: 1 }}>✓ {picked.size} {picked.size === 1 ? "folder" : "folders"} — invite + access in one go</span>}
         <button type="button" className="btn-link" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Adding…" : noFolder ? "Add without access" : "Add contractor"}</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Adding…" : noFolder ? "Add without access" : "Add contractor"}</button>
       </>}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div><label style={labelStyle}>Full name</label><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Dana Reyes" /></div>
@@ -645,7 +651,7 @@ function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClo
         foot={<>
           <span style={{ fontSize: 11.5, color: T.inkMuted, flex: 1 }}>{shared.count} {shared.count === 1 ? "item" : "items"} shared.</span>
           <button type="button" className="btn-link" onClick={() => onDone()}>Done</button>
-          {recipient && <button type="button" className="btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>}
+          {recipient && <button type="button" className="btn btn-primary" onClick={async () => { onCopied(await copyText(message) ? `Invite for ${first} copied — paste it into an email or Teams` : "Couldn't copy — select the text and copy it manually"); }}>Copy invite message</button>}
         </>}>
         {recipient
           ? <textarea readOnly value={message} rows={9} style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }} onFocus={(e) => e.currentTarget.select()} />
@@ -659,7 +665,7 @@ function ShareFilesModal({ account, loginHintEmail, contractors, userName, onClo
       foot={<>
         {err ? <span style={{ fontSize: 11.5, color: T.status.critical, flex: 1 }}>{err}</span> : <span style={{ fontSize: 11.5, color: T.inkMuted, flex: 1 }}>Opens are tracked automatically.</span>}
         <button type="button" className="btn-link" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sharing…" : `Share ${picked.size || ""} ${picked.size === 1 ? "item" : "items"}`.trim()}</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sharing…" : `Share ${picked.size || ""} ${picked.size === 1 ? "item" : "items"}`.trim()}</button>
       </>}>
       <div>
         <label style={labelStyle}>Send to</label>
