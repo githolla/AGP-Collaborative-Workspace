@@ -22,6 +22,7 @@ import { card, T } from "../theme.js";
 import { StatTile, SectionTitle } from "./bits.js";
 import type { Task } from "../workspace/types.js";
 import type { WriteResponse } from "../workspace/kantataWrite.js";
+import { msApiGetPlain, MsApiError } from "../workspace/msApiFetch.js";
 import {
   weeklyLoad, weeklyReservations, gridFrom, allocationGrid, weekLabel,
   type ResourceTask, type ResourceReservation, type AllocationGrid, type WeekLoadCell,
@@ -45,12 +46,15 @@ export function ResourcingBoard({
   toResourceTasks,
   onSetHours,
   onPublish,
+  accountId,
 }: {
   tasks: Task[];
   reservations?: readonly ResourceReservation[];
   toResourceTasks: (tasks: Task[]) => ResourceTask[];
   onSetHours: (taskId: string, hours: number | undefined) => void;
   onPublish?: (() => Promise<WriteResponse>) | undefined;
+  /** Enables the one-click "Check Kantata for hours" diagnostic for this client. */
+  accountId?: string | null | undefined;
 }) {
   const resTasks = useMemo(() => toResourceTasks(tasks), [tasks, toResourceTasks]);
   const load = useMemo(() => weeklyLoad(resTasks), [resTasks]);
@@ -157,6 +161,7 @@ export function ResourcingBoard({
             ? (fromKantata ? "Live from Kantata's Resource Center — reserved hours per person, per week." : "Hours you've set on tasks, spread across each task's dates. Re-figures on its own when a timeline moves.")
             : "Live from Kantata — every owned, dated task counted by person and week, no hours needed. Add hours to switch to the hours view."}
         </span>
+        {accountId && <KantataHoursCheckInline accountId={accountId} emphasize={!hasHours} />}
       </div>
 
       {/* Demand trend — clickable weeks */}
@@ -323,5 +328,63 @@ function PushToKantata({ fromKantata, onPublish }: { fromKantata: boolean; onPub
         </div>
       )}
     </div>
+  );
+}
+
+// ---- one-click Kantata hours check (in-context, this client's workspaces) ----
+
+interface HoursWorkspace {
+  workspaceId: string;
+  allocations: number;
+  allocationsHours: number;
+  storiesWithHours: number;
+  storyHours: number;
+  verdict: "has_allocations" | "has_story_hours" | "no_hours";
+}
+interface HoursCheck {
+  configured: boolean;
+  message?: string;
+  noKantataLink?: boolean;
+  allocationsError?: string;
+  workspaces?: HoursWorkspace[];
+}
+
+const VERDICT_TEXT: Record<HoursWorkspace["verdict"], { icon: string; color: string; bg: string; line: (w: HoursWorkspace) => string }> = {
+  has_allocations: { icon: "✅", color: "#116a43", bg: "#e6f4ea", line: (w) => `Workspace ${w.workspaceId}: ${w.allocations} Resource Center allocations (~${w.allocationsHours}h) — the hours are in Kantata. If "By hours" is still empty, it's the account link, not the data — tell me and I'll fix the match.` },
+  has_story_hours: { icon: "◑", color: "#8a6d1a", bg: "#faf3dc", line: (w) => `Workspace ${w.workspaceId}: no allocations, but ${w.storiesWithHours} stories carry estimated hours (~${w.storyHours}h) — the import can carry these onto tasks. Tell me and I'll wire it.` },
+  no_hours: { icon: "⚠", color: T.inkSecondary, bg: "#eef0f4", line: (w) => `Workspace ${w.workspaceId}: no allocations and no story hours in Kantata — there's nothing to pull yet. The task view above is the honest picture until someone enters hours (in Kantata or here).` },
+};
+
+function KantataHoursCheckInline({ accountId, emphasize }: { accountId: string; emphasize: boolean }) {
+  const [result, setResult] = useState<HoursCheck | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = () => {
+    setBusy(true); setErr(null);
+    void msApiGetPlain<HoursCheck>(`/api/account-kantata-check?accountId=${encodeURIComponent(accountId)}`)
+      .then(setResult)
+      .catch((e) => setErr(e instanceof MsApiError ? e.message : "Check failed"))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <>
+      <button type="button" className={emphasize ? "btn-primary" : "btn-secondary"} style={{ fontSize: 11.5, padding: "6px 11px", whiteSpace: "nowrap" }} disabled={busy} onClick={run}>
+        {busy ? "Checking Kantata…" : emphasize ? "Why no hours? Check Kantata" : "Check Kantata hours"}
+      </button>
+      {(result || err) && (
+        <div style={{ width: "100%", marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+          {err && <div style={{ fontSize: 12, color: T.status.critical, background: "#fdecea", borderRadius: 8, padding: "8px 11px" }}>{err}</div>}
+          {result && !result.configured && <div style={{ fontSize: 12, color: "#8a6d1a", background: "#faf3dc", borderRadius: 8, padding: "8px 11px" }}>{result.message ?? "Kantata isn't configured on the server."}</div>}
+          {result?.noKantataLink && <div style={{ fontSize: 12, color: T.inkSecondary, background: "#eef0f4", borderRadius: 8, padding: "8px 11px" }}>This workspace isn't linked to a Kantata project yet — link it on the Admin tab, then re-check.</div>}
+          {result?.allocationsError && <div style={{ fontSize: 11.5, color: "#8a6d1a", background: "#faf3dc", borderRadius: 8, padding: "8px 11px" }}>Kantata allocations pull error: {result.allocationsError} (a 403 means the token lacks resource-management scope).</div>}
+          {(result?.workspaces ?? []).map((w) => {
+            const v = VERDICT_TEXT[w.verdict];
+            return <div key={w.workspaceId} style={{ fontSize: 12, color: v.color, background: v.bg, borderRadius: 8, padding: "8px 11px", lineHeight: 1.5 }}>{v.icon} {v.line(w)}</div>;
+          })}
+        </div>
+      )}
+    </>
   );
 }

@@ -769,6 +769,7 @@ function ResourcingView({
   onSetHours,
   onPublish,
   focusTaskId,
+  accountId,
 }: {
   tasks: Task[];
   /** Real Kantata Resource Center reservations — the hours the PM already keeps. */
@@ -776,6 +777,7 @@ function ResourcingView({
   onSetHours: (taskId: string, hours: number | undefined) => void;
   onPublish?: (() => Promise<WriteResponse>) | undefined;
   focusTaskId?: string;
+  accountId?: string | null | undefined;
 }) {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [personFilter, setPersonFilter] = useState("");
@@ -840,7 +842,7 @@ function ResourcingView({
       </div>
 
       {/* Interactive centerpiece — works from auto-imported task data, hours when present. */}
-      <ResourcingBoard tasks={tasks} reservations={reservations} toResourceTasks={toResourceTasks} onSetHours={onSetHours} {...(onPublish ? { onPublish } : {})} />
+      <ResourcingBoard tasks={tasks} reservations={reservations} toResourceTasks={toResourceTasks} onSetHours={onSetHours} {...(onPublish ? { onPublish } : {})} {...(accountId ? { accountId } : {})} />
 
       {/* Validate hours — clean, grouped by project, roomy input. */}
       <div style={card}>
@@ -3432,6 +3434,7 @@ export function ClientWorkspace({
           onSetHours={onSetTaskHours}
           onPublish={onPublishResourcing}
           {...(focusTaskId ? { focusTaskId } : {})}
+          {...(collabAccountId ? { accountId: collabAccountId } : {})}
         />
       )}
       {tab === "dashboard" && <ClientDashboard account={accountWithLiveData} tasks={tasks} fileApprovals={collabData?.fileApprovals ?? []} onRemindDeliverable={onRemindDeliverable} onToggleClientVisible={onToggleClientVisible} onPost={handlePostMessage} onDiscuss={startDiscussion} {...(onClientDecision ? { onClientDecision } : {})} mentionRoster={buildMentionRoster(collabData?.members ?? [], collabData?.externals ?? [], people)} goTo={setTab} {...(liveContext ? { liveContext } : {})} />}
