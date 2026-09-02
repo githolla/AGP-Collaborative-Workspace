@@ -1421,13 +1421,22 @@ function KantataPush({
   writes: PendingWrite[];
   onPush: (refs: string[]) => Promise<WriteResponse>;
 }) {
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  // Default to NOTHING selected — a person opts changes in, never out. Nothing
+  // reverts Kantata by accident (Kellie's concern); the old "all ticked +
+  // Deselect all" default is exactly how a stale diff would get pushed.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteResponse | null>(null);
 
-  const chosen = writes.filter((w) => !skipped.has(w.ref));
+  const chosen = writes.filter((w) => picked.has(w.ref));
+  const revertCount = writes.filter((w) => w.reverts).length;
+  // "Select all" ticks only the SAFE rows — never the ones that would undo
+  // Kantata (those stay opt-in, one at a time).
+  const safeRefs = writes.filter((w) => !w.reverts).map((w) => w.ref);
+  const allSafePicked = safeRefs.length > 0 && safeRefs.every((r) => picked.has(r));
   const toggle = (ref: string) =>
-    setSkipped((s) => {
+    setPicked((s) => {
       const next = new Set(s);
       if (next.has(ref)) next.delete(ref);
       else next.add(ref);
@@ -1452,45 +1461,67 @@ function KantataPush({
   };
 
   return (
-    <div style={{ ...card, padding: 14, marginBottom: 14, borderLeft: `3px solid ${T.series1}` }}>
-      <SectionTitle right={
-        writes.length > 1 ? (
-          <button type="button" className="btn-link" style={{ fontSize: 11.5 }}
-            onClick={() => setSkipped((s) => (s.size === 0 ? new Set(writes.map((w) => w.ref)) : new Set()))}>
-            {skipped.size === 0 ? "Deselect all" : "Select all"}
-          </button>
-        ) : undefined
-      }>Send these changes to Kantata</SectionTitle>
-      <div style={{ fontSize: 12, color: T.inkSecondary, margin: "2px 0 10px" }}>
-        {writes.length} {writes.length === 1 ? "task differs" : "tasks differ"} from Kantata. Nothing is sent until you
-        choose it — Kantata stays the system of record for capacity. Untick anything you don't want to send.
-      </div>
+    <div style={{ ...card, padding: open ? 14 : "10px 14px", marginBottom: 14, borderLeft: `3px solid ${T.series1}` }}>
+      {/* Collapsed by default so the plan is the first thing on Project Plan —
+          just a labelled bar with a count; expand to review and send. */}
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, color: T.ink, textTransform: "uppercase" }}>Send changes to Kantata</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.series1, borderRadius: 9, padding: "1px 8px" }}>{writes.length} to review</span>
+          {revertCount > 0 && (
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.status.critical, background: "#fdeced", border: `1px solid ${T.status.critical}`, borderRadius: 9, padding: "1px 7px" }}>{revertCount} would undo Kantata</span>
+          )}
+        </span>
+        <span aria-hidden style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 7, background: T.grid, color: navy, fontSize: 15, fontWeight: 800, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
 
-      {writes.map((w) => (
-        <label
-          key={w.ref}
-          style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer" }}
-        >
-          <input type="checkbox" checked={!skipped.has(w.ref)} onChange={() => toggle(w.ref)} style={{ marginTop: 3 }} />
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink }}>{w.taskTitle}</span>
-            <span style={{ display: "block", fontSize: 11, color: T.inkMuted, marginBottom: 2 }}>{w.project}</span>
-            {w.changes.map((c) => (
-              <span key={c.field} style={{ display: "block", fontSize: 11.5, color: T.inkSecondary }}>
-                {c.field}: <span style={{ textDecoration: "line-through", color: T.inkMuted }}>{c.from}</span> →{" "}
-                <strong style={{ color: T.ink }}>{c.to}</strong>
+      {open && (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, margin: "10px 0 4px" }}>
+            <div style={{ fontSize: 12, color: T.inkSecondary }}>
+              Nothing is sent until you tick it — Kantata stays the system of record. Rows are unchecked by default; tick only what you actually changed here.
+            </div>
+            {safeRefs.length > 0 && (
+              <button type="button" className="btn-link" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}
+                onClick={() => setPicked(allSafePicked ? new Set() : new Set(safeRefs))}>
+                {allSafePicked ? "Clear" : "Select all"}
+              </button>
+            )}
+          </div>
+
+          {writes.map((w) => (
+            <label
+              key={w.ref}
+              style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 4px", borderBottom: `1px solid ${T.grid}`, cursor: "pointer", background: w.reverts ? "#fdf3f4" : "transparent" }}
+            >
+              <input type="checkbox" checked={picked.has(w.ref)} onChange={() => toggle(w.ref)} style={{ marginTop: 3 }} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>{w.taskTitle}</span>
+                  {w.reverts && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: T.status.critical, background: "#fdeced", border: `1px solid ${T.status.critical}`, borderRadius: 6, padding: "0 6px", textTransform: "uppercase", letterSpacing: 0.3 }}>Reverts Kantata</span>
+                  )}
+                </span>
+                <span style={{ display: "block", fontSize: 11, color: T.inkMuted, marginBottom: 2 }}>{w.project}</span>
+                {w.changes.map((c) => (
+                  <span key={c.field} style={{ display: "block", fontSize: 11.5, color: T.inkSecondary }}>
+                    {c.field}: <span style={{ textDecoration: "line-through", color: T.inkMuted }}>{c.from}</span> →{" "}
+                    <strong style={{ color: T.ink }}>{c.to}</strong>
+                  </span>
+                ))}
               </span>
-            ))}
-          </span>
-        </label>
-      ))}
+            </label>
+          ))}
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-primary" disabled={busy || chosen.length === 0} onClick={() => void run()}>
-          {busy ? "Sending…" : `Send to Kantata (${chosen.length}) →`}
-        </button>
-        <span style={{ fontSize: 11, color: T.inkMuted }}>Every send is logged with who sent it and when.</span>
-      </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-primary" disabled={busy || chosen.length === 0} onClick={() => void run()}>
+              {busy ? "Sending…" : chosen.length === 0 ? "Select changes to send" : `Send to Kantata (${chosen.length}) →`}
+            </button>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>Every send is logged with who sent it and when.</span>
+          </div>
+        </>
+      )}
 
       {result && (
         <div

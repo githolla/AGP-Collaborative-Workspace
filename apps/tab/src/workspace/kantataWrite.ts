@@ -66,6 +66,14 @@ export interface PendingWrite {
   /** Human summary of the change — "Due date · 15 Aug → 22 Aug". */
   changes: { field: string; from: string; to: string }[];
   intent: WriteIntent;
+  /**
+   * True when sending this would UNDO Kantata's own record — pulling a due date
+   * earlier than Kantata's. These are almost always workspace state that drifted
+   * behind Kantata rather than a real edit, so the UI flags them, leaves them
+   * unchecked, and excludes them from "select all". Reopening a Kantata-completed
+   * task is suppressed entirely below, never even listed.
+   */
+  reverts?: boolean;
 }
 
 export interface WriteResult {
@@ -152,13 +160,22 @@ export function pendingWrites(
 
     const changes: PendingWrite["changes"] = [];
     const intent: StoryUpdateIntent = { kind: "story.update", ref: task.id, storyId: task.kantataStoryId };
+    let reverts = false;
 
     if (!statusMatches(task.status, found.task.state)) {
-      intent.state = kantataStateFor(task.status);
-      // Kantata's own progress number should agree with a completed task;
-      // anything else is left alone, since percent is edited in Kantata.
-      if (task.status === "done") intent.percent = 100;
-      changes.push({ field: "Status", from: found.task.state || "—", to: statusLabel(task.status) });
+      // NEVER propose reopening a task Kantata has already completed. The import
+      // skips done tasks, so a stored "open" task Kantata now shows complete is
+      // stale drift (Kantata finished it after import) — not a real reopen. Push
+      // it and we'd revert the system of record (Kellie's fear). Suppress it
+      // entirely; a genuine reopen is a separate, deliberate flow.
+      const staleReopen = taskIsDone(found.task.state) && task.status !== "done";
+      if (!staleReopen) {
+        intent.state = kantataStateFor(task.status);
+        // Kantata's own progress number should agree with a completed task;
+        // anything else is left alone, since percent is edited in Kantata.
+        if (task.status === "done") intent.percent = 100;
+        changes.push({ field: "Status", from: found.task.state || "—", to: statusLabel(task.status) });
+      }
     }
 
     const liveDue = found.task.dueDate ?? "";
@@ -166,6 +183,10 @@ export function pendingWrites(
     if (ourDue !== liveDue) {
       intent.dueDate = ourDue ? ourDue : null;
       changes.push({ field: "Due date", from: dateLabel(found.task.dueDate), to: dateLabel(task.due) });
+      // Pulling a due date EARLIER than Kantata's is the drift case that undoes
+      // Kantata's schedule — flag it so the UI keeps it unchecked and out of
+      // "select all". A push to a LATER date is a normal forward edit.
+      if (liveDue && ourDue && ourDue < liveDue) reverts = true;
     }
 
     if (task.ownerName) {
@@ -181,7 +202,7 @@ export function pendingWrites(
     }
 
     if (changes.length > 0) {
-      out.push({ ref: task.id, taskTitle: task.title, project: found.project.title, changes, intent });
+      out.push({ ref: task.id, taskTitle: task.title, project: found.project.title, changes, intent, ...(reverts ? { reverts: true } : {}) });
     }
   }
   return out;

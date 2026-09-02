@@ -121,6 +121,30 @@ describe("pendingWrites", () => {
     expect(writes).toEqual([]);
   });
 
+  it("NEVER proposes reopening a task Kantata has already completed (stale drift)", () => {
+    // Import skips done tasks, so a stored open task Kantata now shows complete
+    // is stale — pushing it would revert the system of record (Kellie's fear).
+    const writes = pendingWrites([task({ status: "doing", due: "2026-09-01" })], [project([liveTask({ state: "completed", dueDate: "2026-09-01" })])], staff);
+    expect(writes).toEqual([]); // status reopen suppressed, dates agree → nothing to send
+  });
+
+  it("suppresses only the reopen, still sends a real due-date change on the same task", () => {
+    const writes = pendingWrites([task({ status: "doing", due: "2026-09-20" })], [project([liveTask({ state: "completed", dueDate: "2026-09-10" })])], staff);
+    expect(writes).toHaveLength(1);
+    // No Status change (reopen suppressed); the later due date still proposed.
+    expect(writes[0]?.changes.some((c) => c.field === "Status")).toBe(false);
+    expect(writes[0]?.changes.some((c) => c.field === "Due date")).toBe(true);
+    expect(writes[0]?.intent).not.toHaveProperty("state");
+  });
+
+  it("flags pulling a due date EARLIER than Kantata as reverting it", () => {
+    const earlier = pendingWrites([task({ due: "2026-09-01" })], [project([liveTask({ dueDate: "2026-09-15" })])], staff);
+    expect(earlier[0]?.reverts).toBe(true);
+    // A LATER date is a normal forward edit, not a revert.
+    const later = pendingWrites([task({ due: "2026-09-20" })], [project([liveTask({ dueDate: "2026-09-15" })])], staff);
+    expect(later[0]?.reverts).toBeUndefined();
+  });
+
   it("does not write an owner Kantata has no user for", () => {
     const writes = pendingWrites([task({ ownerName: "Cara at the client" })], [project([liveTask()])], staff);
     expect(writes).toEqual([]);
