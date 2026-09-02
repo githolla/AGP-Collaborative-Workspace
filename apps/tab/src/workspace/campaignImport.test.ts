@@ -241,8 +241,11 @@ describe("accountLiveContext", () => {
     // Task tree, delivery team, and hours ride along — only THIS client's.
     // The Kantata story id rides along too: it is what makes an imported task
     // writable back to Kantata (PUT /stories/{id}) instead of duplicable.
+    // A task under no milestone falls back to the workspace title as its project
+    // label (the AGP job), so it never floats in a bare "No project" bucket at
+    // the bottom of the plan — Kellie's stray-items report.
     expect(ctx.projects[0]?.tasks).toEqual([
-      { id: "t1", projectId: "ws-1", title: "Package creative", state: "started", dueDate: "2026-08-15" },
+      { id: "t1", projectId: "ws-1", title: "Package creative", state: "started", dueDate: "2026-08-15", projectLabel: "HHFB Fall Acquisition" },
     ]);
     expect(ctx.projects[0]?.team).toEqual(["Dana Whitfield", "Priya Raman"]);
     expect(ctx.projects[0]).toMatchObject({ minutes30d: 720, people30d: 2, lastEntryDate: "2026-07-13" });

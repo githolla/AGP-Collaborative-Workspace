@@ -589,7 +589,12 @@ export function accountLiveContext(
         title: t.title,
         state: t.state,
         ...(t.parentId ? { parentId: t.parentId } : {}),
-        ...(h.project ? { milestoneId: h.project.id, projectLabel: h.project.title } : {}),
+        // Resolved milestone wins; if the parent milestone wasn't in the fetched
+        // slice the task would otherwise orphan to a bare "No project" bucket at
+        // the bottom of the plan (Kellie's stray-items report). At AGP a Kantata
+        // workspace IS the job, so fall back to the workspace title — a real
+        // home — instead. No milestoneId is invented (it'd be a workspace id).
+        ...(h.project ? { milestoneId: h.project.id, projectLabel: h.project.title } : { projectLabel: p.title }),
         ...(h.phase ? { phaseId: h.phase.id, phaseLabel: h.phase.title } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
         ...(t.startDate ? { startDate: t.startDate } : {}),
