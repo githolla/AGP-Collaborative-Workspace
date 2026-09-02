@@ -547,12 +547,36 @@ describe("projectPhaseResolver — parent job → phase → task nesting", () =>
 
   it("puts the job number at the top and nests the phase under it", () => {
     const r = projectPhaseResolver(milestones, tasks);
-    expect(r("t1")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" } });
-    expect(r("t2")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph2", title: "Phase 2: Production" } });
+    expect(r("t1")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" }, phasePath: [{ id: "ph1", title: "Phase 1: Strategy" }] });
+    expect(r("t2")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph2", title: "Phase 2: Production" }, phasePath: [{ id: "ph2", title: "Phase 2: Production" }] });
   });
 
   it("walks a sub-task up to its phase and job", () => {
-    expect(projectPhaseResolver(milestones, tasks)("sub")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" } });
+    expect(projectPhaseResolver(milestones, tasks)("sub")).toEqual({ project: { id: "job", title: "44061.03 - Fall Program Analysis" }, phase: { id: "ph1", title: "Phase 1: Strategy" }, phasePath: [{ id: "ph1", title: "Phase 1: Strategy" }] });
+  });
+
+  it("keeps EVERY level of a job nested deeper than project -> phase -> task", () => {
+    // job -> phase 1 -> design round -> task -> sub-task. The project stays the
+    // top job; phase stays the nearest milestone; phasePath carries the whole
+    // chain top->nearest so no intermediate level is lost (Kellie's ask).
+    const deepMs = [
+      { id: "job", title: "44061.03 - Fall Program Analysis" },
+      { id: "ph1", title: "Phase 1: Strategy", parentId: "job" },
+      { id: "dr", title: "Design round", parentId: "ph1" },
+    ];
+    const deepTasks = [
+      { id: "t", parentId: "dr" },
+      { id: "sub", parentId: "t" },
+    ];
+    const r = projectPhaseResolver(deepMs, deepTasks);
+    for (const id of ["t", "sub"]) {
+      expect(r(id).project).toEqual({ id: "job", title: "44061.03 - Fall Program Analysis" });
+      expect(r(id).phase).toEqual({ id: "dr", title: "Design round" }); // nearest
+      expect(r(id).phasePath).toEqual([
+        { id: "ph1", title: "Phase 1: Strategy" },
+        { id: "dr", title: "Design round" },
+      ]); // top -> nearest, project excluded
+    }
   });
 
   it("a task straight under the job has a project but NO phase", () => {

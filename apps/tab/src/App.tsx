@@ -936,7 +936,7 @@ function Workspace() {
   // (scheduled hours, start date) so both flow onto stored tasks without
   // re-entry. Indexed on EVERY live task, not just labelled ones, so an
   // hours-only match still lands.
-  type LiveRef = { storyId: string; label?: string; milestoneId?: string; phaseLabel?: string; phaseId?: string; estimatedHours?: number; startDate?: string; assignees?: string[]; workStatus?: ReturnType<typeof kantataWorkStatus> };
+  type LiveRef = { storyId: string; label?: string; milestoneId?: string; phaseLabel?: string; phaseId?: string; phasePath?: string[]; estimatedHours?: number; startDate?: string; assignees?: string[]; workStatus?: ReturnType<typeof kantataWorkStatus> };
   const byStory = new Map<string, LiveRef>();
   const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
@@ -948,6 +948,7 @@ function Workspace() {
           ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
           ...(t.phaseLabel ? { phaseLabel: t.phaseLabel } : {}),
           ...(t.phaseId ? { phaseId: t.phaseId } : {}),
+          ...(t.phasePath && t.phasePath.length > 0 ? { phasePath: t.phasePath } : {}),
           ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
           ...(t.startDate ? { startDate: t.startDate } : {}),
           ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
@@ -983,6 +984,7 @@ function Workspace() {
           ...(!task.projectLabel && ref.label ? { projectLabel: ref.label } : {}),
           ...(!task.phaseLabel && ref.phaseLabel ? { phaseLabel: ref.phaseLabel } : {}),
           ...(!task.phaseId && ref.phaseId ? { phaseId: ref.phaseId } : {}),
+          ...((!task.phasePath || task.phasePath.length === 0) && ref.phasePath && ref.phasePath.length > 0 ? { phasePath: ref.phasePath } : {}),
           ...(!task.kantataMilestoneId && ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
           ...(!task.kantataStoryId ? { kantataStoryId: ref.storyId } : {}),
           // Kantata's live status wins for display (it's the system of record for

@@ -348,7 +348,7 @@ export function milestoneResolver(
 export function projectPhaseResolver(
   milestones: readonly { id: string; title: string; parentId?: string }[],
   tasks: readonly { id: string; parentId?: string; title?: string }[],
-): (taskId: string) => { project?: { id: string; title: string }; phase?: { id: string; title: string } } {
+): (taskId: string) => { project?: { id: string; title: string }; phase?: { id: string; title: string }; phasePath?: { id: string; title: string }[] } {
   const milestoneIds = new Set(milestones.map((m) => m.id));
   const titleById = new Map<string, string>();
   const parentOf = new Map<string, string | undefined>();
@@ -381,7 +381,19 @@ export function projectPhaseResolver(
     // project so the task still groups somewhere sensible.
     const projectId = milestoneChain.length > 0 ? milestoneChain[milestoneChain.length - 1] : (topMostAny ?? soleRootId);
     const phaseId = milestoneChain.length > 1 ? milestoneChain[0] : undefined;
-    const result = { ...(node(projectId) ? { project: node(projectId)! } : {}), ...(phaseId && phaseId !== projectId && node(phaseId) ? { phase: node(phaseId)! } : {}) };
+    // Full phase path: every milestone BETWEEN the project (top) and the task,
+    // ordered top→nearest, so a job nested deeper than project→phase→task shows
+    // ALL its levels, not just the nearest phase (Kellie: "as far nested as they
+    // go"). milestoneChain is nearest→top, so drop the top (the project) and
+    // reverse. `phase` stays the nearest for callers that want a single label.
+    const phasePath = (milestoneChain.length > 1 ? milestoneChain.slice(0, -1).reverse() : [])
+      .map((id) => node(id))
+      .filter((n): n is { id: string; title: string } => !!n && n.id !== projectId);
+    const result = {
+      ...(node(projectId) ? { project: node(projectId)! } : {}),
+      ...(phaseId && phaseId !== projectId && node(phaseId) ? { phase: node(phaseId)! } : {}),
+      ...(phasePath.length > 0 ? { phasePath } : {}),
+    };
     cache.set(taskId, result);
     return result;
   };
@@ -411,6 +423,9 @@ export interface LiveTask {
    * the child level below the project, so "phase one" nests under its job. */
   phaseId?: string;
   phaseLabel?: string;
+  /** Every milestone between the project and the task, top→nearest — so a job
+   * nested deeper than project→phase→task shows all levels (Kellie). */
+  phasePath?: string[];
   /** Raw Kantata parent story id — carried for diagnostics/resolution checks. */
   parentId?: string;
   /** Kantata owner(s) — who's accountable for the work. */
@@ -596,6 +611,7 @@ export function accountLiveContext(
         // home — instead. No milestoneId is invented (it'd be a workspace id).
         ...(h.project ? { milestoneId: h.project.id, projectLabel: h.project.title } : { projectLabel: p.title }),
         ...(h.phase ? { phaseId: h.phase.id, phaseLabel: h.phase.title } : {}),
+        ...(h.phasePath && h.phasePath.length > 0 ? { phasePath: h.phasePath.map((n) => n.title) } : {}),
         ...(t.dueDate ? { dueDate: t.dueDate } : {}),
         ...(t.startDate ? { startDate: t.startDate } : {}),
         ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),

@@ -451,27 +451,33 @@ export function TasksCard({
   // with no phase render directly under the project. Phase order follows the
   // first task's position (already date-sorted upstream).
   const renderGroupTasks = (groupTasks: Task[]) => {
-    const phases: { label: string | null; tasks: Task[] }[] = [];
+    // Full nested path (project child down to the nearest phase), so a job nested
+    // deeper than one phase shows every level (Kellie: "as far nested as they go").
+    // Falls back to the single phaseLabel when only the nearest phase is known.
+    const pathOf = (t: Task): string[] =>
+      t.phasePath && t.phasePath.length > 0 ? t.phasePath : t.phaseLabel ? [t.phaseLabel] : [];
+    const phases: { path: string[]; key: string; tasks: Task[] }[] = [];
     const idx = new Map<string, number>();
     for (const t of groupTasks) {
-      const key = t.phaseLabel ?? " ";
-      if (!idx.has(key)) { idx.set(key, phases.length); phases.push({ label: t.phaseLabel ?? null, tasks: [] }); }
+      const path = pathOf(t);
+      const key = path.length > 0 ? path.join(" › ") : " ";
+      if (!idx.has(key)) { idx.set(key, phases.length); phases.push({ path, key, tasks: [] }); }
       phases[idx.get(key)!]!.tasks.push(t);
     }
     // No real phases (everything sits straight under the job) → flat list.
-    if (phases.length === 1 && phases[0]!.label === null) return groupTasks.map((t) => taskLine(t));
+    if (phases.length === 1 && phases[0]!.path.length === 0) return groupTasks.map((t) => taskLine(t));
     // Phase rows stay on the SAME column grid as everything else — the phase
     // shows as a slim sub-header and its tasks carry a small title indent, so
     // Team/Due/Status never drift out of alignment.
     return phases.map((ph) => (
-      <div key={ph.label ?? "__none"}>
-        {ph.label && (
+      <div key={ph.key || "__none"}>
+        {ph.path.length > 0 && (
           <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "8px 0 0", padding: "4px 0 4px 8px", borderLeft: `3px solid ${T.roi.cyan}` }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkSecondary, textTransform: "uppercase", letterSpacing: 0.3 }}>{ph.label}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkSecondary, textTransform: "uppercase", letterSpacing: 0.3 }}>{ph.path.join(" › ")}</span>
             <span style={{ fontSize: 10, color: T.inkMuted }}>{ph.tasks.filter((t) => t.status !== "done").length} open</span>
           </div>
         )}
-        {ph.tasks.map((t) => taskLine(t, false, false, !!ph.label))}
+        {ph.tasks.map((t) => taskLine(t, false, false, ph.path.length > 0))}
       </div>
     ));
   };

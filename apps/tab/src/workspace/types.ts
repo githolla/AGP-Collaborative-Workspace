@@ -155,6 +155,13 @@ export interface Task {
   phaseLabel?: string;
   phaseId?: string;
   /**
+   * The full chain of nested milestones between the project and this task,
+   * top→nearest (e.g. ["Phase 1", "Design round"]). Lets the plan show every
+   * level of a deeply nested job, not just the nearest phase — Kellie's "as far
+   * nested as they go". `phaseLabel` stays the last entry for simple callers.
+   */
+  phasePath?: string[];
+  /**
    * Other tasks this one waits on — Cara's "indicate dependencies". A task is
    * BLOCKED until every task it depends on is done, so a resource isn't chasing
    * work that can't start yet. Stored as task ids within the same account.
