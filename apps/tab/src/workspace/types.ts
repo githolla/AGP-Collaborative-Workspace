@@ -53,6 +53,15 @@ export interface Snapshot {
 
 export type TaskStatus = "todo" | "doing" | "done";
 
+/**
+ * Kantata's four working statuses, surfaced on the "Your Tasks" board (Kellie's
+ * pilot ask: align to Kantata's Not Started / Started / Needs Info / Complete).
+ * The app's own editable state stays the 3-value TaskStatus; workStatus is the
+ * richer Kantata-sourced status carried onto the task for display, so "Needs
+ * Info" — which the 3-state collapse can't represent — shows on the board.
+ */
+export type WorkStatus = "not_started" | "started" | "needs_info" | "complete";
+
 /** Shared task (Collab Hub Must): owner, due date, label, status. */
 /**
  * One person's stake in a task — the model behind Cara's task-card vision:
@@ -95,6 +104,13 @@ export interface Task {
   due?: string;
   label?: string;
   status: TaskStatus;
+  /**
+   * Kantata's richer working status (Not Started / Started / Needs Info /
+   * Complete), enriched onto the task from the live Kantata mirror by story id.
+   * Drives the "Your Tasks" board columns; absent for workspace-only tasks that
+   * never came from Kantata (they fall back to the 3-state `status`).
+   */
+  workStatus?: WorkStatus;
   phaseKey?: string;
   source: "plan" | "manual";
   /**

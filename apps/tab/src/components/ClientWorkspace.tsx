@@ -11,7 +11,7 @@ import { composeClientDigest } from "../workspace/clientDigest.js";
 import { deliveryQuiet, type AccountLiveContext } from "../workspace/campaignImport.js";
 import type { PendingWrite, WriteResponse } from "../workspace/kantataWrite.js";
 import { HANDOFFS, personalizeHandoff, suggestHandoff } from "../workspace/handoffs.js";
-import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage } from "../workspace/types.js";
+import type { ClientAccount, ExternalMember, Task, TaskStatus, ThreadMessage, WorkStatus } from "../workspace/types.js";
 /** Where a shared file stands, in one word — the client-facing states this
  * app has ever needed. Was `clientApproval.ts`'s own `ApprovalState`; that
  * file's concrete functions were all built for the retired
@@ -510,15 +510,22 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
   const dueThisWeek = open
     .filter((t) => t.due && t.due >= today && t.due <= weekOut)
     .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
-  const byStatus = (s: TaskStatus) => scoped.filter((t) => t.status === s);
+  // "Your Tasks" board aligns to Kantata's four statuses (Kellie's pilot ask).
+  // The task's effective work status: the app's own completion wins (a task
+  // marked done here is Complete), then Kantata's "Needs Info" surfaces, else
+  // the 3-state maps up to Not Started / Started.
+  const workCol = (t: Task): WorkStatus =>
+    t.status === "done" ? "complete" : t.workStatus === "needs_info" ? "needs_info" : t.status === "doing" ? "started" : "not_started";
+  const byStatus = (s: WorkStatus) => scoped.filter((t) => workCol(t) === s);
   const milestones = account.campaigns
     .filter((c) => c.nextMilestone && c.nextMilestoneDate && c.nextMilestoneDate >= today)
     .sort((a, b) => (a.nextMilestoneDate ?? "").localeCompare(b.nextMilestoneDate ?? ""))
     .slice(0, 3);
-  const boardCols: { key: TaskStatus; label: string }[] = [
-    { key: "todo", label: "To Do" },
-    { key: "doing", label: "In Progress" },
-    { key: "done", label: "Completed" },
+  const boardCols: { key: WorkStatus; label: string }[] = [
+    { key: "not_started", label: "Not Started" },
+    { key: "started", label: "Started" },
+    { key: "needs_info", label: "Needs Info" },
+    { key: "complete", label: "Complete" },
   ];
   const squares = ["#2a78d6", "#1f9d6b", "#1f9d6b", "#eb6834"];
 
@@ -558,10 +565,10 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
           >
             Your Tasks
           </SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
             {boardCols.map((col) => (
               <div key={col.key}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: navy, borderRadius: "6px 6px 0 0", padding: "5px 8px" }}>{col.label}</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: col.key === "needs_info" ? T.status.warning : navy, borderRadius: "6px 6px 0 0", padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={col.label}>{col.label}</div>
                 <div style={{ border: `1px solid ${T.grid}`, borderTop: "none", borderRadius: "0 0 6px 6px", padding: 6, display: "flex", flexDirection: "column", gap: 6, minHeight: 90 }}>
                   {byStatus(col.key).slice(0, 2).map((t) => (
                     <button
@@ -572,11 +579,11 @@ function Home({ account, tasks, fileApprovals, activity, userName, goTo, onOpenT
                       className="table-row-hover"
                       style={{ fontSize: 11.5, textAlign: "left", background: "none", border: "none", padding: "2px 3px", borderRadius: 4, cursor: "pointer" }}
                     >
-                      <div style={{ fontWeight: 600, color: col.key === "done" ? T.inkMuted : navy, lineHeight: 1.3 }}>{t.title}</div>
+                      <div style={{ fontWeight: 600, color: col.key === "complete" ? T.inkMuted : navy, lineHeight: 1.3 }}>{t.title}</div>
                       {t.projectLabel && (
                         <div style={{ color: T.roi.navy, fontSize: 9.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.projectLabel}</div>
                       )}
-                      {col.key !== "done" && (
+                      {col.key !== "complete" && (
                         <div style={{ color: T.inkMuted, fontSize: 10.5 }}>
                           {t.ownerName} {t.due ? `· Due ${fmtDay(t.due).split(", ")[1]}` : ""}
                         </div>

@@ -27,7 +27,7 @@ import { clearIdentity, loadIdentity, saveIdentity, type LocalIdentity } from ".
 import { classifyClientTitle, initLiveMirror, refreshLiveMirror, type LiveStatus } from "./workspace/liveMirror.js";
 import { initTeams } from "./teams/teamsHost.js";
 import { loadMirror } from "./workspace/agpKnowledge.js";
-import { accountLiveContext, campaignsFromMirror, suggestClients, taskColumn, taskIsDone } from "./workspace/campaignImport.js";
+import { accountLiveContext, campaignsFromMirror, suggestClients, taskColumn, taskIsDone, kantataWorkStatus } from "./workspace/campaignImport.js";
 import { allocationIntent, pendingWrites, pushIntents, resolveStaffId } from "./workspace/kantataWrite.js";
 import { weeklyAllocations } from "./workspace/resourcing.js";
 import { effectiveHours, reconcileAssignments } from "./workspace/taskAssignments.js";
@@ -936,7 +936,7 @@ function Workspace() {
   // (scheduled hours, start date) so both flow onto stored tasks without
   // re-entry. Indexed on EVERY live task, not just labelled ones, so an
   // hours-only match still lands.
-  type LiveRef = { storyId: string; label?: string; milestoneId?: string; phaseLabel?: string; phaseId?: string; estimatedHours?: number; startDate?: string; assignees?: string[] };
+  type LiveRef = { storyId: string; label?: string; milestoneId?: string; phaseLabel?: string; phaseId?: string; estimatedHours?: number; startDate?: string; assignees?: string[]; workStatus?: ReturnType<typeof kantataWorkStatus> };
   const byStory = new Map<string, LiveRef>();
   const byTitleDue = new Map<string, LiveRef | null>(); // null = ambiguous
   if (selectedLiveCtx) {
@@ -951,6 +951,9 @@ function Workspace() {
           ...(t.estimatedHours != null ? { estimatedHours: t.estimatedHours } : {}),
           ...(t.startDate ? { startDate: t.startDate } : {}),
           ...(t.assignees && t.assignees.length > 0 ? { assignees: t.assignees } : {}),
+          // Kantata's live working status, so the board can show "Needs Info"
+          // (which the app's 3-state todo/doing/done can't represent).
+          ...(t.state ? { workStatus: kantataWorkStatus(t.state) } : {}),
         };
         byStory.set(t.id, ref);
         const key = `${t.title.toLowerCase()}|${t.dueDate ?? ""}`;
@@ -982,6 +985,10 @@ function Workspace() {
           ...(!task.phaseId && ref.phaseId ? { phaseId: ref.phaseId } : {}),
           ...(!task.kantataMilestoneId && ref.milestoneId ? { kantataMilestoneId: ref.milestoneId } : {}),
           ...(!task.kantataStoryId ? { kantataStoryId: ref.storyId } : {}),
+          // Kantata's live status wins for display (it's the system of record for
+          // the raw state) — workStatus isn't persisted, so this just reflects
+          // the current pull onto the board each render.
+          ...(ref.workStatus ? { workStatus: ref.workStatus } : {}),
           ...(task.estimatedHours == null && ref.estimatedHours != null ? { estimatedHours: ref.estimatedHours } : {}),
           ...(!task.startDate && ref.startDate ? { startDate: ref.startDate } : {}),
           // Seed the team from Kantata's assignees for display on the task card —

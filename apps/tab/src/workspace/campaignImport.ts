@@ -1,4 +1,5 @@
 import type { AgpMirror } from "./agpKnowledge.js";
+import type { TaskStatus, WorkStatus } from "./types.js";
 
 /**
  * Campaign derivation from the live mirror — the bridge from Kantata &
@@ -442,6 +443,27 @@ export const taskColumn = (state: string): "doing" | "todo" => {
   if (/\bnot\b/.test(s)) return "todo";
   return /start|progress|active|doing|wip/.test(s) ? "doing" : "todo";
 };
+
+/**
+ * Map a raw Kantata story state to the four working statuses Kellie asked the
+ * board to mirror. Tolerant substring matching (states vary by tenant/version),
+ * same class as taskColumn/taskIsDone. "Needs Info" is the one the 3-state
+ * collapse loses, so it's detected explicitly before the started/not-started
+ * split. A blocked/on-hold/awaiting state reads as needs-info here — it's the
+ * "someone has to act before this moves" bucket, which is what Needs Info means.
+ */
+export const kantataWorkStatus = (state: string): WorkStatus => {
+  if (taskIsDone(state)) return "complete";
+  const s = state.toLowerCase();
+  if (/needs?[\s_-]*info|need[\s_-]*info|more[\s_-]*info|on[\s_-]*hold|\bhold\b|blocked|waiting|await|pending[\s_-]*info|question/.test(s)) return "needs_info";
+  if (/\bnot\b/.test(s)) return "not_started";
+  return /start|progress|active|doing|wip/.test(s) ? "started" : "not_started";
+};
+
+/** Fall back to a work status from the collapsed 3-state (no Kantata state to
+ * read) — never yields "needs_info", which only comes from a real Kantata state. */
+export const workStatusFrom = (status: TaskStatus): WorkStatus =>
+  status === "done" ? "complete" : status === "doing" ? "started" : "not_started";
 
 export interface LiveProject {
   /** Kantata workspace id — the key the focus deepen pulls by. */

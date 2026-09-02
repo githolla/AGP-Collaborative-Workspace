@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, milestoneResolver, projectPhaseResolver, stripCorpSuffix, suggestClients, taskColumn, taskIsDone } from "./campaignImport.js";
+import { accountLiveContext, autoAbbreviation, campaignsFromMirror, crmGoneQuiet, deliveryQuiet, initialism, isInBook, kantataWorkStatus, milestoneResolver, projectPhaseResolver, stripCorpSuffix, suggestClients, taskColumn, taskIsDone, workStatusFrom } from "./campaignImport.js";
 import type { AgpMirror } from "./agpKnowledge.js";
 
 const TODAY = "2026-07-20";
@@ -366,6 +366,27 @@ describe("quiet signals", () => {
     expect(taskColumn("active")).toBe("doing");
     expect(taskColumn("not started")).toBe("todo");
     expect(taskColumn("")).toBe("todo");
+  });
+
+  it("maps Kantata states to the four board statuses (Kellie's ask)", () => {
+    for (const s of ["completed", "Accepted", "closed", "done"]) {
+      expect(kantataWorkStatus(s), s).toBe("complete");
+    }
+    for (const s of ["Needs Info", "needs_info", "needs-info", "on hold", "blocked", "waiting on client", "awaiting feedback", "pending info", "has a question"]) {
+      expect(kantataWorkStatus(s), s).toBe("needs_info");
+    }
+    for (const s of ["started", "in progress", "in_progress", "active", "wip"]) {
+      expect(kantataWorkStatus(s), s).toBe("started");
+    }
+    for (const s of ["not started", "not yet started", "", "backlog", "new"]) {
+      expect(kantataWorkStatus(s), s).toBe("not_started");
+    }
+    // Done wins even if the state string also contains a "needs info"-ish word.
+    expect(kantataWorkStatus("completed — no info needed")).toBe("complete");
+    // Fallback from the 3-state never invents "needs_info".
+    expect(workStatusFrom("done")).toBe("complete");
+    expect(workStatusFrom("doing")).toBe("started");
+    expect(workStatusFrom("todo")).toBe("not_started");
   });
 
   it("corporate legal suffixes don't poison the acronym (American Water Works case)", () => {
