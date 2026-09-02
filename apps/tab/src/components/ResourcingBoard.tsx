@@ -516,16 +516,26 @@ function KantataHoursCheckInline({ accountId, emphasize }: { accountId: string; 
   const [busy, setBusy] = useState(false);
 
   const run = () => {
-    setBusy(true); setErr(null);
-    void msApiGetPlain<HoursCheck>(`/api/account-kantata-check?accountId=${encodeURIComponent(accountId)}`)
-      .then(setResult)
-      .catch((e) => setErr(e instanceof MsApiError ? e.message : "Check failed"))
+    setBusy(true); setErr(null); setResult(null);
+    // The check queries Kantata per workspace and has no server-side deadline,
+    // so a slow/hung Kantata would leave the button stuck on "Checking…"
+    // forever. Race it against a client timeout so the button ALWAYS resolves.
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("__timeout__")), 25000));
+    Promise.race([msApiGetPlain<HoursCheck>(`/api/account-kantata-check?accountId=${encodeURIComponent(accountId)}`), timeout])
+      .then((r) => setResult(r as HoursCheck))
+      .catch((e) =>
+        setErr(
+          e instanceof MsApiError ? e.message
+          : e instanceof Error && e.message === "__timeout__" ? "Kantata took too long to respond — try again."
+          : "Check failed",
+        ),
+      )
       .finally(() => setBusy(false));
   };
 
   return (
     <>
-      <button type="button" className={emphasize ? "btn-primary" : "btn-secondary"} style={{ fontSize: 11.5, padding: "6px 11px", whiteSpace: "nowrap" }} disabled={busy} onClick={run}>
+      <button type="button" className={`btn btn-sm ${emphasize ? "btn-primary" : "btn-secondary"}`} style={{ whiteSpace: "nowrap" }} disabled={busy} onClick={run}>
         {busy ? "Checking Kantata…" : emphasize ? "Why no hours? Check Kantata" : "Check Kantata hours"}
       </button>
       {(result || err) && (
